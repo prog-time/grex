@@ -59,13 +59,18 @@ class WildberriesCrawler(BaseCrawler):
         if not self.upstreams_data:
             await self.save_upstreams_data()
 
-        upstream_host = "basket-26.wbbasket.ru"
         vol_number = int(sku) // 100000
         part_number = int(sku) // 1000
 
-        for upstream_item in self.upstreams_data["recommend"]["mediabasket_route_map"][0]["hosts"]:
-            if upstream_item["vol_range_from"] <= vol_number <= upstream_item["vol_range_to"]:
-                upstream_host = upstream_item["host"]
+        route_map = self.upstreams_data["recommend"]["mediabasket_route_map"][0]
+        hosts = route_map["hosts"]
+        method = route_map.get("method", "mod")
+
+        if method == "mod":
+            host_entry = hosts[vol_number % len(hosts)]
+            upstream_host = host_entry["host"]
+        else:
+            upstream_host = hosts[0]["host"]
 
         return f"https://{upstream_host}/vol{vol_number}/part{part_number}"
 
