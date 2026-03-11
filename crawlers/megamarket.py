@@ -8,7 +8,7 @@ from loguru import logger
 from decimal import Decimal
 from multiprocessing import Process, Queue
 from curl_cffi.requests.session import AsyncSession
-from playwright._impl._api_structures import ProxySettings
+from patchright._impl._api_structures import ProxySettings
 
 from .base import BaseCrawler
 from models import ProductCard
