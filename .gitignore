@@ -1,0 +1,38 @@
+# IDE
+.idea/
+.vscode/
+
+# Claude Code
+.claude/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Logs
+logs/
+
+# Runtime data (auto-generated, may contain sensitive session data)
+data/ozon_cookies.json
+data/mega_market_cookies.json
+data/wb_upstreams.json
+
+# Secrets / local config (keep settings.yml.example in repo, not the real one)
+# Uncomment if settings.yml contains real API keys or credentials:
+# data/settings.yml
+
+# Proxy list (contains credentials)
+data/proxy.txt
+
+# macOS
+.DS_Store
