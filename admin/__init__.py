@@ -14,6 +14,7 @@ from starlette_admin.exceptions import FormValidationError
 
 from models.job import Job
 import models.parse_target  # noqa: F401 — registers ParseTarget in Base.metadata
+import models.parsed_product  # noqa: F401  — registers ParseSession, ParsedProduct in Base.metadata
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +166,11 @@ class LinksView(CustomView):
         return templates.TemplateResponse("links.html", {"request": request})
 
 
+class ProductsView(CustomView):
+    async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
+        return templates.TemplateResponse("products.html", {"request": request})
+
+
 # ---------------------------------------------------------------------------
 # Setup / teardown
 # ---------------------------------------------------------------------------
@@ -218,6 +224,10 @@ async def setup_admin(app: FastAPI) -> None:
         "Выгрузка ссылок", icon="fa fa-link",
         path="/links", template_path="links.html", name="links",
     ))
+    admin.add_view(ProductsView(
+        "Товары", icon="fa fa-shopping-cart",
+        path="/products", template_path="products.html", name="products",
+    ))
 
     # Register all auxiliary API routes BEFORE mounting starlette-admin so that
     # FastAPI's exact Route entries take priority over the admin Mount prefix.
@@ -227,6 +237,7 @@ async def setup_admin(app: FastAPI) -> None:
     from admin.resources.jobs import register_jobs_routes  # noqa: PLC0415
     from admin.resources.targets import register_targets_routes  # noqa: PLC0415
     from admin.resources.links import register_links_routes  # noqa: PLC0415
+    from admin.resources.products import register_products_routes  # noqa: PLC0415
 
     register_sources_routes(app)
     register_proxies_routes(app)
@@ -234,6 +245,7 @@ async def setup_admin(app: FastAPI) -> None:
     register_jobs_routes(app)
     register_targets_routes(app)
     register_links_routes(app)
+    register_products_routes(app)
 
     # Stats reset endpoint
     from fastapi.responses import JSONResponse  # noqa: PLC0415

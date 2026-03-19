@@ -1,0 +1,157 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container-xl">
+  <div class="page-header">
+    <div class="row align-items-center">
+      <div class="col-auto"><h2 class="page-title">Товары</h2></div>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="row g-3 align-items-end">
+        <div class="col-12 col-md-4">
+          <label class="form-label">Маркетплейс</label>
+          <select id="filterMp" class="form-select" onchange="loadProducts()">
+            <option value="">Все</option>
+          </select>
+        </div>
+        <div class="col-12 col-md-5">
+          <label class="form-label">Поиск по названию</label>
+          <input id="filterSearch" type="text" class="form-control" placeholder="Введите название…" oninput="applySearch()">
+        </div>
+        <div class="col-12 col-md-3 d-flex gap-2">
+          <button class="btn btn-outline-secondary w-100" onclick="loadProducts()">Обновить</button>
+          <button class="btn btn-outline-danger w-100" onclick="clearAll()">Очистить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">Результаты парсинга</h3>
+      <div class="card-options">
+        <span class="text-muted small" id="productsCount"></span>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table">
+        <thead>
+          <tr>
+            <th style="width:56px"></th>
+            <th>Название</th>
+            <th>Маркетплейс</th>
+            <th>Артикул</th>
+            <th>Цена (была)</th>
+            <th>Цена (сейчас)</th>
+            <th>Дата</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="productsBody">
+          <tr><td colspan="8" class="text-muted text-center py-3">Загрузка…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+var _allProducts = [];
+
+async function loadProducts() {
+  var mp = document.getElementById('filterMp').value;
+  var url = '/admin/products/api' + (mp ? '?marketplace=' + encodeURIComponent(mp) : '');
+  try {
+    var res = await fetch(url);
+    var data = await res.json();
+    _allProducts = data.products || [];
+
+    // Populate marketplace filter
+    var sel = document.getElementById('filterMp');
+    var cur = sel.value;
+    sel.innerHTML = '<option value="">Все</option>'
+      + (data.marketplaces || []).map(function(m) {
+          return '<option value="' + esc(m) + '"' + (m === cur ? ' selected' : '') + '>' + esc(m) + '</option>';
+        }).join('');
+
+    applySearch();
+  } catch(e) {
+    console.error('loadProducts error:', e);
+  }
+}
+
+function applySearch() {
+  var q = (document.getElementById('filterSearch').value || '').toLowerCase();
+  var filtered = q
+    ? _allProducts.filter(function(p) { return (p.title || '').toLowerCase().includes(q); })
+    : _allProducts;
+  renderProducts(filtered);
+}
+
+function renderProducts(products) {
+  var tbody = document.getElementById('productsBody');
+  document.getElementById('productsCount').textContent = products.length + ' товаров';
+
+  if (!products.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="text-muted text-center py-3">Нет данных.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = products.map(function(p) {
+    var img = (p.images && p.images.length)
+      ? '<img src="' + esc(p.images[0]) + '" style="width:48px;height:48px;object-fit:contain;border-radius:4px" onerror="this.style.display=\'none\'">'
+      : '<span class="text-muted">—</span>';
+
+    var title = p.title
+      ? '<a href="' + esc(p.url) + '" target="_blank" class="text-truncate d-block" style="max-width:260px" title="' + esc(p.title) + '">' + esc(p.title) + '</a>'
+      : '<a href="' + esc(p.url) + '" target="_blank" class="text-muted text-truncate d-block" style="max-width:260px">' + esc(p.url) + '</a>';
+
+    var origPrice = p.original_price != null ? p.original_price.toLocaleString('ru-RU') + ' ₽' : '—';
+    var curPrice  = p.current_price  != null ? '<strong>' + p.current_price.toLocaleString('ru-RU') + ' ₽</strong>' : '—';
+
+    var parsedAt = p.parsed_at ? p.parsed_at.replace('T', ' ').slice(0, 16) : '—';
+
+    return '<tr>'
+      + '<td>' + img + '</td>'
+      + '<td>' + title + '</td>'
+      + '<td><span class="badge bg-azure-lt">' + esc(p.marketplace || '') + '</span></td>'
+      + '<td class="text-muted">' + esc(p.sku || '—') + '</td>'
+      + '<td class="text-muted text-decoration-line-through">' + origPrice + '</td>'
+      + '<td>' + curPrice + '</td>'
+      + '<td class="text-muted small">' + parsedAt + '</td>'
+      + '<td class="text-end">'
+      + '<button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteProduct(\'' + p.id + '\')">✕</button>'
+      + '</td></tr>';
+  }).join('');
+}
+
+async function deleteProduct(id) {
+  if (!confirm('Удалить товар?')) return;
+  await fetch('/admin/products/delete', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({id: id}),
+  });
+  await loadProducts();
+}
+
+async function clearAll() {
+  if (!confirm('Удалить все товары?')) return;
+  await fetch('/admin/products/clear', {method: 'POST'});
+  await loadProducts();
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+loadProducts();
+</script>
+{% endblock %}

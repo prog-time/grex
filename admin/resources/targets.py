@@ -16,6 +16,114 @@ from loguru import logger
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
 
+async def _upsert_parsed_product(
+    *,
+    session_id: str | None,
+    target_id: str | None,
+    url: str,
+    marketplace: str,
+    data: dict,
+    json_module: object,
+) -> None:
+    """Insert or update a ParsedProduct row keyed by URL."""
+    import json as _json  # noqa: PLC0415
+    from datetime import datetime as _dt  # noqa: PLC0415
+    from models.job import async_session  # noqa: PLC0415
+    from models.parsed_product import ParsedProduct  # noqa: PLC0415
+    from sqlalchemy import select  # noqa: PLC0415
+
+    images_json = _json.dumps(data.get("images", []))
+    orig = float(data["original_price"]) if data.get("original_price") else None
+    cur = float(data["current_price"]) if data.get("current_price") else None
+
+    async with async_session() as s:
+        existing = (await s.execute(
+            select(ParsedProduct).where(ParsedProduct.url == url)
+        )).scalar_one_or_none()
+
+        if existing is not None:
+            existing.session_id = session_id
+            existing.title = data.get("title")
+            existing.sku = data.get("sku")
+            existing.original_price = orig
+            existing.current_price = cur
+            existing.images = images_json
+            existing.parsed_at = _dt.utcnow()
+        else:
+            s.add(ParsedProduct(
+                id=str(uuid.uuid4()),
+                session_id=session_id,
+                target_id=target_id,
+                url=url,
+                marketplace=marketplace,
+                title=data.get("title"),
+                sku=data.get("sku"),
+                original_price=orig,
+                current_price=cur,
+                images=images_json,
+                parsed_at=_dt.utcnow(),
+            ))
+        await s.commit()
+
+
+async def _run_all_background(session_id: str, targets: list[dict]) -> None:
+    """Background task: parse all targets, save ParsedProduct rows, update ParseSession."""
+    import json as _json  # noqa: PLC0415
+    from datetime import datetime  # noqa: PLC0415
+    from models.job import async_session  # noqa: PLC0415
+    from models.parsed_product import ParseSession  # noqa: PLC0415
+    from services.parsing import ParsingService  # noqa: PLC0415
+    from admin.resources.sources import get_source_fields  # noqa: PLC0415
+    from sqlalchemy import update  # noqa: PLC0415
+
+    svc = ParsingService()
+    succeeded = 0
+    failed_count = 0
+
+    async def _update_session(**values: object) -> None:
+        async with async_session() as s:
+            await s.execute(
+                update(ParseSession).where(ParseSession.id == session_id).values(**values)
+            )
+            await s.commit()
+
+    try:
+        await _update_session(status="running")
+
+        for tgt in targets:
+            try:
+                product = await svc.parse_product(tgt["url"])
+                data = product.to_dict()
+                selected = await get_source_fields(tgt["marketplace"])
+                if selected:
+                    data = {k: v for k, v in data.items() if k in selected or k == "source_url"}
+
+                await _upsert_parsed_product(
+                    session_id=session_id,
+                    target_id=tgt["id"],
+                    url=tgt["url"],
+                    marketplace=tgt["marketplace"],
+                    data=data,
+                    json_module=_json,
+                )
+                succeeded += 1
+                logger.info(f"bg-parse OK: {tgt['url']}")
+            except Exception as exc:  # noqa: BLE001
+                failed_count += 1
+                logger.warning(f"bg-parse FAIL: {tgt['url']}: {exc}")
+
+            await _update_session(succeeded=succeeded, failed_count=failed_count)
+
+    finally:
+        await _update_session(
+            status="completed",
+            finished_at=datetime.utcnow(),
+            succeeded=succeeded,
+            failed_count=failed_count,
+        )
+        logger.info(f"ParseSession {session_id} done: {succeeded} ok / {failed_count} fail")
+
+
 class TargetsRouter:
 
     @staticmethod
@@ -285,7 +393,7 @@ class TargetsRouter:
 
     @staticmethod
     async def run_target(request: Request) -> JSONResponse:
-        """Parse a single target by ID and return the product data."""
+        """Parse a single target by ID, save to ParsedProduct, return the product data."""
         try:
             from models.job import async_session  # noqa: PLC0415
             from models.parse_target import ParseTarget  # noqa: PLC0415
@@ -318,11 +426,20 @@ class TargetsRouter:
                 return JSONResponse({"success": False, "url": row.url, "error": str(exc)})
 
             data = product.to_dict()
-
-            # Apply field filter from source configuration
             selected = await get_source_fields(str(row.marketplace))
             if selected:
                 data = {k: v for k, v in data.items() if k in selected or k == "source_url"}
+
+            # Save or update parsed_products (unique by URL)
+            import json as _json  # noqa: PLC0415
+            await _upsert_parsed_product(
+                session_id=None,
+                target_id=row.id,
+                url=str(row.url),
+                marketplace=str(row.marketplace),
+                data=data,
+                json_module=_json,
+            )
 
             logger.info(f"Parse succeeded for target {target_id}")
             return JSONResponse({"success": True, "url": row.url, "marketplace": row.marketplace, "data": data})
@@ -332,13 +449,13 @@ class TargetsRouter:
 
     @staticmethod
     async def run_all_targets(request: Request) -> JSONResponse:
-        """Parse all enabled targets sequentially and return a results summary."""
+        """Start background parse of all enabled targets. Returns session_id immediately."""
+        import asyncio  # noqa: PLC0415
         try:
             from models.job import async_session  # noqa: PLC0415
             from models.parse_target import ParseTarget  # noqa: PLC0415
+            from models.parsed_product import ParseSession  # noqa: PLC0415
             from sqlalchemy import select  # noqa: PLC0415
-            from services.parsing import ParsingService  # noqa: PLC0415
-            from admin.resources.sources import get_source_fields  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -351,36 +468,55 @@ class TargetsRouter:
                 )).scalars().all()
 
             if not rows:
-                return JSONResponse({"results": [], "total": 0, "succeeded": 0, "failed": 0})
+                return JSONResponse({"session_id": None, "total": 0, "message": "Нет активных targets"})
 
-            svc = ParsingService()
-            results = []
-            for row in rows:
-                entry: dict = {"id": row.id, "url": row.url, "marketplace": row.marketplace}
-                try:
-                    product = await svc.parse_product(str(row.url))
-                    data = product.to_dict()
-                    selected = await get_source_fields(str(row.marketplace))
-                    if selected:
-                        data = {k: v for k, v in data.items() if k in selected or k == "source_url"}
-                    entry["success"] = True
-                    entry["data"] = data
-                    logger.info(f"run-all: parsed {row.url}")
-                except Exception as exc:  # noqa: BLE001
-                    entry["success"] = False
-                    entry["error"] = str(exc)
-                    logger.warning(f"run-all: failed {row.url}: {exc}")
-                results.append(entry)
+            targets = [{"id": r.id, "url": str(r.url), "marketplace": str(r.marketplace)} for r in rows]
 
-            succeeded = sum(1 for r in results if r["success"])
-            return JSONResponse({
-                "results": results,
-                "total": len(results),
-                "succeeded": succeeded,
-                "failed": len(results) - succeeded,
-            })
+            # Create ParseSession record
+            session_id = str(uuid.uuid4())
+            parse_session = ParseSession(
+                id=session_id,
+                status="pending",
+                total=len(targets),
+                succeeded=0,
+                failed_count=0,
+                started_at=datetime.utcnow(),
+            )
+            async with async_session() as session:
+                session.add(parse_session)
+                await session.commit()
+
+            # Launch background task (survives page reload)
+            asyncio.create_task(_run_all_background(session_id, targets))
+
+            logger.info(f"ParseSession {session_id} started: {len(targets)} targets")
+            return JSONResponse({"session_id": session_id, "total": len(targets), "status": "running"})
         except Exception as exc:  # noqa: BLE001
             logger.error(f"run_all_targets failed: {exc}")
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+    @staticmethod
+    async def get_session_status(session_id: str, request: Request) -> JSONResponse:
+        """Return current status of a ParseSession."""
+        try:
+            from models.job import async_session  # noqa: PLC0415
+            from models.parsed_product import ParseSession  # noqa: PLC0415
+            from sqlalchemy import select  # noqa: PLC0415
+
+            if async_session is None:
+                return JSONResponse({"error": "DB not initialised"}, status_code=503)
+
+            async with async_session() as session:
+                row = (await session.execute(
+                    select(ParseSession).where(ParseSession.id == session_id)
+                )).scalar_one_or_none()
+
+            if row is None:
+                return JSONResponse({"error": "Session not found"}, status_code=404)
+
+            return JSONResponse(row.to_dict())
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"get_session_status failed: {exc}")
             return JSONResponse({"error": str(exc)}, status_code=500)
 
 
@@ -432,5 +568,11 @@ def register_targets_routes(app) -> None:  # type: ignore[no-untyped-def]
         "/admin/targets/run-all",
         router.run_all_targets,
         methods=["POST"],
+        tags=["admin"],
+    )
+    app.add_api_route(
+        "/admin/targets/session/{session_id}",
+        router.get_session_status,
+        methods=["GET"],
         tags=["admin"],
     )

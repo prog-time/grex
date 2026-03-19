@@ -91,6 +91,10 @@
       <h3 class="card-title">Saved targets</h3>
       <div class="card-options d-flex align-items-center gap-2">
         <span class="text-muted small" id="targetsCount"></span>
+        <div id="runAllProgress" style="display:none;" class="d-flex align-items-center gap-2">
+          <div class="spinner-border spinner-border-sm text-success" role="status"></div>
+          <span id="runAllProgressText" class="text-muted small">Запуск…</span>
+        </div>
         <button type="button" class="btn btn-sm btn-success" id="btnRunAll" onclick="runAll()">
           Run all
         </button>
@@ -436,10 +440,14 @@ function renderDataTable(data, url) {
 
 // ── Run all ───────────────────────────────────────────────────────────
 
+var _runAllSessionId = null;
+var _runAllPollTimer = null;
+
 async function runAll() {
   var btn = document.getElementById('btnRunAll');
   btn.disabled = true;
-  btn.textContent = 'Running…';
+  btn.textContent = 'Запуск…';
+  document.getElementById('runAllProgress').style.display = '';
 
   try {
     var res = await fetch('/admin/targets/run-all', {
@@ -448,42 +456,64 @@ async function runAll() {
       body: '{}',
     });
     var data = res.ok ? await res.json() : {error: 'HTTP ' + res.status};
-    if (data.error) { alert('Error: ' + data.error); return; }
-    showRunAllModal(data);
+    if (data.error) { alert('Ошибка: ' + data.error); return; }
+
+    if (!data.session_id) {
+      // No targets
+      alert(data.message || 'Нет активных targets');
+      return;
+    }
+
+    _runAllSessionId = data.session_id;
+    document.getElementById('runAllProgressText').textContent =
+      'Обрабатывается 0 / ' + data.total + '…';
+    btn.textContent = 'Running…';
+
+    _runAllPollTimer = setInterval(pollRunAllStatus, 2000);
   } catch(e) {
-    alert('Error: ' + e);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Run all';
+    alert('Ошибка: ' + e);
+    resetRunAllUI();
   }
 }
 
-function showRunAllModal(data) {
+async function pollRunAllStatus() {
+  if (!_runAllSessionId) return;
+  try {
+    var res = await fetch('/admin/targets/session/' + _runAllSessionId);
+    if (!res.ok) return;
+    var data = await res.json();
+
+    var done = data.succeeded + data.failed;
+    document.getElementById('runAllProgressText').textContent =
+      'Обрабатывается ' + done + ' / ' + data.total + '…';
+
+    if (data.status === 'completed' || data.status === 'failed') {
+      clearInterval(_runAllPollTimer);
+      _runAllPollTimer = null;
+      resetRunAllUI();
+      showRunAllDone(data);
+    }
+  } catch(e) {
+    console.warn('pollRunAllStatus error:', e);
+  }
+}
+
+function resetRunAllUI() {
+  var btn = document.getElementById('btnRunAll');
+  btn.disabled = false;
+  btn.textContent = 'Run all';
+  document.getElementById('runAllProgress').style.display = 'none';
+  _runAllSessionId = null;
+}
+
+function showRunAllDone(data) {
   var body = document.getElementById('runAllBody');
-
-  var summary = '<div class="mb-3">'
-    + '<span class="badge bg-success me-1">' + data.succeeded + ' succeeded</span>'
-    + '<span class="badge bg-danger me-1">' + data.failed + ' failed</span>'
+  body.innerHTML = '<div class="mb-3">'
+    + '<span class="badge bg-success me-2">' + data.succeeded + ' succeeded</span>'
+    + '<span class="badge bg-danger me-2">' + data.failed + ' failed</span>'
     + '<span class="text-muted small">Total: ' + data.total + '</span>'
-    + '</div>';
-
-  var items = (data.results || []).map(function(r) {
-    var badge = r.success
-      ? '<span class="badge bg-success me-2">OK</span>'
-      : '<span class="badge bg-danger me-2">FAIL</span>';
-    var content = r.success
-      ? renderDataTable(r.data || {}, r.url)
-      : '<div class="alert alert-warning py-2 mb-0">' + esc(r.error || '') + '</div>';
-    return '<div class="accordion-item">'
-      + '<h2 class="accordion-header"><button class="accordion-button collapsed py-2" type="button"'
-      + ' data-bs-toggle="collapse" data-bs-target="#ra-' + esc(r.id) + '">'
-      + badge + esc(r.url) + '</button></h2>'
-      + '<div id="ra-' + esc(r.id) + '" class="accordion-collapse collapse">'
-      + '<div class="accordion-body p-2">' + content + '</div></div></div>';
-  }).join('');
-
-  body.innerHTML = summary + '<div class="accordion">' + items + '</div>';
-
+    + '</div>'
+    + '<p class="text-muted">Результаты парсинга сохранены. Перейдите в раздел <strong>Товары</strong> для просмотра.</p>';
   var modal = new bootstrap.Modal(document.getElementById('runAllModal'));
   modal.show();
 }
