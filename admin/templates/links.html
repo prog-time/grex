@@ -1,0 +1,204 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container-xl">
+  <div class="page-header">
+    <div class="row align-items-center">
+      <div class="col-auto"><h2 class="page-title">Выгрузка ссылок</h2></div>
+    </div>
+  </div>
+
+  <!-- ── Форма ────────────────────────────────────────────────────────── -->
+  <div class="card mb-3">
+    <div class="card-header"><h3 class="card-title">Источник</h3></div>
+    <div class="card-body">
+      <div class="row g-3 mb-3">
+        <div class="col-12 col-md-8">
+          <label class="form-label">Ссылка на продавца или каталог <span class="text-danger">*</span></label>
+          <input id="lUrl" type="url" class="form-control"
+                 placeholder="https://www.wildberries.ru/seller/123456 или https://ozon.ru/seller/apple/products/">
+          <div class="form-hint">Маркетплейс определяется автоматически. Поддерживаются страницы продавцов, каталогов и поиска.</div>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label">Макс. страниц</label>
+          <input id="lMaxPages" type="number" class="form-control" value="10" min="1" max="50">
+        </div>
+        <div class="col-6 col-md-2 d-flex align-items-end">
+          <button type="button" class="btn btn-primary w-100" id="btnExtract" onclick="startExtraction()">
+            Выгрузить
+          </button>
+        </div>
+      </div>
+      <div id="lError" class="alert alert-danger mb-0" style="display:none;"></div>
+    </div>
+  </div>
+
+  <!-- ── Прогресс ──────────────────────────────────────────────────────── -->
+  <div id="progressCard" class="card mb-3" style="display:none;">
+    <div class="card-body text-center py-4">
+      <div class="spinner-border text-primary mb-3" role="status"></div>
+      <div class="text-muted" id="progressText">Загружаю страницы…</div>
+    </div>
+  </div>
+
+  <!-- ── Результаты ───────────────────────────────────────────────────── -->
+  <div id="resultsCard" class="card" style="display:none;">
+    <div class="card-header">
+      <h3 class="card-title" id="resultsTitle">Результаты</h3>
+      <div class="card-options d-flex align-items-center gap-2">
+        <span class="badge bg-azure" id="resultsBadge"></span>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="downloadCSV()">
+          <i class="fa fa-download me-1"></i>CSV
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-success" onclick="downloadExcel()">
+          <i class="fa fa-file-excel-o me-1"></i>Excel
+        </button>
+      </div>
+    </div>
+    <div class="table-responsive" style="max-height:600px; overflow-y:auto;">
+      <table class="table table-vcenter table-sm card-table">
+        <thead class="sticky-top bg-white">
+          <tr>
+            <th style="width:60px">#</th>
+            <th>Ссылка на товар</th>
+          </tr>
+        </thead>
+        <tbody id="linksBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+var _extractedLinks = [];
+var _extractedMarketplace = '';
+var _extractedUrl = '';
+
+// ── Запуск выгрузки ────────────────────────────────────────────────────
+
+async function startExtraction() {
+  var url       = document.getElementById('lUrl').value.trim();
+  var maxPages  = parseInt(document.getElementById('lMaxPages').value) || 10;
+  var errEl     = document.getElementById('lError');
+  var btn       = document.getElementById('btnExtract');
+
+  errEl.style.display = 'none';
+  if (!url) { showError('Укажите ссылку'); return; }
+
+  btn.disabled = true;
+  btn.textContent = '…';
+  document.getElementById('progressCard').style.display = '';
+  document.getElementById('resultsCard').style.display = 'none';
+  document.getElementById('progressText').textContent = 'Загружаю страницы…';
+
+  try {
+    var res  = await fetch('/admin/links/extract', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url: url, max_pages: maxPages}),
+    });
+    var data = await res.json();
+
+    if (!res.ok || !data.ok) {
+      showError(data.error || ('HTTP ' + res.status));
+      return;
+    }
+
+    _extractedLinks      = data.links || [];
+    _extractedMarketplace = data.marketplace || '';
+    _extractedUrl        = data.url || url;
+
+    renderResults(_extractedLinks, _extractedMarketplace);
+
+  } catch(e) {
+    showError(String(e));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Выгрузить';
+    document.getElementById('progressCard').style.display = 'none';
+  }
+}
+
+// ── Рендер таблицы ─────────────────────────────────────────────────────
+
+function renderResults(links, marketplace) {
+  var card  = document.getElementById('resultsCard');
+  var title = document.getElementById('resultsTitle');
+  var badge = document.getElementById('resultsBadge');
+  var tbody = document.getElementById('linksBody');
+
+  title.textContent = 'Найденные ссылки — ' + esc(marketplace);
+  badge.textContent = links.length + ' шт.';
+
+  if (!links.length) {
+    tbody.innerHTML = '<tr><td colspan="2" class="text-muted text-center py-3">Ссылки не найдены.</td></tr>';
+  } else {
+    tbody.innerHTML = links.map(function(link, i) {
+      return '<tr>'
+        + '<td class="text-muted">' + (i + 1) + '</td>'
+        + '<td><a href="' + esc(link) + '" target="_blank" class="text-truncate d-block" '
+        + 'style="max-width:700px" title="' + esc(link) + '">' + esc(link) + '</a></td>'
+        + '</tr>';
+    }).join('');
+  }
+
+  card.style.display = '';
+}
+
+// ── Скачать CSV ────────────────────────────────────────────────────────
+
+async function downloadCSV() {
+  if (!_extractedLinks.length) return;
+  var res = await fetch('/admin/links/download-csv', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({links: _extractedLinks, marketplace: _extractedMarketplace}),
+  });
+  if (!res.ok) return;
+  var blob = await res.blob();
+  triggerDownload(blob, 'links_' + _extractedMarketplace + '_' + dateSuffix() + '.csv');
+}
+
+// ── Скачать Excel ──────────────────────────────────────────────────────
+
+async function downloadExcel() {
+  if (!_extractedLinks.length) return;
+  var res = await fetch('/admin/links/download-excel', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({links: _extractedLinks, marketplace: _extractedMarketplace}),
+  });
+  if (!res.ok) return;
+  var blob = await res.blob();
+  triggerDownload(blob, 'links_' + _extractedMarketplace + '_' + dateSuffix() + '.xlsx');
+}
+
+// ── Вспомогательные ────────────────────────────────────────────────────
+
+function triggerDownload(blob, filename) {
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+function dateSuffix() {
+  var d = new Date();
+  return d.toISOString().slice(0, 10).replace(/-/g, '');
+}
+
+function showError(msg) {
+  var el = document.getElementById('lError');
+  el.textContent = msg;
+  el.style.display = '';
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+{% endblock %}

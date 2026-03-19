@@ -1,0 +1,57 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container-xl">
+  <div class="page-header">
+    <div class="row align-items-center">
+      <div class="col-auto"><h2 class="page-title">Live Logs</h2></div>
+      <div class="col-auto ms-auto d-flex gap-2">
+        <select id="levelFilter" class="form-select form-select-sm" onchange="reconnect()">
+          <option value="">All levels</option>
+          <option value="DEBUG">DEBUG</option>
+          <option value="INFO">INFO</option>
+          <option value="WARNING">WARNING</option>
+          <option value="ERROR">ERROR</option>
+        </select>
+        <button class="btn btn-sm btn-outline-secondary" onclick="clearLog()">Clear</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body p-0">
+      <pre id="logBox" style="
+        background:#1e1e1e; color:#d4d4d4; font-size:12px;
+        height:600px; overflow-y:auto; margin:0; padding:1rem;
+        white-space:pre-wrap; word-break:break-all;
+      "></pre>
+    </div>
+  </div>
+</div>
+
+<script>
+let es = null;
+
+function connect() {
+  const level = document.getElementById('levelFilter').value;
+  const url = '/admin/logs/stream' + (level ? '?level=' + level : '');
+  es = new EventSource(url);
+  es.onmessage = e => {
+    const box = document.getElementById('logBox');
+    box.textContent += e.data + '\n';
+    box.scrollTop = box.scrollHeight;
+  };
+}
+
+function reconnect() {
+  if (es) es.close();
+  connect();
+}
+
+function clearLog() {
+  document.getElementById('logBox').textContent = '';
+}
+
+connect();
+</script>
+{% endblock %}

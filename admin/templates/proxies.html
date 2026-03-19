@@ -1,0 +1,81 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container-xl">
+  <div class="page-header">
+    <div class="row align-items-center">
+      <div class="col-auto"><h2 class="page-title">Proxies</h2></div>
+      <div class="col-auto ms-auto">
+        <button class="btn btn-outline-secondary" onclick="reload()">Reload from file</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header"><h3 class="card-title">Add proxy</h3></div>
+    <div class="card-body">
+      <div class="input-group">
+        <input id="proxyInput" type="text" class="form-control"
+               placeholder="login:password@host:port">
+        <button class="btn btn-primary" onclick="addProxy()">Add</button>
+      </div>
+      <div id="proxyError" class="text-danger mt-1" style="display:none;"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table">
+        <thead><tr><th>#</th><th>Proxy</th><th></th></tr></thead>
+        <tbody>
+          {% for p in proxies %}
+          <tr>
+            <td>{{ p.index }}</td>
+            <td><code>{{ p.proxy }}</code></td>
+            <td>
+              <button class="btn btn-sm btn-outline-danger"
+                onclick="removeProxy({{ p.index }})">Remove</button>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" class="text-muted">Proxy pool is empty.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+async function addProxy() {
+  const proxy = document.getElementById('proxyInput').value.trim();
+  const errEl = document.getElementById('proxyError');
+  const res = await fetch('/admin/proxies/add', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({proxy})
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    errEl.textContent = data.error || 'Error';
+    errEl.style.display = '';
+  } else {
+    location.reload();
+  }
+}
+
+async function removeProxy(index) {
+  await fetch('/admin/proxies/remove', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({index})
+  });
+  location.reload();
+}
+
+async function reload() {
+  await fetch('/admin/proxies/reload', {method: 'POST'});
+  location.reload();
+}
+</script>
+{% endblock %}

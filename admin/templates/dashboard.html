@@ -1,0 +1,120 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container-xl">
+  <div class="page-header">
+    <div class="row align-items-center">
+      <div class="col-auto">
+        <h2 class="page-title">Dashboard</h2>
+      </div>
+      <div class="col-auto ms-auto">
+        <button id="resetBtn" class="btn btn-outline-danger btn-sm" onclick="resetStats()">
+          <i class="fa fa-refresh"></i> Reset statistics
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="row row-cards">
+    <div class="col-sm-6 col-lg-3">
+      <div class="card card-sm">
+        <div class="card-body">
+          <div class="row align-items-center">
+            <div class="col-auto">
+              <span class="bg-green text-white avatar"><i class="fa fa-check"></i></span>
+            </div>
+            <div class="col">
+              <div class="font-weight-medium">Parsed</div>
+              <div class="text-muted">{{ stats.total_parsed }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-sm-6 col-lg-3">
+      <div class="card card-sm">
+        <div class="card-body">
+          <div class="row align-items-center">
+            <div class="col-auto">
+              <span class="bg-red text-white avatar"><i class="fa fa-times"></i></span>
+            </div>
+            <div class="col">
+              <div class="font-weight-medium">Failed</div>
+              <div class="text-muted">{{ stats.total_failed }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-sm-6 col-lg-3">
+      <div class="card card-sm">
+        <div class="card-body">
+          <div class="row align-items-center">
+            <div class="col-auto">
+              <span class="bg-blue text-white avatar"><i class="fa fa-clock-o"></i></span>
+            </div>
+            <div class="col">
+              <div class="font-weight-medium">Avg Time</div>
+              <div class="text-muted">{{ "%.3f"|format(stats.avg_processing_time) }}s</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-sm-6 col-lg-3">
+      <div class="card card-sm">
+        <div class="card-body">
+          <div class="row align-items-center">
+            <div class="col-auto">
+              <span class="bg-yellow text-white avatar"><i class="fa fa-server"></i></span>
+            </div>
+            <div class="col">
+              <div class="font-weight-medium">Uptime</div>
+              <div class="text-muted">{{ uptime }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% if stats.by_marketplace %}
+  <div class="row mt-3">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header"><h3 class="card-title">By Marketplace</h3></div>
+        <div class="table-responsive">
+          <table class="table table-vcenter card-table">
+            <thead><tr><th>Marketplace</th><th>Parsed</th></tr></thead>
+            <tbody>
+              {% for name, count in stats.by_marketplace.items() %}
+              <tr><td>{{ name }}</td><td>{{ count }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block javascript %}
+<script>
+async function resetStats() {
+  if (!confirm('Reset all statistics?')) return;
+  const btn = document.getElementById('resetBtn');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/admin/api/stats/reset', {method: 'POST'});
+    if ((await res.json()).ok) location.reload();
+  } finally {
+    btn.disabled = false;
+  }
+}
+</script>
+{% endblock %}
