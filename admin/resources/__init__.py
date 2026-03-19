@@ -1,0 +1,1 @@
+# Admin resources package
