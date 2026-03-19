@@ -1,15 +1,20 @@
 {% extends "layout.html" %}
 
+{% block header %}
+<div class="d-flex justify-content-between align-items-center">
+  <h1>Proxies</h1>
+  <div class="d-flex align-items-center gap-3">
+    <button class="btn btn-outline-secondary" onclick="reload()">Reload from file</button>
+    <ol class="breadcrumb mb-0">
+      <li class="breadcrumb-item"><a href="{{ url_for(__name__ ~ ':index') }}">Admin</a></li>
+      <li class="breadcrumb-item active">Proxies</li>
+    </ol>
+  </div>
+</div>
+{% endblock %}
+
 {% block content %}
 <div class="container-xl">
-  <div class="page-header">
-    <div class="row align-items-center">
-      <div class="col-auto"><h2 class="page-title">Proxies</h2></div>
-      <div class="col-auto ms-auto">
-        <button class="btn btn-outline-secondary" onclick="reload()">Reload from file</button>
-      </div>
-    </div>
-  </div>
 
   <div class="card mb-3">
     <div class="card-header"><h3 class="card-title">Add proxy</h3></div>

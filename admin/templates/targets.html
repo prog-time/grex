@@ -1,31 +1,36 @@
 {% extends "layout.html" %}
 
+{% block header %}
+<div class="d-flex justify-content-between align-items-center">
+  <h1>Targets</h1>
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for(__name__ ~ ':index') }}">Admin</a></li>
+    <li class="breadcrumb-item active">Targets</li>
+  </ol>
+</div>
+{% endblock %}
+
 {% block content %}
 <div class="container-xl">
-  <div class="page-header">
-    <div class="row align-items-center">
-      <div class="col-auto"><h2 class="page-title">Parse Targets</h2></div>
-    </div>
-  </div>
 
-  <!-- ── Карточка добавления с табами ──────────────────────────────── -->
+  <!-- ── Add card with tabs ──────────────────────────────── -->
   <div class="card mb-3">
     <div class="card-header">
       <ul class="nav nav-tabs card-header-tabs" id="addTabs">
         <li class="nav-item">
           <a class="nav-link active" id="tab-single-lnk" href="#" onclick="switchTab('single');return false;">
-            Одна ссылка
+            Single URL
           </a>
         </li>
         <li class="nav-item">
           <a class="nav-link" id="tab-file-lnk" href="#" onclick="switchTab('file');return false;">
-            Загрузить файл
+            Upload file
           </a>
         </li>
       </ul>
     </div>
 
-    <!-- Таб 1: одна ссылка -->
+    <!-- Tab 1: single URL -->
     <div id="tab-single" class="card-body">
       <div class="row g-3 mb-3">
         <div class="col-12 col-md-7">
@@ -42,21 +47,21 @@
       <button type="button" class="btn btn-primary" onclick="submitTarget()">Save target</button>
     </div>
 
-    <!-- Таб 2: загрузить файл -->
+    <!-- Tab 2: upload file -->
     <div id="tab-file" class="card-body" style="display:none;">
       <div class="row g-3 mb-3">
         <div class="col-12 col-md-8">
-          <label class="form-label">Файл со ссылками <span class="text-danger">*</span></label>
+          <label class="form-label">File with URLs <span class="text-danger">*</span></label>
           <input id="fFile" type="file" class="form-control" accept=".txt,.csv,.xlsx"
                  onchange="onFileSelected(this)">
           <div class="form-hint">
-            Поддерживаются форматы <strong>.txt</strong>, <strong>.csv</strong> и <strong>.xlsx</strong>.
-            Ссылки ищутся по всем строкам/столбцам — достаточно, чтобы хотя бы одна содержала URL.
+            Supported formats: <strong>.txt</strong>, <strong>.csv</strong> and <strong>.xlsx</strong>.
+            URLs are searched across all rows/columns — at least one must contain a valid URL.
           </div>
         </div>
       </div>
 
-      <!-- Превью найденных ссылок -->
+      <!-- URL preview -->
       <div id="fPreview" style="display:none;" class="mb-3">
         <div class="d-flex align-items-center gap-2 mb-2">
           <span class="fw-semibold" id="fPreviewCount"></span>
@@ -68,24 +73,24 @@
 
       <div id="fError" class="alert alert-danger mb-3" style="display:none;"></div>
 
-      <!-- Прогресс импорта -->
+      <!-- Import progress -->
       <div id="fProgress" style="display:none;" class="mb-3">
         <div class="d-flex align-items-center gap-2">
           <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
-          <span class="text-muted" id="fProgressText">Импортирую…</span>
+          <span class="text-muted" id="fProgressText">Importing…</span>
         </div>
       </div>
 
-      <!-- Итоги импорта -->
+      <!-- Import results -->
       <div id="fResult" style="display:none;" class="alert mb-3"></div>
 
       <button type="button" class="btn btn-primary" id="btnImport" disabled onclick="importFromFile()">
-        Импортировать
+        Import
       </button>
     </div>
   </div>
 
-  <!-- ── Таблица targets ────────────────────────────────────────────── -->
+  <!-- ── Targets table ────────────────────────────────────────────── -->
   <div class="card">
     <div class="card-header">
       <h3 class="card-title">Saved targets</h3>
@@ -93,7 +98,7 @@
         <span class="text-muted small" id="targetsCount"></span>
         <div id="runAllProgress" style="display:none;" class="d-flex align-items-center gap-2">
           <div class="spinner-border spinner-border-sm text-success" role="status"></div>
-          <span id="runAllProgressText" class="text-muted small">Запуск…</span>
+          <span id="runAllProgressText" class="text-muted small">Starting…</span>
         </div>
         <button type="button" class="btn btn-sm btn-success" id="btnRunAll" onclick="runAll()">
           Run all
@@ -151,7 +156,7 @@
 </div>
 
 <script>
-// ── Переключение табов ────────────────────────────────────────────────
+// ── Tab switching ────────────────────────────────────────────────
 
 function switchTab(name) {
   ['single', 'file'].forEach(function(t) {
@@ -160,7 +165,7 @@ function switchTab(name) {
   });
 }
 
-// ── Таб 1: одна ссылка ────────────────────────────────────────────────
+// ── Tab 1: single URL ────────────────────────────────────────────────
 
 async function submitTarget() {
   var errEl = document.getElementById('tError');
@@ -169,7 +174,7 @@ async function submitTarget() {
   var url  = document.getElementById('tUrl').value.trim();
   var name = document.getElementById('tName').value.trim();
 
-  if (!url) { showSingleError('URL обязателен'); return; }
+  if (!url) { showSingleError('URL is required.'); return; }
 
   var res = await fetch('/admin/targets/add', {
     method: 'POST',
@@ -190,7 +195,7 @@ function showSingleError(msg) {
   el.style.display = '';
 }
 
-// ── Таб 2: загрузить файл ─────────────────────────────────────────────
+// ── Tab 2: upload file ─────────────────────────────────────────────
 
 var _parsedUrls = [];
 
@@ -206,9 +211,9 @@ async function onFileSelected(input) {
   var file = input.files[0];
   if (!file) return;
 
-  // Показываем мини-спиннер пока сервер читает файл
+  // Show spinner while server reads the file
   document.getElementById('fProgress').style.display = '';
-  document.getElementById('fProgressText').textContent = 'Читаю файл…';
+  document.getElementById('fProgressText').textContent = 'Reading file…';
 
   try {
     var formData = new FormData();
@@ -224,7 +229,7 @@ async function onFileSelected(input) {
 
     var urls = data.urls || [];
     if (!urls.length) {
-      showFileError('В файле не найдено ни одной ссылки (http:// или https://).');
+      showFileError('No URLs found in the file (http:// or https://).');
       return;
     }
 
@@ -232,7 +237,7 @@ async function onFileSelected(input) {
     renderFilePreview(urls);
     btnImp.disabled = false;
   } catch(err) {
-    showFileError('Ошибка: ' + err.message);
+    showFileError('Error: ' + err.message);
   } finally {
     document.getElementById('fProgress').style.display = 'none';
   }
@@ -240,8 +245,8 @@ async function onFileSelected(input) {
 
 function renderFilePreview(urls) {
   var SHOW = 8;
-  document.getElementById('fPreviewCount').textContent = 'Найдено ' + urls.length + ' ссылок';
-  document.getElementById('fPreviewNote').textContent  = urls.length > SHOW ? '(показаны первые ' + SHOW + ')' : '';
+  document.getElementById('fPreviewCount').textContent = 'Found ' + urls.length + ' URLs';
+  document.getElementById('fPreviewNote').textContent  = urls.length > SHOW ? '(showing first ' + SHOW + ')' : '';
 
   var list = document.getElementById('fPreviewList');
   list.innerHTML = urls.slice(0, SHOW).map(function(u, i) {
@@ -263,7 +268,7 @@ async function importFromFile() {
   btnImp.disabled = true;
   resultEl.style.display = 'none';
   progEl.style.display   = '';
-  document.getElementById('fProgressText').textContent = 'Импортирую ' + _parsedUrls.length + ' ссылок…';
+  document.getElementById('fProgressText').textContent = 'Importing ' + _parsedUrls.length + ' URLs…';
 
   try {
     var res  = await fetch('/admin/targets/import-bulk', {
@@ -278,26 +283,26 @@ async function importFromFile() {
       return;
     }
 
-    // Показываем итоги
+    // Show results
     var cls = data.errors && data.errors.length ? 'alert-warning' : 'alert-success';
-    var html = '<strong>Готово.</strong> '
-      + 'Добавлено: <strong>' + data.added + '</strong>, '
-      + 'пропущено (дубли): <strong>' + data.skipped + '</strong>';
+    var html = '<strong>Done.</strong> '
+      + 'Added: <strong>' + data.added + '</strong>, '
+      + 'skipped (duplicates): <strong>' + data.skipped + '</strong>';
     if (data.errors && data.errors.length) {
-      html += ', ошибок: <strong>' + data.errors.length + '</strong>';
+      html += ', errors: <strong>' + data.errors.length + '</strong>';
       html += '<ul class="mb-0 mt-2">'
         + data.errors.slice(0, 5).map(function(e) {
             return '<li class="text-truncate" title="' + esc(e.url) + '">'
               + esc(e.url) + ' — ' + esc(e.reason) + '</li>';
           }).join('')
-        + (data.errors.length > 5 ? '<li>и ещё ' + (data.errors.length - 5) + '…</li>' : '')
+        + (data.errors.length > 5 ? '<li>and ' + (data.errors.length - 5) + ' more…</li>' : '')
         + '</ul>';
     }
     resultEl.className = 'alert mb-3 ' + cls;
     resultEl.innerHTML = html;
     resultEl.style.display = '';
 
-    // Сброс файла
+    // Reset file
     document.getElementById('fFile').value = '';
     _parsedUrls = [];
     document.getElementById('btnImport').disabled = true;
@@ -318,7 +323,7 @@ function showFileError(msg) {
   el.style.display = '';
 }
 
-// ── Загрузка и рендер списка ──────────────────────────────────────────
+// ── Load and render list ──────────────────────────────────────────
 
 async function loadTargets() {
   try {
@@ -336,14 +341,14 @@ function renderTargets(targets) {
   document.getElementById('targetsCount').textContent = targets.length + ' targets';
 
   if (!targets.length) {
-    tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center py-3">Нет targets.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center py-3">No targets yet.</td></tr>';
     return;
   }
 
   tbody.innerHTML = targets.map(function(t) {
     var statusBadge = t.enabled
-      ? '<span class="badge bg-success">Enabled</span>'
-      : '<span class="badge bg-secondary">Disabled</span>';
+      ? '<span class="badge bg-success text-white">Enabled</span>'
+      : '<span class="badge bg-secondary text-white">Disabled</span>';
 
     var nameRow = t.name
       ? '<div class="fw-semibold">' + esc(t.name) + '</div>'
@@ -353,7 +358,7 @@ function renderTargets(targets) {
       + '<td>' + nameRow
       + '<a href="' + esc(t.url) + '" target="_blank" class="text-truncate d-block" style="max-width:340px"'
       + ' title="' + esc(t.url) + '">' + esc(t.url) + '</a></td>'
-      + '<td><span class="badge bg-azure-lt">' + esc(t.marketplace) + '</span></td>'
+      + '<td><span class="badge bg-azure text-white">' + esc(t.marketplace) + '</span></td>'
       + '<td>' + statusBadge + '</td>'
       + '<td class="text-end">'
       + '<button type="button" class="btn btn-sm btn-outline-primary me-1"'
@@ -423,7 +428,7 @@ function renderDataTable(data, url) {
             + '<img src="' + esc(v) + '" style="height:60px;border-radius:4px" onerror="this.style.display=\'none\'">'
             + '</a>';
         }
-        return '<span class="badge bg-secondary me-1">' + esc(String(v)) + '</span>';
+        return '<span class="badge bg-secondary text-white me-1">' + esc(String(v)) + '</span>';
       }).join('');
     } else if (val === null || val === undefined) {
       display = '<span class="text-muted">—</span>';
@@ -446,7 +451,7 @@ var _runAllPollTimer = null;
 async function runAll() {
   var btn = document.getElementById('btnRunAll');
   btn.disabled = true;
-  btn.textContent = 'Запуск…';
+  btn.textContent = 'Starting…';
   document.getElementById('runAllProgress').style.display = '';
 
   try {
@@ -456,22 +461,22 @@ async function runAll() {
       body: '{}',
     });
     var data = res.ok ? await res.json() : {error: 'HTTP ' + res.status};
-    if (data.error) { alert('Ошибка: ' + data.error); return; }
+    if (data.error) { alert('Error: ' + data.error); return; }
 
     if (!data.session_id) {
       // No targets
-      alert(data.message || 'Нет активных targets');
+      alert(data.message || 'No active targets found.');
       return;
     }
 
     _runAllSessionId = data.session_id;
     document.getElementById('runAllProgressText').textContent =
-      'Обрабатывается 0 / ' + data.total + '…';
+      'Processing 0 / ' + data.total + '…';
     btn.textContent = 'Running…';
 
     _runAllPollTimer = setInterval(pollRunAllStatus, 2000);
   } catch(e) {
-    alert('Ошибка: ' + e);
+    alert('Error: ' + e);
     resetRunAllUI();
   }
 }
@@ -485,7 +490,7 @@ async function pollRunAllStatus() {
 
     var done = data.succeeded + data.failed;
     document.getElementById('runAllProgressText').textContent =
-      'Обрабатывается ' + done + ' / ' + data.total + '…';
+      'Processing ' + done + ' / ' + data.total + '…';
 
     if (data.status === 'completed' || data.status === 'failed') {
       clearInterval(_runAllPollTimer);
@@ -509,11 +514,11 @@ function resetRunAllUI() {
 function showRunAllDone(data) {
   var body = document.getElementById('runAllBody');
   body.innerHTML = '<div class="mb-3">'
-    + '<span class="badge bg-success me-2">' + data.succeeded + ' succeeded</span>'
-    + '<span class="badge bg-danger me-2">' + data.failed + ' failed</span>'
+    + '<span class="badge bg-success text-white me-2">' + data.succeeded + ' succeeded</span>'
+    + '<span class="badge bg-danger text-white me-2">' + data.failed + ' failed</span>'
     + '<span class="text-muted small">Total: ' + data.total + '</span>'
     + '</div>'
-    + '<p class="text-muted">Результаты парсинга сохранены. Перейдите в раздел <strong>Товары</strong> для просмотра.</p>';
+    + '<p class="text-muted">Results saved. Go to <strong>Products</strong> to view them.</p>';
   var modal = new bootstrap.Modal(document.getElementById('runAllModal'));
   modal.show();
 }

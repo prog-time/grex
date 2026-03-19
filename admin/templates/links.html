@@ -1,31 +1,37 @@
 {% extends "layout.html" %}
 
+{% block header %}
+<div class="d-flex justify-content-between align-items-center">
+  <h1>Link Extractor</h1>
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for(__name__ ~ ':index') }}">Admin</a></li>
+    <li class="breadcrumb-item active">Link Extractor</li>
+  </ol>
+</div>
+{% endblock %}
+
 {% block content %}
 <div class="container-xl">
-  <div class="page-header">
-    <div class="row align-items-center">
-      <div class="col-auto"><h2 class="page-title">Выгрузка ссылок</h2></div>
-    </div>
-  </div>
 
-  <!-- ── Форма ────────────────────────────────────────────────────────── -->
+  <!-- ── Form ────────────────────────────────────────────────────────── -->
   <div class="card mb-3">
-    <div class="card-header"><h3 class="card-title">Источник</h3></div>
+    <div class="card-header"><h3 class="card-title">Source</h3></div>
     <div class="card-body">
       <div class="row g-3 mb-3">
         <div class="col-12 col-md-8">
-          <label class="form-label">Ссылка на продавца или каталог <span class="text-danger">*</span></label>
+          <label class="form-label">Seller or catalog URL <span class="text-danger">*</span></label>
           <input id="lUrl" type="url" class="form-control"
-                 placeholder="https://www.wildberries.ru/seller/123456 или https://ozon.ru/seller/apple/products/">
-          <div class="form-hint">Маркетплейс определяется автоматически. Поддерживаются страницы продавцов, каталогов и поиска.</div>
+                 placeholder="https://www.wildberries.ru/seller/123456 or https://ozon.ru/seller/apple/products/">
+          <div class="form-hint">Marketplace is detected automatically. Seller pages, catalogs and search pages are supported.</div>
         </div>
         <div class="col-6 col-md-2">
-          <label class="form-label">Макс. страниц</label>
+          <label class="form-label">Max pages</label>
           <input id="lMaxPages" type="number" class="form-control" value="10" min="1" max="50">
         </div>
-        <div class="col-6 col-md-2 d-flex align-items-end">
+        <div class="col-6 col-md-2">
+          <label class="form-label">&nbsp;</label>
           <button type="button" class="btn btn-primary w-100" id="btnExtract" onclick="startExtraction()">
-            Выгрузить
+            Extract
           </button>
         </div>
       </div>
@@ -33,20 +39,20 @@
     </div>
   </div>
 
-  <!-- ── Прогресс ──────────────────────────────────────────────────────── -->
+  <!-- ── Progress ──────────────────────────────────────────────────────── -->
   <div id="progressCard" class="card mb-3" style="display:none;">
     <div class="card-body text-center py-4">
       <div class="spinner-border text-primary mb-3" role="status"></div>
-      <div class="text-muted" id="progressText">Загружаю страницы…</div>
+      <div class="text-muted" id="progressText">Loading pages…</div>
     </div>
   </div>
 
-  <!-- ── Результаты ───────────────────────────────────────────────────── -->
+  <!-- ── Results ───────────────────────────────────────────────────── -->
   <div id="resultsCard" class="card" style="display:none;">
     <div class="card-header">
-      <h3 class="card-title" id="resultsTitle">Результаты</h3>
+      <h3 class="card-title" id="resultsTitle">Results</h3>
       <div class="card-options d-flex align-items-center gap-2">
-        <span class="badge bg-azure" id="resultsBadge"></span>
+        <span class="badge bg-azure text-white" id="resultsBadge"></span>
         <button type="button" class="btn btn-sm btn-outline-secondary" onclick="downloadCSV()">
           <i class="fa fa-download me-1"></i>CSV
         </button>
@@ -60,7 +66,7 @@
         <thead class="sticky-top bg-white">
           <tr>
             <th style="width:60px">#</th>
-            <th>Ссылка на товар</th>
+            <th>Product URL</th>
           </tr>
         </thead>
         <tbody id="linksBody"></tbody>
@@ -74,7 +80,7 @@ var _extractedLinks = [];
 var _extractedMarketplace = '';
 var _extractedUrl = '';
 
-// ── Запуск выгрузки ────────────────────────────────────────────────────
+// ── Start extraction ────────────────────────────────────────────────────
 
 async function startExtraction() {
   var url       = document.getElementById('lUrl').value.trim();
@@ -83,13 +89,13 @@ async function startExtraction() {
   var btn       = document.getElementById('btnExtract');
 
   errEl.style.display = 'none';
-  if (!url) { showError('Укажите ссылку'); return; }
+  if (!url) { showError('Please enter a URL.'); return; }
 
   btn.disabled = true;
   btn.textContent = '…';
   document.getElementById('progressCard').style.display = '';
   document.getElementById('resultsCard').style.display = 'none';
-  document.getElementById('progressText').textContent = 'Загружаю страницы…';
+  document.getElementById('progressText').textContent = 'Loading pages…';
 
   try {
     var res  = await fetch('/admin/links/extract', {
@@ -114,12 +120,12 @@ async function startExtraction() {
     showError(String(e));
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Выгрузить';
+    btn.textContent = 'Extract';
     document.getElementById('progressCard').style.display = 'none';
   }
 }
 
-// ── Рендер таблицы ─────────────────────────────────────────────────────
+// ── Render table ─────────────────────────────────────────────────────
 
 function renderResults(links, marketplace) {
   var card  = document.getElementById('resultsCard');
@@ -127,11 +133,11 @@ function renderResults(links, marketplace) {
   var badge = document.getElementById('resultsBadge');
   var tbody = document.getElementById('linksBody');
 
-  title.textContent = 'Найденные ссылки — ' + esc(marketplace);
-  badge.textContent = links.length + ' шт.';
+  title.textContent = 'Extracted links — ' + esc(marketplace);
+  badge.textContent = links.length + ' links';
 
   if (!links.length) {
-    tbody.innerHTML = '<tr><td colspan="2" class="text-muted text-center py-3">Ссылки не найдены.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="2" class="text-muted text-center py-3">No links found.</td></tr>';
   } else {
     tbody.innerHTML = links.map(function(link, i) {
       return '<tr>'
@@ -145,7 +151,7 @@ function renderResults(links, marketplace) {
   card.style.display = '';
 }
 
-// ── Скачать CSV ────────────────────────────────────────────────────────
+// ── Download CSV ────────────────────────────────────────────────────────
 
 async function downloadCSV() {
   if (!_extractedLinks.length) return;
@@ -159,7 +165,7 @@ async function downloadCSV() {
   triggerDownload(blob, 'links_' + _extractedMarketplace + '_' + dateSuffix() + '.csv');
 }
 
-// ── Скачать Excel ──────────────────────────────────────────────────────
+// ── Download Excel ──────────────────────────────────────────────────────
 
 async function downloadExcel() {
   if (!_extractedLinks.length) return;
@@ -173,7 +179,7 @@ async function downloadExcel() {
   triggerDownload(blob, 'links_' + _extractedMarketplace + '_' + dateSuffix() + '.xlsx');
 }
 
-// ── Вспомогательные ────────────────────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────────────
 
 function triggerDownload(blob, filename) {
   var a = document.createElement('a');
