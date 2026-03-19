@@ -1,30 +1,54 @@
 {% extends "layout.html" %}
 
+{% block header %}
+<div class="d-flex justify-content-between align-items-center">
+  <h1>Products</h1>
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for(__name__ ~ ':index') }}">Admin</a></li>
+    <li class="breadcrumb-item active">Products</li>
+  </ol>
+</div>
+{% endblock %}
+
 {% block content %}
 <div class="container-xl">
-  <div class="page-header">
-    <div class="row align-items-center">
-      <div class="col-auto"><h2 class="page-title">Товары</h2></div>
-    </div>
-  </div>
 
   <!-- Filters -->
   <div class="card mb-3">
     <div class="card-body">
-      <div class="row g-3 align-items-end">
+      <div class="row g-3 align-items-end mb-2">
+        <div class="col-12 col-md-5">
+          <label class="form-label">Search by title</label>
+          <input id="filterSearch" type="text" class="form-control" placeholder="Enter title…" oninput="applySearch()">
+        </div>
         <div class="col-12 col-md-4">
-          <label class="form-label">Маркетплейс</label>
+          <label class="form-label">Marketplace</label>
           <select id="filterMp" class="form-select" onchange="loadProducts()">
-            <option value="">Все</option>
+            <option value="">All</option>
           </select>
         </div>
-        <div class="col-12 col-md-5">
-          <label class="form-label">Поиск по названию</label>
-          <input id="filterSearch" type="text" class="form-control" placeholder="Введите название…" oninput="applySearch()">
+        <div class="col-12 col-md-3">
+          <button class="btn btn-outline-secondary w-100" onclick="loadProducts()">Refresh</button>
         </div>
-        <div class="col-12 col-md-3 d-flex gap-2">
-          <button class="btn btn-outline-secondary w-100" onclick="loadProducts()">Обновить</button>
-          <button class="btn btn-outline-danger w-100" onclick="clearAll()">Очистить</button>
+      </div>
+      <div class="row g-3">
+        <div class="col-12 col-md-3">
+          <div class="d-flex align-items-center gap-2">
+            <div class="dropdown">
+              <button class="btn btn-outline-success dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                Export
+              </button>
+              <div class="dropdown-menu">
+                <a class="dropdown-item" href="#" onclick="exportProducts('csv');return false;">CSV (Excel)</a>
+                <a class="dropdown-item" href="#" onclick="exportProducts('xlsx');return false;">XLSX</a>
+                <a class="dropdown-item" href="#" onclick="exportProducts('json');return false;">JSON</a>
+              </div>
+            </div>
+            <span id="selectionCount" class="text-muted small"></span>
+          </div>
+        </div>
+        <div class="col-12 col-md-3">
+          <button class="btn btn-outline-danger w-100" onclick="clearAll()">Clear all</button>
         </div>
       </div>
     </div>
@@ -33,7 +57,7 @@
   <!-- Table -->
   <div class="card">
     <div class="card-header">
-      <h3 class="card-title">Результаты парсинга</h3>
+      <h3 class="card-title">Parsed results</h3>
       <div class="card-options">
         <span class="text-muted small" id="productsCount"></span>
       </div>
@@ -42,18 +66,21 @@
       <table class="table table-vcenter card-table">
         <thead>
           <tr>
+            <th style="width:36px">
+              <input type="checkbox" class="form-check-input" id="selectAll" onchange="toggleSelectAll(this)">
+            </th>
             <th style="width:56px"></th>
-            <th>Название</th>
-            <th>Маркетплейс</th>
-            <th>Артикул</th>
-            <th>Цена (была)</th>
-            <th>Цена (сейчас)</th>
-            <th>Дата</th>
+            <th>Title</th>
+            <th>Marketplace</th>
+            <th>SKU</th>
+            <th>Original price</th>
+            <th>Current price</th>
+            <th>Parsed at</th>
             <th></th>
           </tr>
         </thead>
         <tbody id="productsBody">
-          <tr><td colspan="8" class="text-muted text-center py-3">Загрузка…</td></tr>
+          <tr><td colspan="9" class="text-muted text-center py-3">Loading…</td></tr>
         </tbody>
       </table>
     </div>
@@ -74,7 +101,7 @@ async function loadProducts() {
     // Populate marketplace filter
     var sel = document.getElementById('filterMp');
     var cur = sel.value;
-    sel.innerHTML = '<option value="">Все</option>'
+    sel.innerHTML = '<option value="">All</option>'
       + (data.marketplaces || []).map(function(m) {
           return '<option value="' + esc(m) + '"' + (m === cur ? ' selected' : '') + '>' + esc(m) + '</option>';
         }).join('');
@@ -95,10 +122,11 @@ function applySearch() {
 
 function renderProducts(products) {
   var tbody = document.getElementById('productsBody');
-  document.getElementById('productsCount').textContent = products.length + ' товаров';
+  document.getElementById('productsCount').textContent = products.length + ' products';
 
   if (!products.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="text-muted text-center py-3">Нет данных.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="text-muted text-center py-3">No products yet.</td></tr>';
+    updateSelectionCount();
     return;
   }
 
@@ -117,9 +145,10 @@ function renderProducts(products) {
     var parsedAt = p.parsed_at ? p.parsed_at.replace('T', ' ').slice(0, 16) : '—';
 
     return '<tr>'
+      + '<td><input type="checkbox" class="form-check-input product-cb" data-id="' + esc(p.id) + '" onchange="updateSelectionCount()"></td>'
       + '<td>' + img + '</td>'
       + '<td>' + title + '</td>'
-      + '<td><span class="badge bg-azure-lt">' + esc(p.marketplace || '') + '</span></td>'
+      + '<td><span class="badge bg-azure text-white">' + esc(p.marketplace || '') + '</span></td>'
       + '<td class="text-muted">' + esc(p.sku || '—') + '</td>'
       + '<td class="text-muted text-decoration-line-through">' + origPrice + '</td>'
       + '<td>' + curPrice + '</td>'
@@ -128,10 +157,11 @@ function renderProducts(products) {
       + '<button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteProduct(\'' + p.id + '\')">✕</button>'
       + '</td></tr>';
   }).join('');
+  updateSelectionCount();
 }
 
 async function deleteProduct(id) {
-  if (!confirm('Удалить товар?')) return;
+  if (!confirm('Delete this product?')) return;
   await fetch('/admin/products/delete', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -140,8 +170,55 @@ async function deleteProduct(id) {
   await loadProducts();
 }
 
+function getSelectedIds() {
+  return Array.from(document.querySelectorAll('.product-cb:checked'))
+    .map(function(c) { return c.dataset.id; });
+}
+
+function toggleSelectAll(cb) {
+  document.querySelectorAll('.product-cb').forEach(function(c) { c.checked = cb.checked; });
+  updateSelectionCount();
+}
+
+function updateSelectionCount() {
+  var checked = document.querySelectorAll('.product-cb:checked').length;
+  var total   = document.querySelectorAll('.product-cb').length;
+  var countEl = document.getElementById('selectionCount');
+  var saEl    = document.getElementById('selectAll');
+  countEl.textContent = checked ? checked + ' selected' : '';
+  if (saEl) saEl.checked = total > 0 && checked === total;
+}
+
+async function exportProducts(fmt) {
+  var mp  = document.getElementById('filterMp').value;
+  var ids = getSelectedIds();
+  var body = {format: fmt};
+  if (ids.length) body.ids = ids;
+  else if (mp) body.marketplace = mp;
+
+  try {
+    var res = await fetch('/admin/products/export', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) { alert('Export error: ' + res.status); return; }
+    var blob = await res.blob();
+    var ext  = fmt === 'xlsx' ? 'xlsx' : (fmt === 'json' ? 'json' : 'csv');
+    var name = 'products_' + new Date().toISOString().slice(0,10).replace(/-/g,'') + '.' + ext;
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } catch(e) {
+    alert('Export error: ' + e);
+  }
+}
+
 async function clearAll() {
-  if (!confirm('Удалить все товары?')) return;
+  if (!confirm('Delete all products?')) return;
   await fetch('/admin/products/clear', {method: 'POST'});
   await loadProducts();
 }
