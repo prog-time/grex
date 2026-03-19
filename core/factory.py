@@ -1,51 +1,37 @@
-import re
-from typing import List
-from loguru import logger
+"""CrawlerFactory — thin backward-compatibility wrapper over CrawlerRegistry.
 
-from crawlers import (
-    BaseCrawler,
-    OzonCrawler,
-    MegaMarketCrawler,
-    WildberriesCrawler,
-    YandexMarketCrawler
-)
-from core.exceptions import UnsupportedMarketplaceError, CrawlerNotFoundError
+.. deprecated::
+    Use :class:`~crawlers.registry.CrawlerRegistry` directly.
+    ``CrawlerFactory`` is kept only for transitional compatibility with
+    existing callers in ``api.py`` and ``services/parsing.py`` until
+    TASK-4 is applied.
+"""
+from __future__ import annotations
+
+import warnings
+from typing import List
+
+from crawlers.base import BaseCrawler
+from crawlers.registry import CrawlerRegistry
 
 
 class CrawlerFactory:
-    def __init__(self):
-        self.crawlers = {
-            "wildberries": WildberriesCrawler,
-            "ozon": OzonCrawler,
-            "yandex_market": YandexMarketCrawler,
-            "megamarket": MegaMarketCrawler
-        }
+    """Deprecated facade around :class:`~crawlers.registry.CrawlerRegistry`."""
 
-        self.url_patterns = {
-            r'wildberries\.(ru|by|kz)': "wildberries",
-            r'ozon\.(ru|by|kz)': "ozon",
-            r'market\.yandex\.(ru|by)': "yandex_market",
-            r'megamarket\.ru': "megamarket"
-        }
+    def __init__(self) -> None:
+        warnings.warn(
+            "CrawlerFactory is deprecated; use CrawlerRegistry directly.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     def detect_marketplace(self, url: str) -> str:
-        url_lower = url.lower()
-
-        for pattern, marketplace in self.url_patterns.items():
-            if re.search(pattern, url_lower):
-                logger.debug(f"Detected marketplace: {marketplace} for URL: {url}")
-                return marketplace
-
-        raise UnsupportedMarketplaceError(f"Unsupported marketplace URL: {url}")
+        return CrawlerRegistry.detect_marketplace(url)
 
     def create_crawler(self, url: str) -> BaseCrawler:
-        marketplace = self.detect_marketplace(url)
-
-        if marketplace not in self.crawlers:
-            raise CrawlerNotFoundError(f"Crawler not found for marketplace: {marketplace}")
-
-        crawler_class = self.crawlers[marketplace]
-        return crawler_class()
+        marketplace = CrawlerRegistry.detect_marketplace(url)
+        crawler_cls = CrawlerRegistry.get(marketplace)
+        return crawler_cls()
 
     def get_supported_marketplaces(self) -> List[str]:
-        return list(self.crawlers.keys())
+        return list(CrawlerRegistry.all().keys())
