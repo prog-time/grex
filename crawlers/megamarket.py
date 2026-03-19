@@ -3,7 +3,8 @@ import json
 import time
 import random
 import asyncio
-import aiofiles
+import aiofiles  # type: ignore[import-untyped]
+from typing import ClassVar
 from loguru import logger
 from decimal import Decimal
 from multiprocessing import Process, Queue
@@ -19,6 +20,10 @@ from core.exceptions import ProductCardParsingException
 
 
 class MegaMarketCrawler(BaseCrawler):
+    marketplace_name: ClassVar[str] = "megamarket"
+    url_pattern: ClassVar[str] = r"megamarket\.ru"
+    requires_cookie_lock: ClassVar[bool] = True
+
     cookies_file_path: str = os.path.join(data_path, "mega_market_cookies.json")
 
     def __init__(self):
@@ -57,7 +62,7 @@ class MegaMarketCrawler(BaseCrawler):
 
                 try:
                     page.wait_for_selector(".catalog-buy-button__button", timeout=15000)
-                except:
+                except Exception:
                     pass
 
                 time.sleep(15)
@@ -82,7 +87,7 @@ class MegaMarketCrawler(BaseCrawler):
 
     async def save_cookies(self, url: str) -> bool:
         try:
-            result_queue = Queue()
+            result_queue: Queue[dict] = Queue()
 
             process = Process(
                 target=self._process_save_cookies,
@@ -167,7 +172,10 @@ class MegaMarketCrawler(BaseCrawler):
             'sec-fetch-dest': 'empty',
             'sec-fetch-mode': 'cors',
             'sec-fetch-site': 'same-origin',
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+            'user-agent': (
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                '(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
+            ),
             'x-kl-saas-ajax-request': 'Ajax_Request',
             'x-requested-with': 'XMLHttpRequest',
         }
@@ -205,12 +213,70 @@ class MegaMarketCrawler(BaseCrawler):
         result = response.json()
 
         if not result.get("success"):
-            raise ProductCardParsingException(f"Error during get product offers: {result.get('error', 'unexpected error')}")
+            raise ProductCardParsingException(
+                f"Error during get product offers: {result.get('error', 'unexpected error')}"
+            )
 
         offers: list = result.get("offers", [])
         offers.sort(key=lambda offer: offer.get("price"))
 
         return offers
+
+    async def get_product_links(self, url: str, max_pages: int = 10) -> list[str]:
+        parsed_url = parse_url(url)
+        page_path = parsed_url.get("path", "")
+        links: list[str] = []
+        limit = 44
+
+        for page in range(1, max_pages + 1):
+            try:
+                json_data = {
+                    "requestVersion": 10,
+                    "limit": limit,
+                    "offset": (page - 1) * limit,
+                    "searchByOriginalQuery": False,
+                    "selectedSuggestParams": [],
+                    "pageInfo": {
+                        "pageUrl": page_path,
+                        "pageType": "catalog",
+                    },
+                    "auth": {
+                        "locationId": "50",
+                        "appPlatform": "WEB",
+                        "appVersion": 0,
+                        "os": "UNKNOWN_OS",
+                    },
+                }
+                cookies = await self.get_cookies(url)
+                response = await self.session.post(
+                    url="https://megamarket.ru/api/mobile/v1/catalogService/catalog/search",
+                    json=json_data,
+                    cookies=cookies,
+                    headers=self.get_headers(url),
+                )
+                result = response.json()
+                if not result.get("success"):
+                    logger.warning(f"MegaMarket links API error: {result.get('error')}")
+                    break
+                items = result.get("items", [])
+                if not items:
+                    break
+                for item in items:
+                    goods = item.get("goods", {})
+                    slug = goods.get("slug") or ""
+                    goods_id = str(goods.get("id") or "")
+                    if slug:
+                        links.append(f"https://megamarket.ru/catalog/details/{slug}/")
+                    elif goods_id:
+                        links.append(f"https://megamarket.ru/catalog/details/{goods_id}/")
+                logger.debug(f"MegaMarket: page {page} → {len(items)} items")
+                if len(items) < limit:
+                    break
+            except Exception as e:
+                logger.warning(f"MegaMarket link extraction page {page} failed: {e}")
+                break
+
+        return links
 
     async def parse(
             self,
@@ -218,8 +284,8 @@ class MegaMarketCrawler(BaseCrawler):
     ) -> ProductCard:
         product_title = None
         product_sku = None
-        product_original_price = 0.0
-        product_current_price = 0.0
+        product_original_price: Decimal = Decimal(0)
+        product_current_price: Decimal = Decimal(0)
         product_images = []
 
         parsed_url = parse_url(url)
@@ -281,7 +347,7 @@ class MegaMarketCrawler(BaseCrawler):
                     logger.warning(f"Error during parsing MegaMarket price for {url}: {e}")
 
                 card = ProductCard(
-                    title=product_title,
+                    title=product_title or "",
                     sku=product_sku,
                     original_price=product_original_price,
                     current_price=product_current_price,
@@ -300,11 +366,16 @@ class MegaMarketCrawler(BaseCrawler):
 
                 await asyncio.sleep(random.uniform(0.1, 1.5))
 
-        raise ProductCardParsingException(f"Unexpected error during parse URL {url} after {settings['max_retries']} attempts")
+        raise ProductCardParsingException(
+            f"Unexpected error during parse URL {url} after {settings['max_retries']} attempts"
+        )
 
 
 async def main():
-    card_url = "https://megamarket.ru/catalog/details/puhovik-detskiy-poivre-blanc-w21-1201-jrgl-2122-mega-pink-128-600011555038/"
+    card_url = (
+        "https://megamarket.ru/catalog/details/"
+        "puhovik-detskiy-poivre-blanc-w21-1201-jrgl-2122-mega-pink-128-600011555038/"
+    )
 
     crawler = MegaMarketCrawler()
     tasks = []

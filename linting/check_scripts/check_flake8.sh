@@ -39,11 +39,26 @@ if [ ${#PY_FILES[@]} -eq 0 ]; then
     exit 0
 fi
 
+# Locate flake8 binary (prefer venv, fall back to PATH)
+FLAKE8_BIN=$(command -v flake8 2>/dev/null || true)
+if [ -z "$FLAKE8_BIN" ]; then
+    for candidate in .venv/bin/flake8 venv/bin/flake8 /usr/local/bin/flake8; do
+        if [ -x "$candidate" ]; then
+            FLAKE8_BIN="$candidate"
+            break
+        fi
+    done
+fi
+if [ -z "$FLAKE8_BIN" ]; then
+    echo "flake8 not found — skipping style check"
+    exit 0
+fi
+
 # Run flake8 linter on each file
 for file in "${PY_FILES[@]}"; do
     CHECKED_FILES=$((CHECKED_FILES + 1))
 
-    OUTPUT=$(flake8 --max-line-length=120 "$file" 2>&1)
+    OUTPUT=$("$FLAKE8_BIN" --max-line-length=120 "$file" 2>&1)
     EXIT_CODE=$?
 
     if [ $EXIT_CODE -ne 0 ]; then

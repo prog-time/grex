@@ -1,9 +1,12 @@
 import os
+import re
 import json
 import time
 import asyncio
+from typing import ClassVar
 from loguru import logger
 from decimal import Decimal
+from multiprocessing import Process, Queue
 from curl_cffi.requests.session import AsyncSession
 
 from config import data_path
@@ -14,6 +17,9 @@ from core.exceptions import ProductCardParsingException
 
 
 class WildberriesCrawler(BaseCrawler):
+    marketplace_name: ClassVar[str] = "wildberries"
+    url_pattern: ClassVar[str] = r"wildberries\.(ru|by|kz)"
+
     upstreams_file_path = os.path.join(data_path, "wb_upstreams.json")
 
     def __init__(self):
@@ -89,7 +95,10 @@ class WildberriesCrawler(BaseCrawler):
     @staticmethod
     def get_headers():
         headers = {
-            'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'accept': (
+                'text/html,application/xhtml+xml,application/xml;q=0.9,'
+                'image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7'
+            ),
             'accept-language': 'ru-RU,ru;q=0.9',
             'cache-control': 'no-cache',
             'pragma': 'no-cache',
@@ -102,36 +111,280 @@ class WildberriesCrawler(BaseCrawler):
             'sec-fetch-site': 'none',
             'sec-fetch-user': '?1',
             'upgrade-insecure-requests': '1',
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+            'user-agent': (
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                '(KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36'
+            ),
         }
         return headers
 
     async def get_product_details(self, sku: str):
         product_data = None
 
-        try:
-            response = await self.session.get(
-                url=f"https://card.wb.ru/cards/v2/detail?&dest=-1257786&nm={sku}",
-                headers=self.get_headers(),
-            )
+        # Try multiple API versions/param combos — WB migrates endpoints frequently
+        base_params = f"appType=1&curr=rub&dest=-1257786&spp=30&nm={sku}"
+        slim_params = f"dest=-1257786&nm={sku}"
+        attempts = [
+            ("v2", base_params),
+            ("v3", base_params),
+            ("v1", base_params),
+            ("v2", slim_params),
+            ("v3", slim_params),
+            # no-version fallback
+            (None, base_params),
+        ]
+        for version, params in attempts:
+            path = f"cards/{version}/detail" if version else "cards/detail"
+            url = f"https://card.wb.ru/{path}?{params}"
+            try:
+                response = await self.session.get(url=url, headers=self.get_headers())
 
-            data = response.json()
-            if "data" in data:
-                products = data["data"]["products"]
-                if products:
-                    product_data = products[0]
-        except Exception as e:
-            logger.warning(f"Failed to get details from WB #{sku}: {e}")
+                if response.status_code == 404:
+                    logger.debug(f"WB details {path} → 404 for #{sku}, trying next")
+                    continue
+
+                if response.status_code != 200:
+                    logger.warning(f"WB details {path} HTTP {response.status_code} for #{sku}")
+                    continue
+
+                raw = response.text
+                if not raw:
+                    logger.warning(f"WB details {path} empty body for #{sku}")
+                    continue
+
+                data = response.json()
+                if "data" in data:
+                    products = data["data"]["products"]
+                    if products:
+                        product_data = products[0]
+                        logger.debug(f"WB details fetched via {path} for #{sku}")
+                        break
+            except Exception as e:
+                logger.warning(f"WB details {path} failed for #{sku}: {e}")
 
         return product_data
+
+    async def get_prices_from_search_api(self, sku: str) -> tuple[Decimal, Decimal]:
+        """Fallback: use WB search API which returns priceU/salePriceU in kopecks."""
+        try:
+            params = (
+                f"appType=1&curr=rub&dest=-1257786&query={sku}"
+                f"&resultset=catalog&limit=1&spp=30"
+            )
+            response = await self.session.get(
+                url=f"https://search.wb.ru/exactmatch/ru/common/v9/search?{params}",
+                headers=self.get_headers(),
+            )
+            if response.status_code != 200:
+                logger.debug(f"WB search API HTTP {response.status_code} for #{sku}")
+                return Decimal(0), Decimal(0)
+
+            data = response.json()
+            products = data.get("data", {}).get("products", [])
+            if not products:
+                logger.debug(f"WB search API: no products found for #{sku}")
+                return Decimal(0), Decimal(0)
+
+            product = products[0]
+            # priceU / salePriceU are in kopecks (× 100)
+            original_price = Decimal((product.get("priceU") or 0) / 100)
+            current_price = Decimal((product.get("salePriceU") or 0) / 100)
+            if current_price:
+                logger.debug(f"WB search API prices for #{sku}: current={current_price} original={original_price}")
+            else:
+                logger.debug(f"WB search API: prices empty for #{sku}")
+            return original_price, current_price
+        except Exception as e:
+            logger.warning(f"WB search API failed for #{sku}: {e}")
+            return Decimal(0), Decimal(0)
+
+    @staticmethod
+    def _process_get_prices(url: str, result_queue: Queue):
+        """Run in a separate process: open WB product page via Patchright, extract prices from DOM.
+        Uses headed browser (headless=False) to pass WB's JS challenge detection.
+        """
+        try:
+            import time
+            from patchright.sync_api import sync_playwright
+
+            with sync_playwright() as p:
+                context = p.chromium.launch_persistent_context(
+                    user_data_dir="",
+                    headless=False,
+                )
+                page = context.new_page()
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+
+                # WB shows "Почти готово..." JS challenge, then loads the real product page.
+                # Wait for the price block or product title to appear.
+                try:
+                    page.wait_for_selector('[class*="priceBlock"], [class*="productPage"], h1', timeout=20000)
+                except Exception:
+                    pass
+
+                # Extra settle time for price JS to render
+                time.sleep(2)
+
+                # Current price: <ins> inside the price block
+                # Original (old) price: element with class containing "strikethrough" or "OldPrice"
+                current_text = page.evaluate('''() => {
+                    const block = document.querySelector('[class*="priceBlock--"]');
+                    if (block) {
+                        const ins = block.querySelector('ins');
+                        if (ins) return ins.textContent;
+                    }
+                    const sel = '[class*="priceBlockPrice"] ins, [class*="priceBlockFinalPrice"]';
+                    const ins = document.querySelector(sel);
+                    return ins ? ins.textContent : null;
+                }''')
+                original_text = page.evaluate('''() => {
+                    const oldSel = '[class*="body-strikethrough"], [class*="OldPrice--"], [class*="oldPrice--"]';
+                    const el = document.querySelector(oldSel);
+                    return el ? el.textContent : null;
+                }''')
+                context.close()
+
+            result_queue.put({"success": True, "current": current_text, "original": original_text})
+        except Exception as e:
+            result_queue.put({"success": False, "error": str(e)})
+
+    async def get_prices_via_browser(self, url: str) -> tuple[Decimal, Decimal]:
+        """Last-resort fallback: use Patchright to render the WB page and read prices from DOM.
+        Necessary because card.wb.ru requires a JavaScript Proof-of-Work challenge.
+        """
+        def _parse_price(text) -> Decimal:
+            if not text:
+                return Decimal(0)
+            cleaned = re.sub(r"[^\d]", "", text)
+            return Decimal(cleaned) if cleaned else Decimal(0)
+
+        try:
+            result_queue: Queue[dict] = Queue()
+            process = Process(
+                target=self._process_get_prices,
+                args=(url.split("?")[0], result_queue),
+            )
+            process.start()
+
+            while process.is_alive():
+                await asyncio.sleep(0.2)
+            process.join(timeout=40)
+
+            if not result_queue.empty():
+                result = result_queue.get()
+                if result["success"]:
+                    current = _parse_price(result["current"])
+                    original = _parse_price(result["original"])
+                    if current:
+                        logger.debug(f"WB browser prices: current={current} original={original}")
+                    else:
+                        logger.warning(f"WB browser: price elements not found in DOM for {url}")
+                    return original, current
+                else:
+                    logger.warning(f"WB browser process error: {result['error']}")
+            else:
+                logger.warning("WB browser process returned no result")
+        except Exception as e:
+            logger.warning(f"WB browser price extraction failed: {e}")
+
+        return Decimal(0), Decimal(0)
+
+    @staticmethod
+    def _process_get_links(url: str, result_queue: Queue):
+        """Browser-based product link extraction for catalog/brand/search pages."""
+        try:
+            import time
+            from patchright.sync_api import sync_playwright
+
+            with sync_playwright() as p:
+                context = p.chromium.launch_persistent_context(
+                    user_data_dir="",
+                    headless=False,
+                )
+                page = context.new_page()
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+
+                try:
+                    page.wait_for_selector('[class*="product-card"]', timeout=15000)
+                except Exception:
+                    pass
+
+                all_links: set = set()
+                for _ in range(20):
+                    hrefs = page.evaluate('''() => {
+                        const links = [];
+                        document.querySelectorAll('a[href*="/catalog/"][href*="/detail.aspx"]').forEach(el => {
+                            if (el.href) links.push(el.href.split("?")[0]);
+                        });
+                        return [...new Set(links)];
+                    }''')
+                    prev_count = len(all_links)
+                    all_links.update(hrefs)
+                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                    time.sleep(2)
+                    if len(all_links) == prev_count:
+                        break
+
+                context.close()
+            result_queue.put({"success": True, "links": list(all_links)})
+        except Exception as e:
+            result_queue.put({"success": False, "error": str(e)})
+
+    async def _get_links_via_browser(self, url: str) -> list[str]:
+        result_queue: Queue[dict] = Queue()
+        process = Process(target=self._process_get_links, args=(url, result_queue))
+        process.start()
+        while process.is_alive():
+            await asyncio.sleep(0.5)
+        process.join(timeout=120)
+        if not result_queue.empty():
+            result = result_queue.get()
+            if result.get("success"):
+                return result.get("links", [])
+            logger.warning(f"WB browser link extraction failed: {result.get('error')}")
+        return []
+
+    async def get_product_links(self, url: str, max_pages: int = 10) -> list[str]:
+        import re as _re
+        links: list[str] = []
+
+        seller_match = _re.search(r"/seller/(\d+)", url)
+        if seller_match:
+            supplier_id = seller_match.group(1)
+            for page in range(1, max_pages + 1):
+                try:
+                    api_url = (
+                        f"https://catalog.wb.ru/sellers/catalog"
+                        f"?appType=1&curr=rub&dest=-1257786"
+                        f"&supplier={supplier_id}&limit=100&page={page}&sort=popular"
+                    )
+                    response = await self.session.get(api_url, headers=self.get_headers())
+                    if response.status_code != 200:
+                        break
+                    data = response.json()
+                    products = data.get("data", {}).get("products", [])
+                    if not products:
+                        break
+                    for p in products:
+                        nm_id = p.get("id")
+                        if nm_id:
+                            links.append(f"https://www.wildberries.ru/catalog/{nm_id}/detail.aspx")
+                    logger.debug(f"WB seller {supplier_id}: page {page}, {len(products)} products")
+                except Exception as e:
+                    logger.warning(f"WB seller links page {page} failed: {e}")
+                    break
+            return links
+
+        # Fallback: browser-based extraction for brand/catalog/search pages
+        return await self._get_links_via_browser(url)
 
     async def parse(
             self,
             url: str,
     ) -> ProductCard:
         product_sku = None
-        product_original_price = 0.0
-        product_current_price = 0.0
+        product_original_price: Decimal = Decimal(0)
+        product_current_price: Decimal = Decimal(0)
         product_images = []
 
         parsed_url = parse_url(url)
@@ -157,16 +410,28 @@ class WildberriesCrawler(BaseCrawler):
 
         product_details = await self.get_product_details(sku=product_sku)
 
-        try:
-            product_prices = product_details["sizes"][0]["price"]
-            if product_prices:
-                product_original_price = Decimal((product_prices.get("basic") or 0) / 100)
-                product_current_price = Decimal((product_prices.get("product") or 0) / 100)
-        except Exception as e:
-            logger.warning(f"Failed to get product prices from WB #{product_sku}: {e}")
+        prices_extracted = False
+        if product_details:
+            try:
+                product_prices = product_details["sizes"][0]["price"]
+                if product_prices:
+                    product_original_price = Decimal((product_prices.get("basic") or 0) / 100)
+                    product_current_price = Decimal((product_prices.get("product") or 0) / 100)
+                    prices_extracted = bool(product_current_price)
+            except Exception as e:
+                logger.warning(f"Failed to get product prices from WB #{product_sku}: {e}")
+
+        if not prices_extracted:
+            logger.debug(f"WB card API prices unavailable for #{product_sku}, trying search API")
+            product_original_price, product_current_price = await self.get_prices_from_search_api(product_sku)
+            prices_extracted = bool(product_current_price)
+
+        if not prices_extracted:
+            logger.debug(f"WB search API prices unavailable for #{product_sku}, falling back to browser")
+            product_original_price, product_current_price = await self.get_prices_via_browser(url)
 
         card = ProductCard(
-            title=product_title,
+            title=product_title or "",
             sku=product_sku,
             original_price=product_original_price,
             current_price=product_current_price,
