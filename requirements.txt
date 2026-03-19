@@ -8,3 +8,11 @@ uvicorn==0.35.0
 fastapi==0.116.1
 aiofiles==24.1.0
 pydantic
+redis[asyncio]>=5.0.0
+starlette-admin>=0.14.0
+sqlalchemy[asyncio]>=2.0.0
+aiosqlite>=0.20.0
+itsdangerous>=2.0.0
+python-multipart>=0.0.9
+openpyxl>=3.1.0
+sse-starlette>=2.0.0

@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import uvicorn
 import traceback
+from contextlib import asynccontextmanager
 from loguru import logger
 from pydantic import HttpUrl
 from datetime import datetime
@@ -11,13 +14,53 @@ from config import settings
 from models import (
     ParseRequest,
     ParseResponse,
-    HealthResponse
+    HealthResponse,
+    BatchParseRequest,
+    BatchParseResponse,
 )
+from crawlers.registry import CrawlerRegistry
 from services import ParsingService
 from utils.logger import setup_logger
 
 
 setup_logger()
+
+
+# ---------------------------------------------------------------------------
+# Application lifespan — Redis init/teardown
+# ---------------------------------------------------------------------------
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):  # type: ignore[type-arg]
+    """Initialise shared resources on startup and clean up on shutdown."""
+    try:
+        from services.redis_client import init_redis  # noqa: PLC0415
+        await init_redis()
+        from services.stats import StatsCollector  # noqa: PLC0415
+        await StatsCollector.set_start_time()
+    except Exception as exc:
+        logger.warning(f"Redis init failed (admin panel will be unavailable): {exc}")
+
+    try:
+        from admin import setup_admin  # noqa: PLC0415
+        await setup_admin(app)
+    except Exception as exc:
+        logger.warning(f"Admin setup failed: {exc}")
+
+    yield
+
+    try:
+        from admin import teardown_admin  # noqa: PLC0415
+        await teardown_admin()
+    except Exception:
+        pass
+
+    try:
+        from services.redis_client import close_redis  # noqa: PLC0415
+        await close_redis()
+    except Exception:
+        pass
+
 
 app = FastAPI(
     title="Marketplace Parsing API",
@@ -25,27 +68,39 @@ app = FastAPI(
     version=settings.get("soft_version", "1.0.0"),
     docs_url="/docs" if settings.get("debug", {}).get("active", False) else None,
     redoc_url="/redoc" if settings.get("debug", {}).get("active", False) else None,
+    lifespan=lifespan,
 )
+
 X_API_KEY = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 parsing_service = ParsingService()
 
 
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    from fastapi.responses import Response  # noqa: PLC0415
+    return Response(status_code=204)
+
+
 @app.get("/", response_model=Dict[str, str])
-async def root():
+async def root() -> Dict[str, str]:
     return {
         "message": "Marketplace Parsing API",
         "documentation": "/docs",
-        "health": "/health"
+        "health": "/health",
     }
 
 
 @app.get("/health", response_model=HealthResponse)
-async def health_check():
+async def health_check() -> HealthResponse:
     return HealthResponse(
         status="healthy",
         uptime=parsing_service.get_uptime(),
-        supported_marketplaces=parsing_service.factory.get_supported_marketplaces()
+        supported_marketplaces=list(CrawlerRegistry.all().keys()),
     )
 
 
@@ -53,32 +108,28 @@ async def verify_api_key(api_key: str = Depends(X_API_KEY)) -> str:
     if not api_key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="API key is required. Add 'X-API-Key' header"
+            detail="API key is required. Add 'X-API-Key' header",
         )
 
     if api_key != settings.get("security", {}).get("api_key"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid API key"
+            detail="Invalid API key",
         )
 
     return api_key
 
 
 @app.post("/parse", response_model=ParseResponse, dependencies=[Depends(verify_api_key)])
-async def parse_product(
-        request: ParseRequest
-):
+async def parse_product(request: ParseRequest) -> ParseResponse:
     start_time = datetime.now()
 
     try:
-        marketplace = parsing_service.factory.detect_marketplace(str(request.url))
+        marketplace = CrawlerRegistry.detect_marketplace(str(request.url))
 
         logger.info(f"Starting parse for {marketplace}: {request.url}")
 
-        product_card = await parsing_service.parse_product(
-            url=str(request.url),
-        )
+        product_card = await parsing_service.parse_product(url=str(request.url))
 
         processing_time = (datetime.now() - start_time).total_seconds()
 
@@ -88,7 +139,7 @@ async def parse_product(
             success=True,
             data=product_card.to_dict(),
             marketplace=marketplace,
-            processing_time=processing_time
+            processing_time=processing_time,
         )
 
     except HTTPException:
@@ -104,41 +155,71 @@ async def parse_product(
             success=False,
             error=str(e),
             marketplace=None,
-            processing_time=processing_time
+            processing_time=processing_time,
         )
 
 
+@app.post(
+    "/parse/batch",
+    response_model=BatchParseResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+async def parse_products_batch(request: BatchParseRequest) -> BatchParseResponse:
+    start_time = datetime.now()
+
+    results = await parsing_service.parse_products_batch(
+        urls=[str(url) for url in request.urls],
+        concurrency=request.concurrency,
+    )
+
+    processing_time = (datetime.now() - start_time).total_seconds()
+    succeeded = sum(1 for r in results if r.success)
+    failed = sum(1 for r in results if not r.success)
+
+    return BatchParseResponse(
+        total=len(results),
+        succeeded=succeeded,
+        failed=failed,
+        processing_time=processing_time,
+        results=results,
+    )
+
+
 @app.get("/marketplaces", response_model=Dict[str, List[str]])
-async def get_supported_marketplaces():
+async def get_supported_marketplaces() -> Dict[str, List[str]]:
     return {
-        "supported_marketplaces": parsing_service.factory.get_supported_marketplaces(),
+        "supported_marketplaces": list(CrawlerRegistry.all().keys()),
         "example_urls": [
             "https://www.wildberries.ru/catalog/17386348/detail.aspx",
             "https://ozon.ru/product/shumin-maska-dlya-sna-chernaya-1563221610",
-            "https://market.yandex.ru/card/espander-dlya-paltsev-ruk-kistevoy-95-kg-s-krepleniyem-na-zapyastye-tsvet---chernyy/103757317666",
-            "https://megamarket.ru/catalog/details/puhovik-detskiy-poivre-blanc-w21-1201-jrgl-2122-mega-pink-128-600011555038"
-        ]
+            "https://market.yandex.ru/card/espander-dlya-paltsev-ruk-kistevoy-95-kg-s-krepleniyem-na-zapyastye-tsvet---chernyy/103757317666",  # noqa: E501
+            "https://megamarket.ru/catalog/details/puhovik-detskiy-poivre-blanc-w21-1201-jrgl-2122-mega-pink-128-600011555038",  # noqa: E501
+        ],
     }
 
 
 @app.get("/parse/detect", response_model=Dict[str, str])
-async def detect_marketplace(url: HttpUrl):
+async def detect_marketplace(url: HttpUrl) -> Dict[str, str]:
     try:
-        marketplace = parsing_service.factory.detect_marketplace(str(url))
+        marketplace = CrawlerRegistry.detect_marketplace(str(url))
         return {
             "url": str(url),
             "marketplace": marketplace,
-            "status": "supported"
+            "status": "supported",
         }
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            detail=str(e),
         )
 
 
+# ---------------------------------------------------------------------------
+# Middleware & error handlers
+# ---------------------------------------------------------------------------
+
 @app.middleware("http")
-async def log_requests(request, call_next):
+async def log_requests(request, call_next):  # type: ignore[no-untyped-def]
     start_time = datetime.now()
 
     logger.debug(f"Incoming request: {request.method} {request.url}")
@@ -146,22 +227,29 @@ async def log_requests(request, call_next):
     response = await call_next(request)
 
     process_time = (datetime.now() - start_time).total_seconds()
-    logger.debug(f"Request completed: {request.method} {request.url} - {response.status_code} - {process_time:.3f}s")
+    logger.debug(
+        f"Request completed: {request.method} {request.url} "
+        f"- {response.status_code} - {process_time:.3f}s"
+    )
 
     return response
 
 
 @app.exception_handler(Exception)
-async def general_exception_handler(request, exc):
+async def general_exception_handler(request, exc):  # type: ignore[no-untyped-def]
     logger.error(f"Unhandled exception for {request.url}: {exc}")
 
     return ParseResponse(
         success=False,
         error="Internal server error occurred",
         marketplace=None,
-        processing_time=0.0
+        processing_time=0.0,
     )
 
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     config = {
@@ -169,11 +257,11 @@ if __name__ == "__main__":
         "port": settings.get("app", {}).get("port", 8000),
         "reload": False,
         "log_level": "debug" if settings.get("debug", {}).get("active", False) else "info",
-        "loop": "asyncio"
+        "loop": "asyncio",
     }
 
     logger.info("Starting Marketplace Parsing API")
-    logger.info(f"Supported marketplaces: {parsing_service.factory.get_supported_marketplaces()}")
+    logger.info(f"Supported marketplaces: {list(CrawlerRegistry.all().keys())}")
 
     if settings.get("debug", {}).get("active", False):
         logger.info(f"Documentation: http://{config['host']}:{config['port']}/docs")

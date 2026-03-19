@@ -1,6 +1,6 @@
 import os
 import sys
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 
 base_path = os.path.dirname(sys.argv[0])
