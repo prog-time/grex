@@ -27,29 +27,23 @@
             <option value="">All</option>
           </select>
         </div>
-        <div class="col-12 col-md-3">
-          <button class="btn btn-outline-secondary w-100" onclick="loadProducts()">Refresh</button>
+        <div class="col-auto">
+          <button class="btn btn-outline-secondary" onclick="loadProducts()">Refresh</button>
         </div>
       </div>
-      <div class="row g-3">
-        <div class="col-12 col-md-3">
-          <div class="d-flex align-items-center gap-2">
-            <div class="dropdown">
-              <button class="btn btn-outline-success dropdown-toggle" type="button" data-bs-toggle="dropdown">
-                Export
-              </button>
-              <div class="dropdown-menu">
-                <a class="dropdown-item" href="#" onclick="exportProducts('csv');return false;">CSV (Excel)</a>
-                <a class="dropdown-item" href="#" onclick="exportProducts('xlsx');return false;">XLSX</a>
-                <a class="dropdown-item" href="#" onclick="exportProducts('json');return false;">JSON</a>
-              </div>
-            </div>
-            <span id="selectionCount" class="text-muted small"></span>
+      <div class="d-flex align-items-center gap-2">
+        <div class="dropdown">
+          <button class="btn btn-outline-success dropdown-toggle" type="button" data-bs-toggle="dropdown">
+            Export
+          </button>
+          <div class="dropdown-menu">
+            <a class="dropdown-item" href="#" onclick="exportProducts('csv');return false;">CSV (Excel)</a>
+            <a class="dropdown-item" href="#" onclick="exportProducts('xlsx');return false;">XLSX</a>
+            <a class="dropdown-item" href="#" onclick="exportProducts('json');return false;">JSON</a>
           </div>
         </div>
-        <div class="col-12 col-md-3">
-          <button class="btn btn-outline-danger w-100" onclick="clearAll()">Clear all</button>
-        </div>
+        <button class="btn btn-outline-danger" onclick="clearAll()">Clear all</button>
+        <span id="selectionCount" class="text-muted small"></span>
       </div>
     </div>
   </div>

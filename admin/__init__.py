@@ -7,7 +7,7 @@ from starlette.middleware import Middleware
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
-from starlette_admin import CustomView
+from starlette_admin import CustomView, DropDown
 from starlette_admin.auth import AdminUser, AuthProvider
 from starlette_admin.contrib.sqla import Admin, ModelView
 from starlette_admin.exceptions import FormValidationError
@@ -84,26 +84,6 @@ class JobView(ModelView):
     column_filters_list = [Job.marketplace, Job.status]
 
 
-class DashboardView(CustomView):
-    async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
-        try:
-            from services.stats import StatsCollector  # noqa: PLC0415
-            stats = await StatsCollector.get_summary()
-            uptime_s = await StatsCollector.get_uptime()
-        except Exception:  # noqa: BLE001
-            stats = {"total_parsed": 0, "total_failed": 0, "avg_processing_time": 0.0, "by_marketplace": {}}
-            uptime_s = 0.0
-
-        hours, rem = divmod(int(uptime_s), 3600)
-        minutes, seconds = divmod(rem, 60)
-        uptime_str = f"{hours}h {minutes}m {seconds}s"
-
-        return templates.TemplateResponse(
-            "dashboard.html",
-            {"request": request, "stats": stats, "uptime": uptime_str},
-        )
-
-
 class SourcesView(CustomView):
     async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
         from crawlers.registry import CrawlerRegistry  # noqa: PLC0415
@@ -151,11 +131,6 @@ class ProxiesView(CustomView):
         )
 
 
-class LogsView(CustomView):
-    async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
-        return templates.TemplateResponse("logs.html", {"request": request})
-
-
 class TargetsView(CustomView):
     async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
         return templates.TemplateResponse("targets.html", {"request": request})
@@ -169,6 +144,11 @@ class LinksView(CustomView):
 class ProductsView(CustomView):
     async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
         return templates.TemplateResponse("products.html", {"request": request})
+
+
+class UsersView(CustomView):
+    async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
+        return templates.TemplateResponse("users.html", {"request": request})
 
 
 # ---------------------------------------------------------------------------
@@ -199,53 +179,55 @@ async def setup_admin(app: FastAPI) -> None:
         middlewares=[Middleware(SessionMiddleware, secret_key=secret_key)],
     )
 
-    admin.add_view(DashboardView(
-        "Dashboard", icon="fa fa-tachometer-alt",
-        path="/dashboard", template_path="dashboard.html", name="dashboard",
-    ))
-    admin.add_view(JobView(Job, icon="fa fa-list"))
-    admin.add_view(SourcesView(
-        "Sources", icon="fa fa-cogs",
-        path="/sources", template_path="sources.html", name="sources",
-    ))
-    admin.add_view(ProxiesView(
-        "Proxies", icon="fa fa-shield",
-        path="/proxies", template_path="proxies.html", name="proxies",
-    ))
-    admin.add_view(LogsView(
-        "Logs", icon="fa fa-file-text",
-        path="/logs", template_path="logs.html", name="logs",
-    ))
     admin.add_view(TargetsView(
         "Targets", icon="fa fa-crosshairs",
         path="/targets", template_path="targets.html", name="targets",
     ))
     admin.add_view(LinksView(
-        "Выгрузка ссылок", icon="fa fa-link",
+        "Link Extractor", icon="fa fa-link",
         path="/links", template_path="links.html", name="links",
     ))
     admin.add_view(ProductsView(
-        "Товары", icon="fa fa-shopping-cart",
+        "Products", icon="fa fa-shopping-cart",
         path="/products", template_path="products.html", name="products",
+    ))
+    admin.add_view(JobView(Job, icon="fa fa-list"))
+    admin.add_view(DropDown(
+        "Settings",
+        icon="fa fa-sliders",
+        views=[
+            SourcesView(
+                "Sources", icon="fa fa-cogs",
+                path="/sources", template_path="sources.html", name="sources",
+            ),
+            ProxiesView(
+                "Proxies", icon="fa fa-shield",
+                path="/proxies", template_path="proxies.html", name="proxies",
+            ),
+            UsersView(
+                "Users", icon="fa fa-users",
+                path="/users", template_path="users.html", name="users",
+            ),
+        ],
     ))
 
     # Register all auxiliary API routes BEFORE mounting starlette-admin so that
     # FastAPI's exact Route entries take priority over the admin Mount prefix.
     from admin.resources.sources import register_sources_routes  # noqa: PLC0415
     from admin.resources.proxies import register_proxies_routes  # noqa: PLC0415
-    from admin.resources.logs import register_logs_routes  # noqa: PLC0415
     from admin.resources.jobs import register_jobs_routes  # noqa: PLC0415
     from admin.resources.targets import register_targets_routes  # noqa: PLC0415
     from admin.resources.links import register_links_routes  # noqa: PLC0415
     from admin.resources.products import register_products_routes  # noqa: PLC0415
+    from admin.resources.users import register_users_routes  # noqa: PLC0415
 
     register_sources_routes(app)
     register_proxies_routes(app)
-    register_logs_routes(app)
     register_jobs_routes(app)
     register_targets_routes(app)
     register_links_routes(app)
     register_products_routes(app)
+    register_users_routes(app)
 
     # Stats reset endpoint
     from fastapi.responses import JSONResponse  # noqa: PLC0415

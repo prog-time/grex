@@ -35,6 +35,8 @@ async def init_redis() -> None:
         db=db,
         password=password,
         decode_responses=True,
+        socket_connect_timeout=2,
+        socket_timeout=2,
     )
     logger.info(f"Redis client initialised: {host}:{port}/{db}")
 
