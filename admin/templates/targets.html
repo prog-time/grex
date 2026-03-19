@@ -46,12 +46,12 @@
     <div id="tab-file" class="card-body" style="display:none;">
       <div class="row g-3 mb-3">
         <div class="col-12 col-md-8">
-          <label class="form-label">CSV или Excel файл <span class="text-danger">*</span></label>
-          <input id="fFile" type="file" class="form-control" accept=".csv,.xlsx"
+          <label class="form-label">Файл со ссылками <span class="text-danger">*</span></label>
+          <input id="fFile" type="file" class="form-control" accept=".txt,.csv,.xlsx"
                  onchange="onFileSelected(this)">
           <div class="form-hint">
-            Поддерживаются форматы <strong>.csv</strong> и <strong>.xlsx</strong>.
-            Ссылки ищутся по всем столбцам — достаточно, чтобы хотя бы один содержал URL.
+            Поддерживаются форматы <strong>.txt</strong>, <strong>.csv</strong> и <strong>.xlsx</strong>.
+            Ссылки ищутся по всем строкам/столбцам — достаточно, чтобы хотя бы одна содержала URL.
           </div>
         </div>
       </div>

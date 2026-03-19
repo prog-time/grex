@@ -109,9 +109,19 @@ class TargetsRouter:
                     seen.add(v)
                     urls.append(v)
 
-            if filename.endswith(".csv"):
+            if filename.endswith(".txt"):
                 text = content.decode("utf-8-sig", errors="replace")
-                reader = csv.reader(io.StringIO(text))
+                for line in text.splitlines():
+                    collect(line.strip())
+
+            elif filename.endswith(".csv"):
+                text = content.decode("utf-8-sig", errors="replace")
+                sample = text[:4096]
+                try:
+                    dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+                except csv.Error:
+                    dialect = csv.excel  # fallback: comma
+                reader = csv.reader(io.StringIO(text), dialect=dialect)
                 for row in reader:
                     for cell in row:
                         collect(cell)
@@ -128,7 +138,7 @@ class TargetsRouter:
 
             else:
                 return JSONResponse(
-                    {"error": "Поддерживаются только .csv и .xlsx файлы"},
+                    {"error": "Поддерживаются только .txt, .csv и .xlsx файлы"},
                     status_code=422,
                 )
 
