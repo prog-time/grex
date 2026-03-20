@@ -29,7 +29,7 @@ import uuid
 from pathlib import Path
 
 # Must match _SECRET in checker.py — change both at the same time.
-_SECRET = "mp-parser-secret-CHANGE-ME-2024"
+_SECRET = "KBSox0KKob3hiCwAkdWfBzdYFRS8gIeFvWrO8dn5ipvttuW0jSdaxT3BlmmmFDHZ"
 
 
 def _compute_sig(data: dict) -> str:

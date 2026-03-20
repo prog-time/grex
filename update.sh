@@ -2,7 +2,7 @@
 set -e
 
 # ── Настройки ─────────────────────────────────────────────────────────────────
-GITHUB_REPO="YOUR_ORG/YOUR_REPO"   # <-- замените на ваш GitHub репо
+GITHUB_REPO="prog-time/grex"   # <-- замените на ваш GitHub репо
 INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
 TMP_DIR="$(mktemp -d)"
 

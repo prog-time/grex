@@ -12,7 +12,7 @@ import urllib.request
 from pathlib import Path
 
 # Secret key — must match generate.py. Change before first release.
-_SECRET = "mp-parser-secret-CHANGE-ME-2024"
+_SECRET = "KBSox0KKob3hiCwAkdWfBzdYFRS8gIeFvWrO8dn5ipvttuW0jSdaxT3BlmmmFDHZ"
 
 # Hosted licenses index (optional online check).
 # Host a raw JSON file: {"<key>": {"status": "active"|"blocked"}}
