@@ -16,7 +16,7 @@ _SECRET = "KBSox0KKob3hiCwAkdWfBzdYFRS8gIeFvWrO8dn5ipvttuW0jSdaxT3BlmmmFDHZ"
 
 # Hosted licenses index — required (app always has internet).
 # Format: {"<key>": {"status": "active"|"blocked"|"pending", "updates_until": "YYYY-MM-DD"}}
-_ONLINE_CHECK_URL = "https://raw.githubusercontent.com/prog-time/grex/main/licenses.json"
+_ONLINE_CHECK_URL = "https://raw.githubusercontent.com/prog-time/licenses/main/grex/licenses.json"
 
 _LICENSE_PATH = Path("license.json")
 
