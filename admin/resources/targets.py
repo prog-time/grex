@@ -496,6 +496,30 @@ class TargetsRouter:
             return JSONResponse({"error": str(exc)}, status_code=500)
 
     @staticmethod
+    async def get_active_session(request: Request) -> JSONResponse:
+        """Return the most recent pending/running ParseSession, or null."""
+        try:
+            from models.job import async_session  # noqa: PLC0415
+            from models.parsed_product import ParseSession  # noqa: PLC0415
+            from sqlalchemy import select  # noqa: PLC0415
+
+            if async_session is None:
+                return JSONResponse({"session": None})
+
+            async with async_session() as session:
+                row = (await session.execute(
+                    select(ParseSession)
+                    .where(ParseSession.status.in_(["pending", "running"]))
+                    .order_by(ParseSession.started_at.desc())
+                    .limit(1)
+                )).scalar_one_or_none()
+
+            return JSONResponse({"session": row.to_dict() if row else None})
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"get_active_session failed: {exc}")
+            return JSONResponse({"session": None})
+
+    @staticmethod
     async def get_session_status(session_id: str, request: Request) -> JSONResponse:
         """Return current status of a ParseSession."""
         try:
@@ -568,6 +592,12 @@ def register_targets_routes(app) -> None:  # type: ignore[no-untyped-def]
         "/admin/targets/run-all",
         router.run_all_targets,
         methods=["POST"],
+        tags=["admin"],
+    )
+    app.add_api_route(
+        "/admin/targets/active-session",
+        router.get_active_session,
+        methods=["GET"],
         tags=["admin"],
     )
     app.add_api_route(

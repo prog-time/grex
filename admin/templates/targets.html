@@ -96,6 +96,12 @@
       <h3 class="card-title">Saved targets</h3>
       <div class="card-options d-flex align-items-center gap-2">
         <span class="text-muted small" id="targetsCount"></span>
+        <select class="form-select form-select-sm w-auto" id="targetsPerPage" onchange="setPerPage(this.value)">
+          <option value="10">10</option>
+          <option value="25" selected>25</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
         <div id="runAllProgress" style="display:none;" class="d-flex align-items-center gap-2">
           <div class="spinner-border spinner-border-sm text-success" role="status"></div>
           <span id="runAllProgressText" class="text-muted small">Starting…</span>
@@ -120,6 +126,7 @@
         </tbody>
       </table>
     </div>
+    <div class="card-footer d-flex align-items-center" id="targetsPager"></div>
   </div>
 </div>
 
@@ -325,27 +332,51 @@ function showFileError(msg) {
 
 // ── Load and render list ──────────────────────────────────────────
 
+var _allTargets = [];
+var _currentPage = 1;
+var _perPage = 25;
+
 async function loadTargets() {
   try {
     var res  = await fetch('/admin/targets/api');
     if (!res.ok) return;
     var data = await res.json();
-    renderTargets(data.targets || []);
+    _allTargets = data.targets || [];
+    _currentPage = 1;
+    renderTargets();
   } catch (e) {
     console.warn('Could not load targets:', e);
   }
 }
 
-function renderTargets(targets) {
-  var tbody = document.getElementById('targetsBody');
-  document.getElementById('targetsCount').textContent = targets.length + ' targets';
+function setPerPage(val) {
+  _perPage = parseInt(val) || 25;
+  _currentPage = 1;
+  renderTargets();
+}
 
-  if (!targets.length) {
+function goToTargetPage(p) {
+  var totalPages = Math.max(1, Math.ceil(_allTargets.length / _perPage));
+  _currentPage = Math.max(1, Math.min(p, totalPages));
+  renderTargets();
+}
+
+function renderTargets() {
+  var total = _allTargets.length;
+  var totalPages = Math.max(1, Math.ceil(total / _perPage));
+  var start = (_currentPage - 1) * _perPage;
+  var page  = _allTargets.slice(start, start + _perPage);
+
+  document.getElementById('targetsCount').textContent = total + ' targets';
+  var tbody = document.getElementById('targetsBody');
+
+  if (!page.length) {
     tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center py-3">No targets yet.</td></tr>';
+    document.getElementById('targetsPager').innerHTML = '';
     return;
   }
 
-  tbody.innerHTML = targets.map(function(t) {
+  tbody.innerHTML = page.map(function(t) {
     var statusBadge = t.enabled
       ? '<span class="badge bg-success text-white">Enabled</span>'
       : '<span class="badge bg-secondary text-white">Disabled</span>';
@@ -369,6 +400,12 @@ function renderTargets(targets) {
       + ' onclick="deleteTarget(\'' + t.id + '\')">Delete</button>'
       + '</td></tr>';
   }).join('');
+
+  var from = total ? start + 1 : 0;
+  var to   = Math.min(start + _perPage, total);
+  document.getElementById('targetsPager').innerHTML =
+    '<p class="m-0 text-secondary">Showing ' + from + '–' + to + ' of ' + total + '</p>'
+    + buildPagination(_currentPage, totalPages, 'goToTargetPage');
 }
 
 function esc(s) {
@@ -448,11 +485,36 @@ function renderDataTable(data, url) {
 var _runAllSessionId = null;
 var _runAllPollTimer = null;
 
+// Check on page load if a parse session is already running
+async function checkActiveSession() {
+  try {
+    var res = await fetch('/admin/targets/active-session');
+    if (!res.ok) return;
+    var data = await res.json();
+    if (data.session && data.session.status && ['pending', 'running'].includes(data.session.status)) {
+      _runAllSessionId = data.session.id;
+      var done = (data.session.succeeded || 0) + (data.session.failed || 0);
+      document.getElementById('runAllProgressText').textContent =
+        'Processing ' + done + ' / ' + (data.session.total || '?') + '…';
+      var btn = document.getElementById('btnRunAll');
+      btn.disabled = true;
+      btn.textContent = 'Running…';
+      document.getElementById('runAllProgress').style.display = '';
+      _runAllPollTimer = setInterval(pollRunAllStatus, 2000);
+    }
+  } catch(e) {
+    console.warn('checkActiveSession error:', e);
+  }
+}
+
 async function runAll() {
+  if (_runAllSessionId) return; // already running
+
   var btn = document.getElementById('btnRunAll');
   btn.disabled = true;
   btn.textContent = 'Starting…';
   document.getElementById('runAllProgress').style.display = '';
+  document.getElementById('runAllProgressText').textContent = 'Starting…';
 
   try {
     var res = await fetch('/admin/targets/run-all', {
@@ -461,11 +523,11 @@ async function runAll() {
       body: '{}',
     });
     var data = res.ok ? await res.json() : {error: 'HTTP ' + res.status};
-    if (data.error) { alert('Error: ' + data.error); return; }
+    if (data.error) { alert('Error: ' + data.error); resetRunAllUI(); return; }
 
     if (!data.session_id) {
-      // No targets
       alert(data.message || 'No active targets found.');
+      resetRunAllUI();
       return;
     }
 
@@ -504,6 +566,7 @@ async function pollRunAllStatus() {
 }
 
 function resetRunAllUI() {
+  if (_runAllPollTimer) { clearInterval(_runAllPollTimer); _runAllPollTimer = null; }
   var btn = document.getElementById('btnRunAll');
   btn.disabled = false;
   btn.textContent = 'Run all';
@@ -544,7 +607,31 @@ async function deleteTarget(id) {
   await loadTargets();
 }
 
+function buildPagination(current, totalPages, goFn) {
+  if (totalPages <= 1) return '';
+  var items = [];
+  var s = Math.max(1, current - 2), e = Math.min(totalPages, current + 2);
+  if (s > 1) { items.push(1); if (s > 2) items.push('…'); }
+  for (var i = s; i <= e; i++) items.push(i);
+  if (e < totalPages) { if (e < totalPages - 1) items.push('…'); items.push(totalPages); }
+  var html = '<ul class="pagination m-0 ms-auto">';
+  html += '<li class="page-item' + (current === 1 ? ' disabled' : '') + '">'
+    + '<a class="page-link" href="#" onclick="' + goFn + '(' + (current - 1) + ');return false;">‹</a></li>';
+  items.forEach(function(p) {
+    if (p === '…') {
+      html += '<li class="page-item disabled"><span class="page-link">…</span></li>';
+    } else {
+      html += '<li class="page-item' + (p === current ? ' active' : '') + '">'
+        + '<a class="page-link" href="#" onclick="' + goFn + '(' + p + ');return false;">' + p + '</a></li>';
+    }
+  });
+  html += '<li class="page-item' + (current === totalPages ? ' disabled' : '') + '">'
+    + '<a class="page-link" href="#" onclick="' + goFn + '(' + (current + 1) + ');return false;">›</a></li>';
+  return html + '</ul>';
+}
+
 // ── Init ──────────────────────────────────────────────────────────────
 loadTargets();
+checkActiveSession();
 </script>
 {% endblock %}
