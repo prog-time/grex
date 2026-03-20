@@ -21,9 +21,11 @@ from models import (
 from crawlers.registry import CrawlerRegistry
 from services import ParsingService
 from utils.logger import setup_logger
+from licensing import check_license
 
 
 setup_logger()
+check_license()
 
 
 # ---------------------------------------------------------------------------
