@@ -50,19 +50,7 @@ def check_license() -> dict:
     if not hmac.compare_digest(_compute_sig(lic), lic["sig"]):
         _abort("Лицензия повреждена или изменена вручную. Обратитесь к поставщику.")
 
-    # 2. Expiry date
-    try:
-        expires = datetime.date.fromisoformat(lic["expires_at"])
-    except ValueError:
-        _abort("Некорректный формат даты expires_at в license.json (ожидается YYYY-MM-DD).")
-
-    if datetime.date.today() > expires:
-        _abort(
-            f"Срок действия лицензии истёк {lic['expires_at']}. "
-            "Продлите лицензию или обратитесь к поставщику."
-        )
-
-    # 3. Server binding
+    # 2. Server binding
     current = socket.gethostname()
     if current != lic["server_id"]:
         _abort(
