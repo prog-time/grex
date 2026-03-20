@@ -6,89 +6,109 @@ from __future__ import annotations
 import json
 import hmac
 import hashlib
-import socket
+import uuid
 import datetime
 import urllib.request
 from pathlib import Path
 
-# Secret key — must match generate.py. Change before first release.
+# Must match register.py — never change after first release.
 _SECRET = "KBSox0KKob3hiCwAkdWfBzdYFRS8gIeFvWrO8dn5ipvttuW0jSdaxT3BlmmmFDHZ"
 
-# Hosted licenses index (optional online check).
-# Host a raw JSON file: {"<key>": {"status": "active"|"blocked"}}
-_ONLINE_CHECK_URL = ""  # e.g. "https://raw.githubusercontent.com/YOUR_ORG/YOUR_REPO/main/licenses.json"
+# Hosted licenses index — required (app always has internet).
+# Format: {"<key>": {"status": "active"|"blocked"|"pending", "updates_until": "YYYY-MM-DD"}}
+_ONLINE_CHECK_URL = "https://raw.githubusercontent.com/prog-time/grex/main/licenses.json"
 
 _LICENSE_PATH = Path("license.json")
 
 
-def _compute_sig(data: dict) -> str:
-    payload = "|".join([
-        data["key"],
-        data["expires_at"],
-        data["updates_until"],
-        data["server_id"],
-    ])
-    return hmac.new(_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
+def _get_mac() -> str:
+    mac_int = uuid.getnode()
+    return ":".join(f"{(mac_int >> i) & 0xff:02x}" for i in range(40, -1, -8))
+
+
+def _compute_key(mac: str) -> str:
+    return hmac.new(_SECRET.encode(), mac.encode(), hashlib.sha256).hexdigest()
+
+
+def _read_license_file() -> dict:
+    if not _LICENSE_PATH.exists():
+        _abort(
+            "Файл license.json не найден.\n"
+            "  ║  Запустите: python register.py"
+        )
+    try:
+        return json.loads(_LICENSE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        _abort("Файл license.json повреждён или содержит некорректный JSON.")
+
+
+def _fetch_license_entry(key: str) -> dict:
+    try:
+        with urllib.request.urlopen(_ONLINE_CHECK_URL, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+        return data.get(key)
+    except Exception:
+        _abort(
+            "Не удалось проверить лицензию онлайн.\n"
+            "  ║  Проверьте интернет-соединение и повторите попытку."
+        )
 
 
 def check_license() -> dict:
     """Run all license checks. Calls SystemExit(1) on any failure."""
 
-    if not _LICENSE_PATH.exists():
-        _abort("Файл license.json не найден. Обратитесь к поставщику.")
+    # 1. Read local license.json
+    lic = _read_license_file()
 
-    try:
-        lic = json.loads(_LICENSE_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        _abort("Файл license.json повреждён или содержит некорректный JSON.")
-
-    for field in ("key", "expires_at", "updates_until", "server_id", "sig"):
-        if field not in lic:
-            _abort(f"Файл license.json неполный: отсутствует поле '{field}'.")
-
-    # 1. Signature integrity (prevents manual editing)
-    if not hmac.compare_digest(_compute_sig(lic), lic["sig"]):
-        _abort("Лицензия повреждена или изменена вручную. Обратитесь к поставщику.")
-
-    # 2. Server binding
-    current = socket.gethostname()
-    if current != lic["server_id"]:
+    if "key" not in lic:
         _abort(
-            f"Лицензия выдана для сервера '{lic['server_id']}', "
-            f"текущий хост: '{current}'. "
-            "Обратитесь к поставщику для переноса лицензии."
+            "Файл license.json неполный: отсутствует поле 'key'.\n"
+            "  ║  Запустите: python register.py"
         )
 
-    # 4. Online block-list (non-fatal if offline)
-    if _ONLINE_CHECK_URL:
-        _check_online(lic["key"])
+    # 2. Verify key matches this machine's MAC (prevents copying license to another machine)
+    mac = _get_mac()
+    expected_key = _compute_key(mac)
+    if not hmac.compare_digest(expected_key, lic["key"]):
+        _abort(
+            "Лицензия выдана для другого устройства.\n"
+            "  ║  Обратитесь к поставщику для переноса лицензии."
+        )
 
-    return lic
+    # 3. Online activation check (mandatory — app requires internet)
+    entry = _fetch_license_entry(lic["key"])
+
+    if entry is None:
+        _abort(
+            "Лицензия ещё не активирована.\n"
+            "  ║  Запустите python register.py и отправьте ключ разработчику."
+        )
+
+    status = entry.get("status")
+
+    if status == "blocked":
+        _abort("Лицензия заблокирована. Обратитесь к поставщику.")
+
+    if status != "active":
+        _abort(
+            f"Лицензия не активна (статус: {status}).\n"
+            "  ║  Обратитесь к поставщику."
+        )
+
+    return {**lic, **entry}
 
 
 def check_updates_allowed() -> bool:
     """Returns True if the updates subscription is still active."""
     try:
-        lic = json.loads(_LICENSE_PATH.read_text(encoding="utf-8"))
-        until = datetime.date.fromisoformat(lic["updates_until"])
+        lic = _read_license_file()
+        entry = _fetch_license_entry(lic["key"])
+        if not entry:
+            return False
+        until = datetime.date.fromisoformat(entry["updates_until"])
         return datetime.date.today() <= until
     except Exception:
         return False
-
-
-def _check_online(key: str) -> None:
-    try:
-        with urllib.request.urlopen(_ONLINE_CHECK_URL, timeout=4) as resp:
-            data = json.loads(resp.read().decode())
-        entry = data.get(key)
-        if entry is None:
-            return  # unknown key — allow (key not yet in the list)
-        if entry.get("status") == "blocked":
-            _abort("Лицензия заблокирована. Обратитесь к поставщику.")
-    except SystemExit:
-        raise
-    except Exception:
-        pass  # offline / unreachable — fall back to local check only
 
 
 def _abort(message: str) -> None:

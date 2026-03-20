@@ -4,112 +4,172 @@
 
 ---
 
-## Структура системы
+## Как работает система
 
 ```
-licensing/
-├── checker.py      — проверка лицензии при запуске (обфусцируется в релизе)
-├── generate.py     — генератор лицензий (только на машине разработчика!)
-└── __init__.py
+Клиент запускает register.py
+  → ключ = HMAC(MAC-адрес, SECRET)
+  → сохраняется в license.json
+  → клиент присылает ключ тебе
 
-license.json        — лицензия клиента (не коммитится в git)
-license.json.example — пример формата
-update.sh           — скрипт обновления (запускается у клиента)
-Makefile            — сборка релиза
+Ты добавляешь ключ в licenses.json на GitHub
+  → python licensing/generate.py activate --key "..." --customer "..." --updates-until "..."
+  → git commit + git push
+
+При каждом запуске приложение:
+  1. Вычисляет HMAC(MAC) и сравнивает с ключом в license.json
+     → если не совпадает — license.json скопирован на чужую машину, стоп
+  2. Скачивает licenses.json с GitHub, проверяет статус ключа
+     → pending / blocked → стоп
+     → active → запуск
+```
+
+**Ключ криптографически привязан к MAC-адресу.** Скопировать `license.json` на другую машину бесполезно — проверка не пройдёт.
+
+---
+
+## Структура файлов
+
+```
+register.py              — клиент запускает один раз для регистрации
+license.json             — генерируется register.py, не трогать вручную
+licenses.json            — твой файл на GitHub, список активных ключей
+licensing/
+├── checker.py           — проверка при запуске (обфусцируется)
+├── generate.py          — управление licenses.json (только у тебя!)
+└── __init__.py
+update.sh                — обновление у клиента
+Makefile                 — сборка релиза
 ```
 
 ---
 
 ## Перед первым релизом (один раз)
 
-### 1. Задай секретный ключ подписи
-
-Одинаковое значение в обоих файлах:
+### 1. Убедись что _SECRET одинаковый в обоих файлах
 
 ```python
-# licensing/checker.py  — строка _SECRET
-# licensing/generate.py — строка _SECRET
-_SECRET = "придумай-свою-строку-минимум-32-символа"
+# register.py          — строка _SECRET
+# licensing/checker.py — строка _SECRET
+_SECRET = "одно-и-то-же-значение"
 ```
 
-> Не меняй `_SECRET` после первого релиза — все выданные лицензии перестанут работать.
+> Не меняй `_SECRET` после первого релиза — все выданные ключи перестанут работать.
 
-### 2. Укажи свой GitHub репозиторий
+### 2. Укажи URL до своего licenses.json
+
+```python
+# licensing/checker.py
+_ONLINE_CHECK_URL = "https://raw.githubusercontent.com/prog-time/grex/main/licenses.json"
+```
+
+### 3. Создай пустой licenses.json в репозитории
+
+```json
+{}
+```
+
+### 4. Укажи репозиторий в update.sh
 
 ```bash
-# update.sh — строка GITHUB_REPO
-GITHUB_REPO="твой-логин/твой-репозиторий"
-```
-
-### 3. (Опционально) Онлайн-блокировка
-
-Если нужна возможность дистанционно блокировать лицензии:
-
-```python
-# licensing/checker.py — строка _ONLINE_CHECK_URL
-_ONLINE_CHECK_URL = "https://raw.githubusercontent.com/твой-логин/твой-репо/main/licenses.json"
-```
-
-Формат файла `licenses.json` в репозитории:
-```json
-{
-  "uuid-ключ-клиента": { "status": "active" },
-  "uuid-ключ-другого": { "status": "blocked" }
-}
+GITHUB_REPO="prog-time/grex"
 ```
 
 ---
 
 ## Продажа нового клиента
 
-### Шаг 1. Узнай hostname сервера
-
-Попроси клиента выполнить в терминале:
+### Шаг 1. Клиент запускает регистрацию
 
 ```bash
-hostname
+python register.py
 ```
 
-### Шаг 2. Сгенерируй лицензию
+Выводит ключ вида:
+```
+  Ваш ключ активации:
+
+      a3f9c2d1e8b4...7f2e1a0b9c3d
+```
+
+Клиент присылает тебе этот ключ.
+
+### Шаг 2. Активируешь ключ
 
 ```bash
-python licensing/generate.py \
+python licensing/generate.py activate \
+  --key "a3f9c2d1e8b4...7f2e1a0b9c3d" \
   --customer "ООО Ромашка" \
-  --server-id "ubuntu-vps-01" \
-  --expires-at "2030-01-01" \
-  --updates-until "2026-03-20"
+  --updates-until "2027-03-21"
 ```
 
-| Параметр | Описание |
-|----------|----------|
-| `--customer` | Название клиента (для твоего учёта) |
-| `--server-id` | Hostname сервера клиента (`hostname`) |
-| `--expires-at` | Дата истечения лицензии |
-| `--updates-until` | Дата окончания подписки на обновления |
-| `--output` | Путь к файлу (по умолчанию `license_<customer>.json`) |
+### Шаг 3. Публикуешь изменения
 
-Создастся файл `license_ООО_Ромашка.json`. Переименуй в `license.json` и отправь клиенту.
-
-### Шаг 3. Клиент кладёт файл в корень проекта
-
-```
-parser_python/
-└── license.json    ← сюда
+```bash
+git add licenses.json
+git commit -m "activate: ООО Ромашка"
+git push
 ```
 
-После этого `./start.sh` запустится без ошибок.
+Через ~1 минуту (GitHub CDN) клиент может запускать `./start.sh`.
 
 ---
 
-## Продление лицензии / подписки
+## Управление лицензиями
 
-Сгенерируй новый `license.json` с обновлёнными датами — процедура та же, что при продаже. Отправь клиенту, он заменяет файл.
+```bash
+# Посмотреть все лицензии
+python licensing/generate.py list
+
+# Заблокировать клиента
+python licensing/generate.py block --key "a3f9c2d1e8b4..."
+git add licenses.json && git commit -m "block: ООО Ромашка" && git push
+
+# Продлить подписку на обновления — повторная активация с новой датой
+python licensing/generate.py activate \
+  --key "a3f9c2d1e8b4..." \
+  --customer "ООО Ромашка" \
+  --updates-until "2028-03-21"
+git add licenses.json && git commit -m "renew: ООО Ромашка" && git push
+```
 
 ---
 
-## Перенос на другой сервер
+## Формат licenses.json
 
-Сгенерируй новую лицензию с новым `--server-id`. Старая автоматически перестанет работать на старом сервере.
+```json
+{
+  "a3f9c2d1e8b4...": {
+    "status": "active",
+    "customer": "ООО Ромашка",
+    "updates_until": "2027-03-21"
+  },
+  "b7e1f3a2c9d5...": {
+    "status": "blocked",
+    "customer": "ИП Иванов",
+    "updates_until": "2026-12-31"
+  }
+}
+```
+
+| Статус | Поведение |
+|--------|-----------|
+| `active` | Приложение запускается |
+| `blocked` | Приложение не запускается |
+| `pending` / отсутствует | Приложение не запускается, просит прислать ключ |
+
+---
+
+## Проверки при запуске
+
+| # | Проверка | Блокирует запуск | Блокирует обновления |
+|---|----------|:---:|:---:|
+| 1 | Файл `license.json` существует | Да | Да |
+| 2 | Ключ соответствует MAC этой машины | Да | — |
+| 3 | Ключ найден в `licenses.json` со статусом `active` | Да | — |
+| 4 | `updates_until` не истёк | Нет | Да |
+
+> После истечения `updates_until` приложение продолжает работать — клиент не может скачать обновления до продления подписки.
 
 ---
 
@@ -128,12 +188,12 @@ soft_version: "1.1.0"
 make release VERSION=1.1.0
 ```
 
-Команда выполняет:
+Команда:
 1. Удаляет старый `dist/`
 2. Обфусцирует `crawlers/`, `services/`, `licensing/checker.py` через PyArmor
-3. Копирует остальные файлы без изменений (`api.py`, `start.sh`, `update.sh` и др.)
+3. Копирует остальные файлы (`api.py`, `register.py`, `start.sh`, `update.sh` и др.)
 4. `licensing/generate.py` **не попадает** в архив
-5. Упаковывает всё в `release-v1.1.0.tar.gz`
+5. Упаковывает в `release-v1.1.0.tar.gz`
 
 > Если PyArmor не установлен: `pip install pyarmor`
 
@@ -151,60 +211,35 @@ gh release create v1.1.0 release-v1.1.0.tar.gz \
 ./update.sh
 ```
 
-Скрипт автоматически:
-- Проверяет лицензию и подписку на обновления
-- Создаёт бэкап текущей версии в `backups/`
-- Скачивает архив с GitHub
-- Применяет обновление, не трогая `data/`, `.venv/`, `license.json`
-- Обновляет зависимости
-
 ---
 
 ## Что обфусцируется, что нет
 
 | Файл / папка | В релизе | Причина |
 |---|---|---|
-| `crawlers/` | Обфусцирован | Ценная бизнес-логика |
-| `services/` | Обфусцирован | Ценная бизнес-логика |
-| `licensing/checker.py` | Обфусцирован | Скрывает `_SECRET` и логику проверки |
+| `crawlers/` | Обфусцирован | Бизнес-логика |
+| `services/` | Обфусцирован | Бизнес-логика |
+| `licensing/checker.py` | Обфусцирован | Скрывает `_SECRET` |
+| `register.py` | Обфусцирован | Скрывает `_SECRET` |
 | `licensing/generate.py` | **Не входит** | Только для разработчика |
 | `api.py`, `config.py` | Как есть | Нужны для диагностики |
-| `models/`, `core/`, `utils/`, `admin/` | Как есть | Не содержат секретов |
-| `start.sh`, `update.sh` | Как есть | Должны быть читаемы клиентом |
-| `data/settings.yml` | Как есть | Конфиг клиента |
-
----
-
-## Проверки при запуске
-
-При каждом `./start.sh` и старте `api.py` выполняются:
-
-| # | Проверка | Блокирует запуск | Блокирует обновления |
-|---|----------|-----------------|----------------------|
-| 1 | Файл `license.json` существует | Да | Да |
-| 2 | HMAC-подпись не нарушена | Да | Да |
-| 3 | `server_id` совпадает с `hostname` | Да | — |
-| 4 | `updates_until` не истёк | Нет | Да |
-| 5 | Онлайн-статус не `blocked` (если настроен URL) | Да | — |
-
-Проверки 1–4 работают полностью офлайн. Проверка 5 не блокирует запуск при недоступности сети.
-
-> После истечения `updates_until` приложение продолжает работать — клиент просто не может получить обновления до продления подписки.
+| `start.sh`, `update.sh` | Как есть | Должны быть читаемы |
 
 ---
 
 ## Разработка на своей машине
 
 ```bash
-# Создать тестовую лицензию для локального запуска
-python licensing/generate.py \
-  --customer "Dev" \
-  --server-id "$(hostname)" \
-  --expires-at "2030-01-01" \
-  --updates-until "2030-01-01" \
-  --output license.json
+# Зарегистрировать свою машину
+python register.py
 
-# Запустить
+# Добавить себя в licenses.json
+python licensing/generate.py activate \
+  --key "$(python -c "import json; print(json.load(open('license.json'))['key'])")" \
+  --customer "Dev" \
+  --updates-until "2030-01-01"
+
+# Запустить (licenses.json должен быть закоммичен)
 ./start.sh
 ```
 
@@ -214,16 +249,15 @@ python licensing/generate.py \
 
 ```bash
 # Лицензии
-python licensing/generate.py --help          # справка
+python licensing/generate.py list                    # список
+python licensing/generate.py activate --help         # активация
+python licensing/generate.py block --key "..."       # блокировка
 
 # Сборка
-make build                                   # обфусцировать → dist/
-make release VERSION=1.2.0                  # собрать архив релиза
-make clean                                  # удалить dist/
+make build                                           # обфусцировать → dist/
+make release VERSION=1.2.0                          # собрать архив
+make clean                                          # удалить dist/
 
 # Публикация
 gh release create v1.2.0 release-v1.2.0.tar.gz
-
-# Запуск (разработка)
-make run
 ```
