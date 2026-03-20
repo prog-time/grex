@@ -12,15 +12,15 @@
   → сохраняется в license.json
   → клиент присылает ключ тебе
 
-Ты добавляешь ключ в licenses.json на GitHub
-  → python licensing/generate.py activate --key "..." --customer "..." --updates-until "..."
-  → git commit + git push
+Ты добавляешь ключ в grex/licenses.json на GitHub (prog-time/licenses)
+  → редактируешь файл вручную или через браузер на GitHub
+  → коммитишь
 
 При каждом запуске приложение:
   1. Вычисляет HMAC(MAC) и сравнивает с ключом в license.json
      → если не совпадает — license.json скопирован на чужую машину, стоп
-  2. Скачивает licenses.json с GitHub, проверяет статус ключа
-     → pending / blocked → стоп
+  2. Скачивает grex/licenses.json с GitHub, проверяет статус ключа
+     → pending / blocked / отсутствует → стоп
      → active → запуск
 ```
 
@@ -33,20 +33,22 @@
 ```
 register.py              — клиент запускает один раз для регистрации
 license.json             — генерируется register.py, не трогать вручную
-licenses.json            — твой файл на GitHub, список активных ключей
 licensing/
 ├── checker.py           — проверка при запуске (обфусцируется)
-├── generate.py          — управление licenses.json (только у тебя!)
 └── __init__.py
 update.sh                — обновление у клиента
 Makefile                 — сборка релиза
+
+github.com/prog-time/licenses  — репозиторий лицензий
+└── grex/
+    └── licenses.json    — список активных ключей
 ```
 
 ---
 
 ## Перед первым релизом (один раз)
 
-### 1. Убедись что _SECRET одинаковый в обоих файлах
+### 1. Убедись что `_SECRET` одинаковый в обоих файлах
 
 ```python
 # register.py          — строка _SECRET
@@ -56,20 +58,13 @@ _SECRET = "одно-и-то-же-значение"
 
 > Не меняй `_SECRET` после первого релиза — все выданные ключи перестанут работать.
 
-### 2. Укажи URL до своего licenses.json
-
-```python
-# licensing/checker.py
-_ONLINE_CHECK_URL = "https://raw.githubusercontent.com/prog-time/grex/main/licenses.json"
-```
-
-### 3. Создай пустой licenses.json в репозитории
+### 2. Создай пустой `grex/licenses.json` в репозитории `prog-time/licenses`
 
 ```json
 {}
 ```
 
-### 4. Укажи репозиторий в update.sh
+### 3. Укажи репозиторий в `update.sh`
 
 ```bash
 GITHUB_REPO="prog-time/grex"
@@ -85,30 +80,27 @@ GITHUB_REPO="prog-time/grex"
 python register.py
 ```
 
-Выводит ключ вида:
+Выводит:
 ```
-  Ваш ключ активации:
+  Ваш ключ:  a3f9c2d1e8b4...7f2e1a0b9c3d
 
-      a3f9c2d1e8b4...7f2e1a0b9c3d
+  Отправьте ключ разработчику для активации.
 ```
 
 Клиент присылает тебе этот ключ.
 
-### Шаг 2. Активируешь ключ
+### Шаг 2. Добавляешь ключ в `grex/licenses.json`
 
-```bash
-python licensing/generate.py activate \
-  --key "a3f9c2d1e8b4...7f2e1a0b9c3d" \
-  --customer "ООО Ромашка" \
-  --updates-until "2027-03-21"
-```
+Открываешь `github.com/prog-time/licenses/blob/main/grex/licenses.json` → редактируешь → коммитишь.
 
-### Шаг 3. Публикуешь изменения
-
-```bash
-git add licenses.json
-git commit -m "activate: ООО Ромашка"
-git push
+```json
+{
+  "a3f9c2d1e8b4...7f2e1a0b9c3d": {
+    "status": "active",
+    "customer": "ООО Ромашка",
+    "updates_until": "2027-03-21"
+  }
+}
 ```
 
 Через ~1 минуту (GitHub CDN) клиент может запускать `./start.sh`.
@@ -117,25 +109,21 @@ git push
 
 ## Управление лицензиями
 
-```bash
-# Посмотреть все лицензии
-python licensing/generate.py list
+Всё делается через редактирование `grex/licenses.json` в репозитории `prog-time/licenses`.
 
-# Заблокировать клиента
-python licensing/generate.py block --key "a3f9c2d1e8b4..."
-git add licenses.json && git commit -m "block: ООО Ромашка" && git push
+**Заблокировать клиента:**
+```json
+"a3f9c2d1e8b4...": { "status": "blocked", "customer": "ООО Ромашка", "updates_until": "2027-03-21" }
+```
 
-# Продлить подписку на обновления — повторная активация с новой датой
-python licensing/generate.py activate \
-  --key "a3f9c2d1e8b4..." \
-  --customer "ООО Ромашка" \
-  --updates-until "2028-03-21"
-git add licenses.json && git commit -m "renew: ООО Ромашка" && git push
+**Продлить подписку на обновления** — изменить `updates_until`:
+```json
+"a3f9c2d1e8b4...": { "status": "active", "customer": "ООО Ромашка", "updates_until": "2028-03-21" }
 ```
 
 ---
 
-## Формат licenses.json
+## Формат `licenses.json`
 
 ```json
 {
@@ -156,7 +144,7 @@ git add licenses.json && git commit -m "renew: ООО Ромашка" && git pus
 |--------|-----------|
 | `active` | Приложение запускается |
 | `blocked` | Приложение не запускается |
-| `pending` / отсутствует | Приложение не запускается, просит прислать ключ |
+| отсутствует | Приложение не запускается, просит прислать ключ |
 
 ---
 
@@ -170,6 +158,21 @@ git add licenses.json && git commit -m "renew: ООО Ромашка" && git pus
 | 4 | `updates_until` не истёк | Нет | Да |
 
 > После истечения `updates_until` приложение продолжает работать — клиент не может скачать обновления до продления подписки.
+
+---
+
+## Разработка на своей машине
+
+```bash
+# Зарегистрировать свою машину
+python register.py
+
+# Добавить свой ключ в grex/licenses.json на GitHub вручную
+# status: active, updates_until: 2030-01-01
+
+# Запустить
+./start.sh
+```
 
 ---
 
@@ -190,10 +193,9 @@ make release VERSION=1.1.0
 
 Команда:
 1. Удаляет старый `dist/`
-2. Обфусцирует `crawlers/`, `services/`, `licensing/checker.py` через PyArmor
-3. Копирует остальные файлы (`api.py`, `register.py`, `start.sh`, `update.sh` и др.)
-4. `licensing/generate.py` **не попадает** в архив
-5. Упаковывает в `release-v1.1.0.tar.gz`
+2. Обфусцирует `crawlers/`, `services/`, `licensing/checker.py`, `register.py` через PyArmor
+3. Копирует остальные файлы (`api.py`, `start.sh`, `update.sh` и др.)
+4. Упаковывает в `release-v1.1.0.tar.gz`
 
 > Если PyArmor не установлен: `pip install pyarmor`
 
@@ -221,42 +223,18 @@ gh release create v1.1.0 release-v1.1.0.tar.gz \
 | `services/` | Обфусцирован | Бизнес-логика |
 | `licensing/checker.py` | Обфусцирован | Скрывает `_SECRET` |
 | `register.py` | Обфусцирован | Скрывает `_SECRET` |
-| `licensing/generate.py` | **Не входит** | Только для разработчика |
 | `api.py`, `config.py` | Как есть | Нужны для диагностики |
 | `start.sh`, `update.sh` | Как есть | Должны быть читаемы |
-
----
-
-## Разработка на своей машине
-
-```bash
-# Зарегистрировать свою машину
-python register.py
-
-# Добавить себя в licenses.json
-python licensing/generate.py activate \
-  --key "$(python -c "import json; print(json.load(open('license.json'))['key'])")" \
-  --customer "Dev" \
-  --updates-until "2030-01-01"
-
-# Запустить (licenses.json должен быть закоммичен)
-./start.sh
-```
 
 ---
 
 ## Шпаргалка команд
 
 ```bash
-# Лицензии
-python licensing/generate.py list                    # список
-python licensing/generate.py activate --help         # активация
-python licensing/generate.py block --key "..."       # блокировка
-
 # Сборка
-make build                                           # обфусцировать → dist/
-make release VERSION=1.2.0                          # собрать архив
-make clean                                          # удалить dist/
+make build                          # обфусцировать → dist/
+make release VERSION=1.2.0         # собрать архив релиза
+make clean                         # удалить dist/
 
 # Публикация
 gh release create v1.2.0 release-v1.2.0.tar.gz
