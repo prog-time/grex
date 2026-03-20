@@ -52,8 +52,14 @@
   <div class="card">
     <div class="card-header">
       <h3 class="card-title">Parsed results</h3>
-      <div class="card-options">
+      <div class="card-options d-flex align-items-center gap-2">
         <span class="text-muted small" id="productsCount"></span>
+        <select class="form-select form-select-sm w-auto" id="productsPerPage" onchange="setPerPage(this.value)">
+          <option value="10">10</option>
+          <option value="25" selected>25</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
       </div>
     </div>
     <div class="table-responsive">
@@ -78,11 +84,15 @@
         </tbody>
       </table>
     </div>
+    <div class="card-footer d-flex align-items-center" id="productsPager"></div>
   </div>
 </div>
 
 <script>
 var _allProducts = [];
+var _filteredProducts = [];
+var _currentPage = 1;
+var _perPage = 25;
 
 async function loadProducts() {
   var mp = document.getElementById('filterMp').value;
@@ -92,7 +102,6 @@ async function loadProducts() {
     var data = await res.json();
     _allProducts = data.products || [];
 
-    // Populate marketplace filter
     var sel = document.getElementById('filterMp');
     var cur = sel.value;
     sel.innerHTML = '<option value="">All</option>'
@@ -108,23 +117,42 @@ async function loadProducts() {
 
 function applySearch() {
   var q = (document.getElementById('filterSearch').value || '').toLowerCase();
-  var filtered = q
+  _filteredProducts = q
     ? _allProducts.filter(function(p) { return (p.title || '').toLowerCase().includes(q); })
-    : _allProducts;
-  renderProducts(filtered);
+    : _allProducts.slice();
+  _currentPage = 1;
+  renderProducts();
 }
 
-function renderProducts(products) {
-  var tbody = document.getElementById('productsBody');
-  document.getElementById('productsCount').textContent = products.length + ' products';
+function setPerPage(val) {
+  _perPage = parseInt(val) || 25;
+  _currentPage = 1;
+  renderProducts();
+}
 
-  if (!products.length) {
+function goToProductPage(p) {
+  var totalPages = Math.max(1, Math.ceil(_filteredProducts.length / _perPage));
+  _currentPage = Math.max(1, Math.min(p, totalPages));
+  renderProducts();
+}
+
+function renderProducts() {
+  var total = _filteredProducts.length;
+  var totalPages = Math.max(1, Math.ceil(total / _perPage));
+  var start = (_currentPage - 1) * _perPage;
+  var page  = _filteredProducts.slice(start, start + _perPage);
+
+  document.getElementById('productsCount').textContent = total + ' products';
+  var tbody = document.getElementById('productsBody');
+
+  if (!page.length) {
     tbody.innerHTML = '<tr><td colspan="9" class="text-muted text-center py-3">No products yet.</td></tr>';
+    document.getElementById('productsPager').innerHTML = '';
     updateSelectionCount();
     return;
   }
 
-  tbody.innerHTML = products.map(function(p) {
+  tbody.innerHTML = page.map(function(p) {
     var img = (p.images && p.images.length)
       ? '<img src="' + esc(p.images[0]) + '" style="width:48px;height:48px;object-fit:contain;border-radius:4px" onerror="this.style.display=\'none\'">'
       : '<span class="text-muted">—</span>';
@@ -135,8 +163,7 @@ function renderProducts(products) {
 
     var origPrice = p.original_price != null ? p.original_price.toLocaleString('ru-RU') + ' ₽' : '—';
     var curPrice  = p.current_price  != null ? '<strong>' + p.current_price.toLocaleString('ru-RU') + ' ₽</strong>' : '—';
-
-    var parsedAt = p.parsed_at ? p.parsed_at.replace('T', ' ').slice(0, 16) : '—';
+    var parsedAt  = p.parsed_at ? p.parsed_at.replace('T', ' ').slice(0, 16) : '—';
 
     return '<tr>'
       + '<td><input type="checkbox" class="form-check-input product-cb" data-id="' + esc(p.id) + '" onchange="updateSelectionCount()"></td>'
@@ -152,6 +179,12 @@ function renderProducts(products) {
       + '</td></tr>';
   }).join('');
   updateSelectionCount();
+
+  var from = total ? start + 1 : 0;
+  var to   = Math.min(start + _perPage, total);
+  document.getElementById('productsPager').innerHTML =
+    '<p class="m-0 text-secondary">Showing ' + from + '–' + to + ' of ' + total + '</p>'
+    + buildPagination(_currentPage, totalPages, 'goToProductPage');
 }
 
 async function deleteProduct(id) {
@@ -215,6 +248,29 @@ async function clearAll() {
   if (!confirm('Delete all products?')) return;
   await fetch('/admin/products/clear', {method: 'POST'});
   await loadProducts();
+}
+
+function buildPagination(current, totalPages, goFn) {
+  if (totalPages <= 1) return '';
+  var items = [];
+  var s = Math.max(1, current - 2), e = Math.min(totalPages, current + 2);
+  if (s > 1) { items.push(1); if (s > 2) items.push('…'); }
+  for (var i = s; i <= e; i++) items.push(i);
+  if (e < totalPages) { if (e < totalPages - 1) items.push('…'); items.push(totalPages); }
+  var html = '<ul class="pagination m-0 ms-auto">';
+  html += '<li class="page-item' + (current === 1 ? ' disabled' : '') + '">'
+    + '<a class="page-link" href="#" onclick="' + goFn + '(' + (current - 1) + ');return false;">‹</a></li>';
+  items.forEach(function(p) {
+    if (p === '…') {
+      html += '<li class="page-item disabled"><span class="page-link">…</span></li>';
+    } else {
+      html += '<li class="page-item' + (p === current ? ' active' : '') + '">'
+        + '<a class="page-link" href="#" onclick="' + goFn + '(' + p + ');return false;">' + p + '</a></li>';
+    }
+  });
+  html += '<li class="page-item' + (current === totalPages ? ' disabled' : '') + '">'
+    + '<a class="page-link" href="#" onclick="' + goFn + '(' + (current + 1) + ');return false;">›</a></li>';
+  return html + '</ul>';
 }
 
 function esc(s) {

@@ -53,6 +53,12 @@
       <h3 class="card-title" id="resultsTitle">Results</h3>
       <div class="card-options d-flex align-items-center gap-2">
         <span class="badge bg-azure text-white" id="resultsBadge"></span>
+        <select class="form-select form-select-sm w-auto" id="linksPerPage" onchange="setLinksPerPage(this.value)">
+          <option value="25">25</option>
+          <option value="50" selected>50</option>
+          <option value="100">100</option>
+          <option value="250">250</option>
+        </select>
         <button type="button" class="btn btn-sm btn-outline-secondary" onclick="downloadCSV()">
           <i class="fa fa-download me-1"></i>CSV
         </button>
@@ -61,9 +67,9 @@
         </button>
       </div>
     </div>
-    <div class="table-responsive" style="max-height:600px; overflow-y:auto;">
+    <div class="table-responsive">
       <table class="table table-vcenter table-sm card-table">
-        <thead class="sticky-top bg-white">
+        <thead>
           <tr>
             <th style="width:60px">#</th>
             <th>Product URL</th>
@@ -72,6 +78,7 @@
         <tbody id="linksBody"></tbody>
       </table>
     </div>
+    <div class="card-footer d-flex align-items-center" id="linksPager"></div>
   </div>
 </div>
 
@@ -79,6 +86,8 @@
 var _extractedLinks = [];
 var _extractedMarketplace = '';
 var _extractedUrl = '';
+var _linksPage = 1;
+var _linksPerPage = 50;
 
 // ── Start extraction ────────────────────────────────────────────────────
 
@@ -110,11 +119,12 @@ async function startExtraction() {
       return;
     }
 
-    _extractedLinks      = data.links || [];
+    _extractedLinks       = data.links || [];
     _extractedMarketplace = data.marketplace || '';
-    _extractedUrl        = data.url || url;
+    _extractedUrl         = data.url || url;
+    _linksPage = 1;
 
-    renderResults(_extractedLinks, _extractedMarketplace);
+    renderResults();
 
   } catch(e) {
     showError(String(e));
@@ -127,28 +137,76 @@ async function startExtraction() {
 
 // ── Render table ─────────────────────────────────────────────────────
 
-function renderResults(links, marketplace) {
+function setLinksPerPage(val) {
+  _linksPerPage = parseInt(val) || 50;
+  _linksPage = 1;
+  renderResults();
+}
+
+function goToLinkPage(p) {
+  var totalPages = Math.max(1, Math.ceil(_extractedLinks.length / _linksPerPage));
+  _linksPage = Math.max(1, Math.min(p, totalPages));
+  renderResults();
+}
+
+function renderResults() {
+  var links = _extractedLinks;
+  var total = links.length;
+  var totalPages = Math.max(1, Math.ceil(total / _linksPerPage));
+  var start = (_linksPage - 1) * _linksPerPage;
+  var page  = links.slice(start, start + _linksPerPage);
+
   var card  = document.getElementById('resultsCard');
   var title = document.getElementById('resultsTitle');
   var badge = document.getElementById('resultsBadge');
   var tbody = document.getElementById('linksBody');
 
-  title.textContent = 'Extracted links — ' + esc(marketplace);
-  badge.textContent = links.length + ' links';
+  title.textContent = 'Extracted links — ' + esc(_extractedMarketplace);
+  badge.textContent = total + ' links';
 
-  if (!links.length) {
+  if (!page.length) {
     tbody.innerHTML = '<tr><td colspan="2" class="text-muted text-center py-3">No links found.</td></tr>';
+    document.getElementById('linksPager').innerHTML = '';
   } else {
-    tbody.innerHTML = links.map(function(link, i) {
+    tbody.innerHTML = page.map(function(link, i) {
       return '<tr>'
-        + '<td class="text-muted">' + (i + 1) + '</td>'
+        + '<td class="text-muted">' + (start + i + 1) + '</td>'
         + '<td><a href="' + esc(link) + '" target="_blank" class="text-truncate d-block" '
         + 'style="max-width:700px" title="' + esc(link) + '">' + esc(link) + '</a></td>'
         + '</tr>';
     }).join('');
+
+    var from = total ? start + 1 : 0;
+    var to   = Math.min(start + _linksPerPage, total);
+    document.getElementById('linksPager').innerHTML =
+      '<p class="m-0 text-secondary">Showing ' + from + '–' + to + ' of ' + total + '</p>'
+      + buildPagination(_linksPage, totalPages, 'goToLinkPage');
   }
 
   card.style.display = '';
+}
+
+function buildPagination(current, totalPages, goFn) {
+  if (totalPages <= 1) return '';
+  var items = [];
+  var s = Math.max(1, current - 2), e = Math.min(totalPages, current + 2);
+  if (s > 1) { items.push(1); if (s > 2) items.push('…'); }
+  for (var i = s; i <= e; i++) items.push(i);
+  if (e < totalPages) { if (e < totalPages - 1) items.push('…'); items.push(totalPages); }
+  var html = '<ul class="pagination m-0 ms-auto">';
+  html += '<li class="page-item' + (current === 1 ? ' disabled' : '') + '">'
+    + '<a class="page-link" href="#" onclick="' + goFn + '(' + (current - 1) + ');return false;">‹</a></li>';
+  items.forEach(function(p) {
+    if (p === '…') {
+      html += '<li class="page-item disabled"><span class="page-link">…</span></li>';
+    } else {
+      html += '<li class="page-item' + (p === current ? ' active' : '') + '">'
+        + '<a class="page-link" href="#" onclick="' + goFn + '(' + p + ');return false;">' + p + '</a></li>';
+    }
+  });
+  html += '<li class="page-item' + (current === totalPages ? ' disabled' : '') + '">'
+    + '<a class="page-link" href="#" onclick="' + goFn + '(' + (current + 1) + ');return false;">›</a></li>';
+  return html + '</ul>';
 }
 
 // ── Download CSV ────────────────────────────────────────────────────────

@@ -9,10 +9,9 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette_admin import CustomView, DropDown
 from starlette_admin.auth import AdminUser, AuthProvider
-from starlette_admin.contrib.sqla import Admin, ModelView
+from starlette_admin.contrib.sqla import Admin
 from starlette_admin.exceptions import FormValidationError
 
-from models.job import Job
 import models.parse_target  # noqa: F401 — registers ParseTarget in Base.metadata
 import models.parsed_product  # noqa: F401  — registers ParseSession, ParsedProduct in Base.metadata
 
@@ -55,33 +54,9 @@ class SettingsAuthProvider(AuthProvider):
 # Views
 # ---------------------------------------------------------------------------
 
-class JobView(ModelView):
-    label = "Jobs"
-    icon = "fa fa-list"
-    name = "job"
-    identity = "job"
-
-    def can_create(self, request: Request) -> bool:
-        return False
-
-    def can_edit(self, request: Request) -> bool:
-        return False
-
-    def can_delete(self, request: Request) -> bool:
-        return False
-
-    column_list = [
-        Job.id,
-        Job.marketplace,
-        Job.status,
-        Job.url,
-        Job.processing_time,
-        Job.started_at,
-        Job.error,
-    ]
-    column_sortable_list = [Job.started_at, Job.marketplace, Job.status]
-    column_searchable_list = [Job.url, Job.marketplace]
-    column_filters_list = [Job.marketplace, Job.status]
+class JobsView(CustomView):
+    async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
+        return templates.TemplateResponse("jobs.html", {"request": request})
 
 
 class SourcesView(CustomView):
@@ -191,7 +166,10 @@ async def setup_admin(app: FastAPI) -> None:
         "Products", icon="fa fa-shopping-cart",
         path="/products", template_path="products.html", name="products",
     ))
-    admin.add_view(JobView(Job, icon="fa fa-list"))
+    admin.add_view(JobsView(
+        "Jobs", icon="fa fa-list",
+        path="/jobs", template_path="jobs.html", name="jobs",
+    ))
     admin.add_view(DropDown(
         "Settings",
         icon="fa fa-sliders",
