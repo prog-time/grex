@@ -1,4 +1,4 @@
-from .base import BaseCrawler
+from .base import BaseCrawler, CookieCrawler
 from .registry import CrawlerRegistry
 
 # Import all concrete crawlers so they self-register into CrawlerRegistry
@@ -10,6 +10,7 @@ from .megamarket import MegaMarketCrawler
 
 __all__ = [
     "BaseCrawler",
+    "CookieCrawler",
     "CrawlerRegistry",
     "WildberriesCrawler",
     "OzonCrawler",

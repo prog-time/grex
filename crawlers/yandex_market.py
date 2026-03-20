@@ -3,22 +3,21 @@ import re
 import json
 import time
 import asyncio
-import aiofiles  # type: ignore[import-untyped]
 from typing import ClassVar
 from loguru import logger
 from decimal import Decimal
-from multiprocessing import Process, Queue
+from multiprocessing import Queue
 from bs4 import BeautifulSoup, Tag
 from curl_cffi.requests.session import AsyncSession
 
-from .base import BaseCrawler
+from .base import CookieCrawler
 from models import ProductCard
 from utils.helpers import parse_url
 from config import data_path
 from core.exceptions import ProductCardParsingException
 
 
-class YandexMarketCrawler(BaseCrawler):
+class YandexMarketCrawler(CookieCrawler):
     marketplace_name: ClassVar[str] = "yandex_market"
     url_pattern: ClassVar[str] = r"market\.yandex\.(ru|by)"
     requires_cookie_lock: ClassVar[bool] = True
@@ -26,17 +25,41 @@ class YandexMarketCrawler(BaseCrawler):
     cookies_file_path: str = os.path.join(data_path, "ym_cookies.json")
     browser_profile_path: str = os.path.join(data_path, "ym_browser_profile")
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
-
-        self.cookies_data = None
         self.session = AsyncSession(impersonate="chrome136")
 
     def is_valid_url(self, url: str) -> bool:
         return "market.yandex." in url
 
+    # ------------------------------------------------------------------
+    # Cookie management
+    # ------------------------------------------------------------------
+
+    async def save_cookies(self, url: str) -> bool:
+        base_url = url.split("?")[0]
+        result = await self._run_in_process(
+            self._process_save_cookies,
+            (base_url, self.cookies_file_path, self.browser_profile_path),
+            timeout=120,
+        )
+        if result and result.get("success"):
+            self.cookies_data = result["cookies"]
+            logger.debug("YM: cookies saved successfully")
+            return True
+        error = result.get("error", "no result") if result else "process returned nothing"
+        logger.error(f"YM: cookie save failed — {error}")
+        return False
+
+    # ------------------------------------------------------------------
+    # Subprocess target
+    # ------------------------------------------------------------------
+
     @staticmethod
-    def _process_save_cookies(base_url: str, cookies_file_path: str, profile_path: str, result_queue: Queue):
+    def _process_save_cookies(
+        base_url: str, cookies_file_path: str, profile_path: str, result_queue: Queue
+    ) -> None:
+        """Open Yandex Market in a browser with a persistent profile and capture cookies."""
         try:
             from patchright.sync_api import sync_playwright
 
@@ -47,15 +70,14 @@ class YandexMarketCrawler(BaseCrawler):
                     user_data_dir=profile_path,
                     headless=False,
                 )
-
                 page = context.new_page()
                 page.goto(base_url, wait_until="domcontentloaded", timeout=30000)
 
                 logger.info(
-                    "YM: браузер открыт — реши капчу если появилась, страница закроется автоматически"
+                    "YM: браузер открыт — реши капчу если появилась, "
+                    "страница закроется автоматически"
                 )
 
-                # Wait up to 90 seconds for captcha to be solved and product page to load
                 try:
                     page.wait_for_function(
                         '() => !document.title.includes("робот") '
@@ -67,8 +89,8 @@ class YandexMarketCrawler(BaseCrawler):
                     pass
 
                 time.sleep(3)
-
                 cookies = context.cookies()
+
                 if cookies:
                     cookies_data = {item["name"]: item["value"] for item in cookies}
                     with open(cookies_file_path, "w", encoding="utf-8") as f:
@@ -80,67 +102,12 @@ class YandexMarketCrawler(BaseCrawler):
         except Exception as e:
             result_queue.put({"success": False, "error": str(e)})
 
-    async def save_cookies(self, url: str) -> bool:
-        base_url = url.split("?")[0]
-        try:
-            result_queue: Queue[dict] = Queue()
-            process = Process(
-                target=self._process_save_cookies,
-                args=(base_url, self.cookies_file_path, self.browser_profile_path, result_queue),
-            )
-            process.start()
-
-            while process.is_alive():
-                await asyncio.sleep(0.1)
-
-            process.join(timeout=120)
-
-            if not result_queue.empty():
-                result = result_queue.get()
-                if result["success"]:
-                    self.cookies_data = result["cookies"]
-                    logger.debug("YM cookies saved successfully")
-                    return True
-                else:
-                    logger.error(f"YM cookies process error: {result['error']}")
-                    return False
-            else:
-                logger.error("YM cookies process returned no result")
-                return False
-
-        except Exception as e:
-            logger.error(f"Failed to save YM cookies: {e}")
-            return False
-
-    async def load_cookies_from_file(self):
-        cookies_data = {}
-
-        if not os.path.exists(self.cookies_file_path):
-            logger.debug(f"YM cookies file not found: {self.cookies_file_path}")
-            return cookies_data
-
-        try:
-            async with aiofiles.open(self.cookies_file_path) as f:
-                data = await f.read()
-                cookies_data = json.loads(data)
-                logger.debug("YM cookies loaded from file")
-                return cookies_data
-        except Exception as e:
-            logger.error(f"Failed to load YM cookies: {e}")
-            return cookies_data
-
-    def delete_cookies_file(self):
-        if os.path.exists(self.cookies_file_path):
-            os.remove(self.cookies_file_path)
-
-    async def get_cookies(self, url: str):
-        self.cookies_data = await self.load_cookies_from_file()
-        if not self.cookies_data:
-            await self.save_cookies(url)
-        return self.cookies_data
+    # ------------------------------------------------------------------
+    # HTTP API helpers
+    # ------------------------------------------------------------------
 
     @staticmethod
-    def get_headers():
+    def _build_headers() -> dict:
         return {
             'accept': (
                 'text/html,application/xhtml+xml,application/xml;q=0.9,'
@@ -167,6 +134,10 @@ class YandexMarketCrawler(BaseCrawler):
         text = content[:2000].decode("utf-8", errors="ignore")
         return "не робот" in text or "SmartCaptcha" in text or "captcha" in text.lower()
 
+    # ------------------------------------------------------------------
+    # Link extraction
+    # ------------------------------------------------------------------
+
     async def get_product_links(self, url: str, max_pages: int = 10) -> list[str]:
         links: list[str] = []
 
@@ -176,9 +147,7 @@ class YandexMarketCrawler(BaseCrawler):
                 page_url = url if page == 1 else f"{url}{sep}page={page}"
                 cookies = await self.get_cookies(page_url)
                 response = await self.session.get(
-                    url=page_url,
-                    cookies=cookies,
-                    headers=self.get_headers(),
+                    url=page_url, cookies=cookies, headers=self._build_headers(),
                 )
                 if response.status_code != 200:
                     break
@@ -213,12 +182,16 @@ class YandexMarketCrawler(BaseCrawler):
 
         return list(dict.fromkeys(links))
 
+    # ------------------------------------------------------------------
+    # Main parse entry point
+    # ------------------------------------------------------------------
+
     async def parse(self, url: str) -> ProductCard:
         product_title = None
         product_sku = None
         product_original_price: Decimal = Decimal(0)
         product_current_price: Decimal = Decimal(0)
-        product_images = []
+        product_images: list = []
 
         if "card/" not in url:
             raise ProductCardParsingException("Bad product URL: expected /card/ in path")
@@ -231,16 +204,12 @@ class YandexMarketCrawler(BaseCrawler):
         except Exception as e:
             logger.warning(f"Failed to get SKU from YM URL {clean_url}: {e}")
 
-        # Try HTTP request with cookies; if captcha detected → refresh cookies and retry
-        from config import settings
+        from config import settings  # noqa: PLC0415
         for attempt in range(settings.get("max_retries", 3)):
             try:
                 cookies = await self.get_cookies(clean_url)
-
                 response = await self.session.get(
-                    url=clean_url,
-                    cookies=cookies,
-                    headers=self.get_headers(),
+                    url=clean_url, cookies=cookies, headers=self._build_headers(),
                 )
 
                 if response.status_code != 200:
@@ -248,7 +217,10 @@ class YandexMarketCrawler(BaseCrawler):
                     raise ValueError(f"HTTP {response.status_code}")
 
                 if self._is_captcha_page(response.content):
-                    logger.warning(f"YM captcha detected for {clean_url}, refreshing cookies (attempt {attempt + 1})")
+                    logger.warning(
+                        f"YM captcha detected for {clean_url}, refreshing cookies "
+                        f"(attempt {attempt + 1})"
+                    )
                     self.cookies_data = None
                     self.delete_cookies_file()
                     raise ValueError("captcha")
@@ -267,7 +239,9 @@ class YandexMarketCrawler(BaseCrawler):
                     if old_el:
                         raw = old_el.get_text(strip=True)
                         m_old = re.search(r'[\d\s]+', raw)
-                        product_original_price = Decimal(re.sub(r'[^\d]', '', m_old.group())) if m_old else Decimal(0)
+                        product_original_price = (
+                            Decimal(re.sub(r'[^\d]', '', m_old.group())) if m_old else Decimal(0)
+                        )
                 except Exception as e:
                     logger.warning(f"Failed to get original price from YM {clean_url}: {e}")
 
@@ -276,7 +250,9 @@ class YandexMarketCrawler(BaseCrawler):
                     if cur_el:
                         raw = cur_el.get_text(strip=True)
                         m_cur = re.search(r'[\d\s]+', raw)
-                        product_current_price = Decimal(re.sub(r'[^\d]', '', m_cur.group())) if m_cur else Decimal(0)
+                        product_current_price = (
+                            Decimal(re.sub(r'[^\d]', '', m_cur.group())) if m_cur else Decimal(0)
+                        )
                 except Exception as e:
                     logger.warning(f"Failed to get current price from YM {clean_url}: {e}")
 
@@ -323,12 +299,13 @@ class YandexMarketCrawler(BaseCrawler):
 
 
 async def main():
+    import json as _json
     crawler = YandexMarketCrawler()
     product_card = await crawler.parse(
         "https://market.yandex.ru/card/espander-dlya-paltsev-ruk-kistevoy-95-kg-"
         "s-krepleniyem-na-zapyastye-tsvet---chernyy/103757317666"
     )
-    print(json.dumps(product_card.to_dict(), indent=2, ensure_ascii=False))
+    print(_json.dumps(product_card.to_dict(), indent=2, ensure_ascii=False))
 
 
 if __name__ == '__main__':
