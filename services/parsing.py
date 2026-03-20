@@ -38,10 +38,7 @@ class ParsingService:
         try:
             marketplace = CrawlerRegistry.detect_marketplace(url)
 
-            # Check whether this source is enabled (TASK-9 guard).
-            await self._check_source_enabled(marketplace)
-
-            # Enforce per-source rate limit from Redis.
+            # Enforce per-source rate limit from config.
             await self._apply_rate_limit(marketplace)
 
             crawler_cls = CrawlerRegistry.get(marketplace)
@@ -178,40 +175,17 @@ class ParsingService:
         except Exception:  # noqa: BLE001
             pass
 
-    async def _check_source_enabled(self, marketplace: str) -> None:
-        """Raise HTTP 503 when the source is explicitly disabled in Redis.
-
-        No-op when Redis is unavailable (fail-open).
-        """
-        try:
-            from services.redis_client import get_redis_client  # noqa: PLC0415
-            client = get_redis_client()
-            value: str | None = await client.get(f"source:{marketplace}:enabled")
-            if value is not None and value.lower() == "false":
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail=f"Source '{marketplace}' is currently disabled.",
-                )
-        except HTTPException:
-            raise
-        except Exception:
-            # Redis unavailable — fail open, allow parsing to proceed.
-            pass
-
     async def _apply_rate_limit(self, marketplace: str) -> None:
         """Pace requests to match the configured rate limit (requests/min).
 
-        Reads ``source:{marketplace}:rate_limit`` from Redis (default 60).
+        Reads ``sources.{marketplace}.rate_limit`` from settings.yml (default 60).
         Uses a class-level lock per marketplace so that concurrent requests
-        are spaced by ``60 / rate_limit`` seconds.  Fails open on any error.
+        are spaced by ``60 / rate_limit`` seconds.
         """
-        try:
-            from services.redis_client import get_redis_client  # noqa: PLC0415
-            client = get_redis_client()
-            raw: str | None = await client.get(f"source:{marketplace}:rate_limit")
-            rate_limit = int(raw) if raw else 60
-        except Exception:  # noqa: BLE001
-            return  # Redis unavailable — fail open
+        from config import settings  # noqa: PLC0415
+        rate_limit: int = (
+            settings.get("sources", {}).get(marketplace, {}).get("rate_limit", 60)
+        )
 
         if rate_limit <= 0:
             return

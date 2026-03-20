@@ -109,6 +109,9 @@
         <button type="button" class="btn btn-sm btn-success" id="btnRunAll" onclick="runAll()">
           Run all
         </button>
+        <button type="button" class="btn btn-sm btn-outline-danger" onclick="clearAll()">
+          Clear all
+        </button>
       </div>
     </div>
     <div class="table-responsive">
@@ -605,6 +608,21 @@ async function deleteTarget(id) {
     body: JSON.stringify({id: id}),
   });
   await loadTargets();
+}
+
+async function clearAll() {
+  if (!confirm('Delete all targets? This cannot be undone.')) return;
+  var res = await fetch('/admin/targets/clear-all', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: '{}',
+  });
+  if (res.ok) {
+    await loadTargets();
+  } else {
+    var data = await res.json().catch(function() { return {}; });
+    alert('Error: ' + (data.error || res.status));
+  }
 }
 
 function buildPagination(current, totalPages, goFn) {

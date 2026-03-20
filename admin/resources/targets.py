@@ -73,7 +73,6 @@ async def _run_all_background(session_id: str, targets: list[dict]) -> None:
     from models.job import async_session  # noqa: PLC0415
     from models.parsed_product import ParseSession  # noqa: PLC0415
     from services.parsing import ParsingService  # noqa: PLC0415
-    from admin.resources.sources import get_source_fields  # noqa: PLC0415
     from sqlalchemy import update  # noqa: PLC0415
 
     svc = ParsingService()
@@ -94,9 +93,6 @@ async def _run_all_background(session_id: str, targets: list[dict]) -> None:
             try:
                 product = await svc.parse_product(tgt["url"])
                 data = product.to_dict()
-                selected = await get_source_fields(tgt["marketplace"])
-                if selected:
-                    data = {k: v for k, v in data.items() if k in selected or k == "source_url"}
 
                 await _upsert_parsed_product(
                     session_id=session_id,
@@ -328,6 +324,28 @@ class TargetsRouter:
             return JSONResponse({"error": str(exc)}, status_code=500)
 
     @staticmethod
+    @staticmethod
+    async def clear_all_targets(request: Request) -> JSONResponse:
+        try:
+            from models.job import async_session  # noqa: PLC0415
+            from models.parse_target import ParseTarget  # noqa: PLC0415
+            from sqlalchemy import delete  # noqa: PLC0415
+
+            if async_session is None:
+                return JSONResponse({"error": "DB not initialised"}, status_code=503)
+
+            async with async_session() as session:
+                result = await session.execute(delete(ParseTarget))
+                await session.commit()
+
+            deleted = result.rowcount  # type: ignore[attr-defined]
+            logger.info(f"All parse targets cleared: {deleted} rows deleted")
+            return JSONResponse({"deleted": deleted})
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"Failed to clear all targets: {exc}")
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+    @staticmethod
     async def delete_target(request: Request) -> JSONResponse:
         body = {}
         try:
@@ -399,8 +417,6 @@ class TargetsRouter:
             from models.parse_target import ParseTarget  # noqa: PLC0415
             from sqlalchemy import select  # noqa: PLC0415
             from services.parsing import ParsingService  # noqa: PLC0415
-            from admin.resources.sources import get_source_fields  # noqa: PLC0415
-
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
 
@@ -426,9 +442,6 @@ class TargetsRouter:
                 return JSONResponse({"success": False, "url": row.url, "error": str(exc)})
 
             data = product.to_dict()
-            selected = await get_source_fields(str(row.marketplace))
-            if selected:
-                data = {k: v for k, v in data.items() if k in selected or k == "source_url"}
 
             # Save or update parsed_products (unique by URL)
             import json as _json  # noqa: PLC0415
@@ -567,6 +580,12 @@ def register_targets_routes(app) -> None:  # type: ignore[no-untyped-def]
     app.add_api_route(
         "/admin/targets/import-bulk",
         router.import_bulk,
+        methods=["POST"],
+        tags=["admin"],
+    )
+    app.add_api_route(
+        "/admin/targets/clear-all",
+        router.clear_all_targets,
         methods=["POST"],
         tags=["admin"],
     )

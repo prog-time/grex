@@ -59,28 +59,6 @@ class JobsView(CustomView):
         return templates.TemplateResponse("jobs.html", {"request": request})
 
 
-class SourcesView(CustomView):
-    async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
-        from crawlers.registry import CrawlerRegistry  # noqa: PLC0415
-        from crawlers.field_configs import MARKETPLACE_FIELD_CONFIGS  # noqa: PLC0415
-
-        try:
-            source_names = list(CrawlerRegistry.all().keys())
-            logger.debug(f"Sources page: {len(source_names)} crawlers registered")
-        except Exception:  # noqa: BLE001
-            logger.warning("CrawlerRegistry unavailable, showing empty sources list")
-            source_names = []
-
-        return templates.TemplateResponse(
-            "sources.html",
-            {
-                "request": request,
-                "source_names": source_names,
-                "marketplace_configs": MARKETPLACE_FIELD_CONFIGS,
-            },
-        )
-
-
 class ProxiesView(CustomView):
     async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
         import re  # noqa: PLC0415
@@ -174,10 +152,6 @@ async def setup_admin(app: FastAPI) -> None:
         "Settings",
         icon="fa fa-sliders",
         views=[
-            SourcesView(
-                "Sources", icon="fa fa-cogs",
-                path="/sources", template_path="sources.html", name="sources",
-            ),
             ProxiesView(
                 "Proxies", icon="fa fa-shield",
                 path="/proxies", template_path="proxies.html", name="proxies",
@@ -191,7 +165,6 @@ async def setup_admin(app: FastAPI) -> None:
 
     # Register all auxiliary API routes BEFORE mounting starlette-admin so that
     # FastAPI's exact Route entries take priority over the admin Mount prefix.
-    from admin.resources.sources import register_sources_routes  # noqa: PLC0415
     from admin.resources.proxies import register_proxies_routes  # noqa: PLC0415
     from admin.resources.jobs import register_jobs_routes  # noqa: PLC0415
     from admin.resources.targets import register_targets_routes  # noqa: PLC0415
@@ -199,7 +172,6 @@ async def setup_admin(app: FastAPI) -> None:
     from admin.resources.products import register_products_routes  # noqa: PLC0415
     from admin.resources.users import register_users_routes  # noqa: PLC0415
 
-    register_sources_routes(app)
     register_proxies_routes(app)
     register_jobs_routes(app)
     register_targets_routes(app)
