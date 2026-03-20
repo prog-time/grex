@@ -1,0 +1,287 @@
+{% extends "layout.html" %}
+
+{% block header %}
+<div class="d-flex justify-content-between align-items-center">
+  <h1>Jobs</h1>
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for(__name__ ~ ':index') }}">Admin</a></li>
+    <li class="breadcrumb-item active">Jobs</li>
+  </ol>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="container-xl">
+
+  <!-- Filters -->
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="row g-3 align-items-end mb-2">
+        <div class="col-12 col-md-4">
+          <label class="form-label">Marketplace</label>
+          <select id="filterMp" class="form-select" onchange="loadJobs()">
+            <option value="">All</option>
+          </select>
+        </div>
+        <div class="col-12 col-md-4">
+          <label class="form-label">Status</label>
+          <select id="filterStatus" class="form-select" onchange="loadJobs()">
+            <option value="">All</option>
+            <option value="success">Success</option>
+            <option value="failed">Failed</option>
+          </select>
+        </div>
+        <div class="col-auto">
+          <button class="btn btn-outline-secondary" onclick="loadJobs()">Refresh</button>
+        </div>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <div class="dropdown">
+          <button class="btn btn-outline-success dropdown-toggle" type="button" data-bs-toggle="dropdown">
+            Export
+          </button>
+          <div class="dropdown-menu">
+            <a class="dropdown-item" href="#" onclick="exportJobs('csv');return false;">CSV (Excel)</a>
+            <a class="dropdown-item" href="#" onclick="exportJobs('xlsx');return false;">XLSX</a>
+            <a class="dropdown-item" href="#" onclick="exportJobs('json');return false;">JSON</a>
+          </div>
+        </div>
+        <button class="btn btn-outline-danger" onclick="clearAll()">Clear all</button>
+        <span id="selectionCount" class="text-muted small"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">Job history</h3>
+      <div class="card-options d-flex align-items-center gap-2">
+        <span class="text-muted small" id="jobsCount"></span>
+        <select class="form-select form-select-sm w-auto" id="jobsPerPage" onchange="setPerPage(this.value)">
+          <option value="10">10</option>
+          <option value="25" selected>25</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table">
+        <thead>
+          <tr>
+            <th style="width:36px">
+              <input type="checkbox" class="form-check-input" id="selectAll" onchange="toggleSelectAll(this)">
+            </th>
+            <th>URL</th>
+            <th>Marketplace</th>
+            <th>Status</th>
+            <th>Processing time</th>
+            <th>Started at</th>
+            <th>Error</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="jobsBody">
+          <tr><td colspan="8" class="text-muted text-center py-3">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card-footer d-flex align-items-center" id="jobsPager"></div>
+  </div>
+</div>
+
+<script>
+var _allJobs = [];
+var _currentPage = 1;
+var _perPage = 25;
+
+async function loadJobs() {
+  var mp     = document.getElementById('filterMp').value;
+  var status = document.getElementById('filterStatus').value;
+  var url    = '/admin/jobs/api';
+  var params = [];
+  if (mp)     params.push('marketplace=' + encodeURIComponent(mp));
+  if (status) params.push('status=' + encodeURIComponent(status));
+  if (params.length) url += '?' + params.join('&');
+
+  try {
+    var res  = await fetch(url);
+    var data = await res.json();
+    _allJobs = data.jobs || [];
+
+    var sel = document.getElementById('filterMp');
+    var cur = sel.value;
+    var mps = [...new Set(_allJobs.map(function(j) { return j.marketplace; }).filter(Boolean))].sort();
+    sel.innerHTML = '<option value="">All</option>'
+      + mps.map(function(m) {
+          return '<option value="' + esc(m) + '"' + (m === cur ? ' selected' : '') + '>' + esc(m) + '</option>';
+        }).join('');
+
+    _currentPage = 1;
+    renderJobs();
+  } catch(e) {
+    console.error('loadJobs error:', e);
+  }
+}
+
+function setPerPage(val) {
+  _perPage = parseInt(val) || 25;
+  _currentPage = 1;
+  renderJobs();
+}
+
+function goToJobPage(p) {
+  var totalPages = Math.max(1, Math.ceil(_allJobs.length / _perPage));
+  _currentPage = Math.max(1, Math.min(p, totalPages));
+  renderJobs();
+}
+
+function renderJobs() {
+  var total = _allJobs.length;
+  var totalPages = Math.max(1, Math.ceil(total / _perPage));
+  var start = (_currentPage - 1) * _perPage;
+  var page  = _allJobs.slice(start, start + _perPage);
+
+  document.getElementById('jobsCount').textContent = total + ' jobs';
+  var tbody = document.getElementById('jobsBody');
+
+  if (!page.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="text-muted text-center py-3">No jobs yet.</td></tr>';
+    document.getElementById('jobsPager').innerHTML = '';
+    updateSelectionCount();
+    return;
+  }
+
+  tbody.innerHTML = page.map(function(j) {
+    var statusBadge = j.status === 'success'
+      ? '<span class="badge bg-success text-white">Success</span>'
+      : '<span class="badge bg-danger text-white">Failed</span>';
+
+    var procTime  = j.processing_time != null ? j.processing_time.toFixed(2) + ' s' : '—';
+    var startedAt = j.started_at ? j.started_at.replace('T', ' ').slice(0, 16) : '—';
+    var errText   = j.error
+      ? '<span class="text-danger text-truncate d-block" style="max-width:200px" title="' + esc(j.error) + '">' + esc(j.error) + '</span>'
+      : '<span class="text-muted">—</span>';
+
+    return '<tr>'
+      + '<td><input type="checkbox" class="form-check-input job-cb" data-id="' + esc(j.id) + '" onchange="updateSelectionCount()"></td>'
+      + '<td><a href="' + esc(j.url) + '" target="_blank" class="text-truncate d-block" style="max-width:300px" title="' + esc(j.url) + '">' + esc(j.url) + '</a></td>'
+      + '<td><span class="badge bg-azure text-white">' + esc(j.marketplace || '—') + '</span></td>'
+      + '<td>' + statusBadge + '</td>'
+      + '<td class="text-muted">' + procTime + '</td>'
+      + '<td class="text-muted small">' + startedAt + '</td>'
+      + '<td>' + errText + '</td>'
+      + '<td class="text-end">'
+      + '<button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteJob(\'' + j.id + '\')">✕</button>'
+      + '</td></tr>';
+  }).join('');
+  updateSelectionCount();
+
+  var from = total ? start + 1 : 0;
+  var to   = Math.min(start + _perPage, total);
+  document.getElementById('jobsPager').innerHTML =
+    '<p class="m-0 text-secondary">Showing ' + from + '–' + to + ' of ' + total + '</p>'
+    + buildPagination(_currentPage, totalPages, 'goToJobPage');
+}
+
+function getSelectedIds() {
+  return Array.from(document.querySelectorAll('.job-cb:checked'))
+    .map(function(c) { return c.dataset.id; });
+}
+
+function toggleSelectAll(cb) {
+  document.querySelectorAll('.job-cb').forEach(function(c) { c.checked = cb.checked; });
+  updateSelectionCount();
+}
+
+function updateSelectionCount() {
+  var checked = document.querySelectorAll('.job-cb:checked').length;
+  var total   = document.querySelectorAll('.job-cb').length;
+  var countEl = document.getElementById('selectionCount');
+  var saEl    = document.getElementById('selectAll');
+  countEl.textContent = checked ? checked + ' selected' : '';
+  if (saEl) saEl.checked = total > 0 && checked === total;
+}
+
+async function exportJobs(fmt) {
+  var mp     = document.getElementById('filterMp').value;
+  var status = document.getElementById('filterStatus').value;
+  var ids    = getSelectedIds();
+  var body   = {format: fmt};
+  if (ids.length) {
+    body.ids = ids;
+  } else {
+    if (mp)     body.marketplace = mp;
+    if (status) body.status = status;
+  }
+
+  try {
+    var res = await fetch('/admin/jobs/export', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) { alert('Export error: ' + res.status); return; }
+    var blob = await res.blob();
+    var ext  = fmt === 'xlsx' ? 'xlsx' : (fmt === 'json' ? 'json' : 'csv');
+    var name = 'jobs_' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '.' + ext;
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } catch(e) {
+    alert('Export error: ' + e);
+  }
+}
+
+async function deleteJob(id) {
+  if (!confirm('Delete this job?')) return;
+  await fetch('/admin/jobs/delete', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({id: id}),
+  });
+  await loadJobs();
+}
+
+async function clearAll() {
+  if (!confirm('Delete all jobs?')) return;
+  await fetch('/admin/jobs/clear', {method: 'POST'});
+  await loadJobs();
+}
+
+function buildPagination(current, totalPages, goFn) {
+  if (totalPages <= 1) return '';
+  var items = [];
+  var s = Math.max(1, current - 2), e = Math.min(totalPages, current + 2);
+  if (s > 1) { items.push(1); if (s > 2) items.push('…'); }
+  for (var i = s; i <= e; i++) items.push(i);
+  if (e < totalPages) { if (e < totalPages - 1) items.push('…'); items.push(totalPages); }
+  var html = '<ul class="pagination m-0 ms-auto">';
+  html += '<li class="page-item' + (current === 1 ? ' disabled' : '') + '">'
+    + '<a class="page-link" href="#" onclick="' + goFn + '(' + (current - 1) + ');return false;">‹</a></li>';
+  items.forEach(function(p) {
+    if (p === '…') {
+      html += '<li class="page-item disabled"><span class="page-link">…</span></li>';
+    } else {
+      html += '<li class="page-item' + (p === current ? ' active' : '') + '">'
+        + '<a class="page-link" href="#" onclick="' + goFn + '(' + p + ');return false;">' + p + '</a></li>';
+    }
+  });
+  html += '<li class="page-item' + (current === totalPages ? ' disabled' : '') + '">'
+    + '<a class="page-link" href="#" onclick="' + goFn + '(' + (current + 1) + ');return false;">›</a></li>';
+  return html + '</ul>';
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+loadJobs();
+</script>
+{% endblock %}
