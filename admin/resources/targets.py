@@ -324,7 +324,6 @@ class TargetsRouter:
             return JSONResponse({"error": str(exc)}, status_code=500)
 
     @staticmethod
-    @staticmethod
     async def clear_all_targets(request: Request) -> JSONResponse:
         try:
             from models.job import async_session  # noqa: PLC0415
@@ -558,70 +557,84 @@ class TargetsRouter:
 
 
 def register_targets_routes(app) -> None:  # type: ignore[no-untyped-def]
+    from fastapi import Depends  # noqa: PLC0415
+    from admin.resources.auth import require_admin  # noqa: PLC0415
+    _auth = [Depends(require_admin)]
     router = TargetsRouter()
     app.add_api_route(
         "/admin/targets/api",
         router.list_targets,
         methods=["GET"],
         tags=["admin"],
+        dependencies=_auth,
     )
     app.add_api_route(
         "/admin/targets/add",
         router.add_target,
         methods=["POST"],
         tags=["admin"],
+        dependencies=_auth,
     )
     app.add_api_route(
         "/admin/targets/parse-file",
         router.parse_file,
         methods=["POST"],
         tags=["admin"],
+        dependencies=_auth,
     )
     app.add_api_route(
         "/admin/targets/import-bulk",
         router.import_bulk,
         methods=["POST"],
         tags=["admin"],
+        dependencies=_auth,
     )
     app.add_api_route(
         "/admin/targets/clear-all",
         router.clear_all_targets,
         methods=["POST"],
         tags=["admin"],
+        dependencies=_auth,
     )
     app.add_api_route(
         "/admin/targets/delete",
         router.delete_target,
         methods=["POST"],
         tags=["admin"],
+        dependencies=_auth,
     )
     app.add_api_route(
         "/admin/targets/toggle",
         router.toggle_target,
         methods=["POST"],
         tags=["admin"],
+        dependencies=_auth,
     )
     app.add_api_route(
         "/admin/targets/run",
         router.run_target,
         methods=["POST"],
         tags=["admin"],
+        dependencies=_auth,
     )
     app.add_api_route(
         "/admin/targets/run-all",
         router.run_all_targets,
         methods=["POST"],
         tags=["admin"],
+        dependencies=_auth,
     )
     app.add_api_route(
         "/admin/targets/active-session",
         router.get_active_session,
         methods=["GET"],
         tags=["admin"],
+        dependencies=_auth,
     )
     app.add_api_route(
         "/admin/targets/session/{session_id}",
         router.get_session_status,
         methods=["GET"],
         tags=["admin"],
+        dependencies=_auth,
     )

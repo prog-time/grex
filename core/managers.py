@@ -102,7 +102,7 @@ class ProxyManager:
     @staticmethod
     def is_valid_proxy(proxy_line: str) -> bool:
         pattern = re.compile(
-            r"^(?:(?P<protocol>.+)://)?(?P<login>[^:]+):(?P<password>[^@:]+)@"
-            r"(?P<host>[^:]+):(?P<port>\d+)$"
+            r"^(?:(?P<protocol>.+)://)?(?:(?P<login>[^:]+):(?P<password>[^@:]+)@)?"
+            r"(?P<host>[^:@]+):(?P<port>\d+)$"
         )
         return bool(pattern.match(proxy_line))

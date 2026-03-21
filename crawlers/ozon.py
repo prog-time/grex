@@ -292,9 +292,44 @@ class OzonCrawler(CookieCrawler):
         if result and result.get("success"):
             logger.debug("Ozon: browser extraction complete")
             return result
-        if result:
-            logger.warning(f"Ozon: browser parse failed — {result.get('error')}")
+
+        error = result.get("error", "") if result else ""
+        if error:
+            logger.warning(f"Ozon: browser parse failed — {error}")
+
+        # Auto-install patchright only if browser executable is explicitly missing
+        browser_missing = any(k in error.lower() for k in ("executable", "not found", "no such file"))
+        if browser_missing:
+            logger.info("Ozon: browser not available, attempting patchright install...")
+            if await self._install_patchright():
+                result = await self._run_in_process(
+                    self._process_parse_via_browser, (url,), timeout=50,
+                )
+                if result and result.get("success"):
+                    logger.debug("Ozon: browser extraction complete after install")
+                    return result
+                if result:
+                    logger.warning(f"Ozon: browser parse failed after install — {result.get('error')}")
+
         return None
+
+    @staticmethod
+    async def _install_patchright() -> bool:
+        """Run `patchright install chromium` and return True on success."""
+        import sys  # noqa: PLC0415
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, "-m", "patchright", "install", "chromium",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(proc.communicate(), timeout=120)
+            success = proc.returncode == 0
+            logger.info(f"patchright install chromium: exit code {proc.returncode}")
+            return success
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"patchright install failed: {exc}")
+            return False
 
     # ------------------------------------------------------------------
     # Link extraction
@@ -312,11 +347,13 @@ class OzonCrawler(CookieCrawler):
                     else f"{base_path}{'&' if '?' in base_path else '?'}page={page}"
                 )
                 cookies = await self.get_cookies(url)
+                proxy = await self.get_proxy(self.marketplace_name)
                 response = await self.session.get(
                     url="https://www.ozon.ru/api/entrypoint-api.bx/page/json/v2",
                     params={"url": path},
                     cookies=cookies,
                     headers=self._build_headers(url),
+                    proxy=proxy,
                 )
                 if response.status_code != 200:
                     logger.warning(f"Ozon links API HTTP {response.status_code} page {page}")
@@ -370,14 +407,17 @@ class OzonCrawler(CookieCrawler):
 
         # --- Try HTTP API with cookies first ---
         result_data = None
+        got_403 = False
         for attempt in range(settings.get("max_retries", 3)):
             try:
                 cookies = await self.get_cookies(url)
+                proxy = await self.get_proxy(self.marketplace_name)
                 response = await self.session.get(
                     url='https://www.ozon.ru/api/entrypoint-api.bx/page/json/v2',
                     params=params,
                     cookies=cookies,
                     headers=self._build_headers(url),
+                    proxy=proxy,
                 )
                 if response.status_code != 200:
                     logger.warning(f"Ozon API HTTP {response.status_code} for {url}")
@@ -399,8 +439,13 @@ class OzonCrawler(CookieCrawler):
                 logger.warning(f"Ozon HTTP attempt {attempt + 1} failed for {url}: {e}")
                 err = str(e)
                 if "Expecting value" in err or "HTTP 403" in err or "HTTP 401" in err:
+                    if "HTTP 403" in err or "HTTP 401" in err:
+                        got_403 = True
                     self.cookies_data = None
+                    self.api_headers_data = None
                     self.delete_cookies_file()
+                    if os.path.exists(self.api_headers_file_path):
+                        os.remove(self.api_headers_file_path)
                 await asyncio.sleep(random.uniform(0.1, 1.5))
 
         # --- Fallback: browser-based extraction ---
@@ -411,6 +456,10 @@ class OzonCrawler(CookieCrawler):
             browser_result = {"success": True, "api_data": result_data, "dom": None}
 
         if not browser_result:
+            if got_403:
+                raise ProductCardParsingException(
+                    "Proxies with Russian IP addresses are required to access Ozon"
+                )
             raise ProductCardParsingException(f"Failed to get Ozon product data for {url}")
 
         api_data = browser_result.get("api_data") or {}

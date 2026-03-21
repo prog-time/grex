@@ -139,6 +139,7 @@ class YandexMarketCrawler(CookieCrawler):
     # ------------------------------------------------------------------
 
     async def get_product_links(self, url: str, max_pages: int = 10) -> list[str]:
+        self.proxy = await self.get_proxy(self.marketplace_name)
         links: list[str] = []
 
         for page in range(1, max_pages + 1):
@@ -147,7 +148,7 @@ class YandexMarketCrawler(CookieCrawler):
                 page_url = url if page == 1 else f"{url}{sep}page={page}"
                 cookies = await self.get_cookies(page_url)
                 response = await self.session.get(
-                    url=page_url, cookies=cookies, headers=self._build_headers(),
+                    url=page_url, cookies=cookies, headers=self._build_headers(), proxy=self.proxy,
                 )
                 if response.status_code != 200:
                     break
@@ -187,6 +188,7 @@ class YandexMarketCrawler(CookieCrawler):
     # ------------------------------------------------------------------
 
     async def parse(self, url: str) -> ProductCard:
+        self.proxy = await self.get_proxy(self.marketplace_name)
         product_title = None
         product_sku = None
         product_original_price: Decimal = Decimal(0)
@@ -209,7 +211,7 @@ class YandexMarketCrawler(CookieCrawler):
             try:
                 cookies = await self.get_cookies(clean_url)
                 response = await self.session.get(
-                    url=clean_url, cookies=cookies, headers=self._build_headers(),
+                    url=clean_url, cookies=cookies, headers=self._build_headers(), proxy=self.proxy,
                 )
 
                 if response.status_code != 200:

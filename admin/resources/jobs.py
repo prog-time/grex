@@ -176,8 +176,11 @@ class JobsRouter:
 
 
 def register_jobs_routes(app) -> None:  # type: ignore[no-untyped-def]
+    from fastapi import Depends  # noqa: PLC0415
+    from admin.resources.auth import require_admin  # noqa: PLC0415
+    _auth = [Depends(require_admin)]
     router = JobsRouter()
-    app.add_api_route("/admin/jobs/api", router.list_jobs, methods=["GET"], tags=["admin"])
-    app.add_api_route("/admin/jobs/export", router.export_jobs, methods=["POST"], tags=["admin"])
-    app.add_api_route("/admin/jobs/delete", router.delete_job, methods=["POST"], tags=["admin"])
-    app.add_api_route("/admin/jobs/clear", router.clear_all, methods=["POST"], tags=["admin"])
+    app.add_api_route("/admin/jobs/api", router.list_jobs, methods=["GET"], tags=["admin"], dependencies=_auth)
+    app.add_api_route("/admin/jobs/export", router.export_jobs, methods=["POST"], tags=["admin"], dependencies=_auth)
+    app.add_api_route("/admin/jobs/delete", router.delete_job, methods=["POST"], tags=["admin"], dependencies=_auth)
+    app.add_api_route("/admin/jobs/clear", router.clear_all, methods=["POST"], tags=["admin"], dependencies=_auth)

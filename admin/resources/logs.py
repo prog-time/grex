@@ -51,10 +51,6 @@ async def logs_stream(
     Query parameter ``level`` filters by log level substring
     (e.g. ``?level=ERROR``).
     """
-    if not request.session.get("username"):
-        logger.warning("Unauthorized access attempt to /admin/logs/stream")
-        return JSONResponse({"error": "Unauthorized"}, status_code=401)
-
     level_info = f" (filter: {level})" if level else ""
     logger.debug(f"SSE log stream opened{level_info}")
     return EventSourceResponse(
@@ -65,6 +61,8 @@ async def logs_stream(
 
 def register_logs_routes(app) -> None:  # type: ignore[no-untyped-def]
     """Attach the SSE log stream endpoint to *app*."""
+    from fastapi import Depends  # noqa: PLC0415
+    from admin.resources.auth import require_admin  # noqa: PLC0415
     app.add_api_route(
         "/admin/logs/stream",
         logs_stream,
@@ -72,4 +70,5 @@ def register_logs_routes(app) -> None:  # type: ignore[no-untyped-def]
         tags=["admin"],
         summary="Server-Sent Events stream of application logs",
         response_model=None,
+        dependencies=[Depends(require_admin)],
     )

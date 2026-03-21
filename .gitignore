@@ -29,3 +29,13 @@ data
 .DS_Store
 
 tasks
+
+# Licensing — real license files must not be committed
+license.json
+license_*.json
+
+# Backups from update.sh
+backups/
+
+# PyArmor build output
+dist/

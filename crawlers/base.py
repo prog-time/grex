@@ -28,18 +28,16 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import os
 from abc import ABC, abstractmethod
 from multiprocessing import Process, Queue
 from typing import TYPE_CHECKING, Any, Callable, ClassVar
 
 import aiofiles  # type: ignore[import-untyped]
+from loguru import logger
 
 if TYPE_CHECKING:
     from models import ProductCard
-
-logger = logging.getLogger(__name__)
 
 
 class BaseCrawler(ABC):
@@ -87,6 +85,46 @@ class BaseCrawler(ABC):
 
     def __init__(self) -> None:
         self.proxy: str | None = None
+
+    @staticmethod
+    async def get_proxy(marketplace: str | None = None) -> str | None:
+        """Return a random proxy string if proxy is active for this marketplace, else None."""
+        import re  # noqa: PLC0415
+        import yaml  # noqa: PLC0415
+        from config import data_path  # noqa: PLC0415
+
+        try:
+            settings_file = __import__("os").path.join(data_path, "settings.yml")
+            with open(settings_file, encoding="utf-8") as f:
+                live_settings = yaml.safe_load(f) or {}
+        except Exception:
+            from config import settings as live_settings  # noqa: PLC0415
+
+        proxy_cfg = live_settings.get("proxy", {})
+        source_active = proxy_cfg.get("sources", {}).get(marketplace, False) if marketplace else False
+        if not source_active:
+            return None
+
+        try:
+            import random  # noqa: PLC0415
+            from admin.resources.proxies import _get_proxies  # noqa: PLC0415
+
+            proxies = await _get_proxies()
+            if not proxies:
+                logger.warning("Proxy is enabled but proxy pool is empty")
+                return None
+
+            proxy = random.choice(proxies)
+            proxy_type = proxy_cfg.get("type", "http")
+            if "://" not in proxy:
+                proxy = f"{proxy_type}://{proxy}"
+
+            masked = re.sub(r"(://[^:]+):([^@]+)@", r"\1:***@", proxy)
+            logger.info(f"Using proxy: {masked}" + (f" [{marketplace}]" if marketplace else ""))
+            return proxy
+        except Exception as exc:
+            logger.warning(f"Failed to get proxy: {exc}")
+            return None
 
     # ------------------------------------------------------------------
     # Interface — implement in every concrete crawler
@@ -139,9 +177,18 @@ class BaseCrawler(ABC):
         result_queue: Queue[dict] = Queue()
         process = Process(target=target, args=(*args, result_queue))
         process.start()
+        deadline = asyncio.get_event_loop().time() + timeout
         while process.is_alive():
+            if asyncio.get_event_loop().time() >= deadline:
+                process.terminate()
+                process.join()
+                logger.warning(
+                    f"_run_in_process: {getattr(target, '__name__', target)!r} "
+                    f"killed after {timeout}s timeout"
+                )
+                return None
             await asyncio.sleep(0.2)
-        process.join(timeout=timeout)
+        process.join()
         if not result_queue.empty():
             return result_queue.get()
         logger.warning(

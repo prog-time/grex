@@ -61,27 +61,7 @@ class JobsView(CustomView):
 
 class ProxiesView(CustomView):
     async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
-        import re  # noqa: PLC0415
-        from core.managers import ProxyManager  # noqa: PLC0415
-
-        def mask(p: str) -> str:
-            masked = re.sub(r"(://[^:]+):([^@]+)@", r"\1:***@", p)
-            if "://" not in p:
-                masked = re.sub(r"^([^:]+):([^@]+)@", r"\1:***@", p)
-            return masked
-
-        try:
-            raw_proxies = await ProxyManager.get_all_proxies()
-            logger.debug(f"Proxies page: loaded {len(raw_proxies)} proxies")
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(f"ProxyManager unavailable on proxies page: {exc}")
-            raw_proxies = []
-
-        proxies = [{"index": i, "proxy": mask(p)} for i, p in enumerate(raw_proxies)]
-        return templates.TemplateResponse(
-            "proxies.html",
-            {"request": request, "proxies": proxies},
-        )
+        return templates.TemplateResponse("proxies.html", {"request": request})
 
 
 class TargetsView(CustomView):
@@ -182,6 +162,9 @@ async def setup_admin(app: FastAPI) -> None:
     # Stats reset endpoint
     from fastapi.responses import JSONResponse  # noqa: PLC0415
 
+    from fastapi import Depends  # noqa: PLC0415
+    from admin.resources.auth import require_admin  # noqa: PLC0415
+
     async def stats_reset() -> JSONResponse:
         try:
             from services.stats import StatsCollector  # noqa: PLC0415
@@ -190,7 +173,10 @@ async def setup_admin(app: FastAPI) -> None:
         except Exception as exc:  # noqa: BLE001
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
 
-    app.add_api_route("/admin/api/stats/reset", stats_reset, methods=["POST"], tags=["admin"])
+    app.add_api_route(
+        "/admin/api/stats/reset", stats_reset,
+        methods=["POST"], tags=["admin"], dependencies=[Depends(require_admin)],
+    )
 
     logger.info("Admin API routes registered")
 
@@ -198,11 +184,6 @@ async def setup_admin(app: FastAPI) -> None:
     # prefix match does not shadow them.
     admin.mount_to(app)
     logger.info("starlette-admin mounted at /admin")
-
-    # Add SessionMiddleware to the FastAPI app so that request.session is
-    # available on auxiliary API routes (e.g. /admin/logs/stream).
-    from starlette.middleware.sessions import SessionMiddleware as _SM  # noqa: PLC0415
-    app.add_middleware(_SM, secret_key=secret_key)
 
     # Log all /admin routes for diagnostics
     admin_routes = [

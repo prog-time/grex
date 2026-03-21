@@ -17,12 +17,44 @@
 <div class="container-xl">
 
   <div class="card mb-3">
+    <div class="card-header"><h3 class="card-title">Proxy usage</h3></div>
+    <div class="card-body">
+      <div class="d-flex align-items-center gap-4 mb-3 pb-3 border-bottom">
+        <span class="text-body fw-medium">Protocol</span>
+        <div class="d-flex gap-3">
+          <label class="form-check mb-0">
+            <input class="form-check-input" type="radio" name="proxyType" value="http" onchange="setProxyType('http')">
+            <span class="form-check-label">HTTP</span>
+          </label>
+          <label class="form-check mb-0">
+            <input class="form-check-input" type="radio" name="proxyType" value="socks5" onchange="setProxyType('socks5')">
+            <span class="form-check-label">SOCKS5</span>
+          </label>
+        </div>
+      </div>
+      <div id="sourceSwitches"></div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
     <div class="card-header"><h3 class="card-title">Add proxy</h3></div>
     <div class="card-body">
-      <div class="input-group">
-        <input id="proxyInput" type="text" class="form-control"
-               placeholder="login:password@host:port">
-        <button class="btn btn-primary" onclick="addProxy()">Add</button>
+      <div class="row g-2">
+        <div class="col-12 col-sm-5">
+          <input id="proxyHost" type="text" class="form-control" placeholder="Host">
+        </div>
+        <div class="col-6 col-sm-2">
+          <input id="proxyPort" type="text" class="form-control" placeholder="Port">
+        </div>
+        <div class="col-6 col-sm-2">
+          <input id="proxyLogin" type="text" class="form-control" placeholder="Login (optional)">
+        </div>
+        <div class="col-10 col-sm-2">
+          <input id="proxyPassword" type="password" class="form-control" placeholder="Password (optional)">
+        </div>
+        <div class="col-2 col-sm-1 d-flex">
+          <button id="addBtn" class="btn btn-primary w-100" onclick="addProxy()">Add</button>
+        </div>
       </div>
       <div id="proxyError" class="text-danger mt-1" style="display:none;"></div>
     </div>
@@ -32,19 +64,10 @@
     <div class="table-responsive">
       <table class="table table-vcenter card-table">
         <thead><tr><th>#</th><th>Proxy</th><th></th></tr></thead>
-        <tbody>
-          {% for p in proxies %}
-          <tr>
-            <td>{{ p.index }}</td>
-            <td><code>{{ p.proxy }}</code></td>
-            <td>
-              <button class="btn btn-sm btn-outline-danger"
-                onclick="removeProxy({{ p.index }})">Remove</button>
-            </td>
-          </tr>
-          {% else %}
-          <tr><td colspan="3" class="text-muted">Proxy pool is empty.</td></tr>
-          {% endfor %}
+        <tbody id="proxyTableBody">
+          <tr><td colspan="3" class="text-center text-muted">
+            <span class="spinner-border spinner-border-sm me-2"></span>Loading...
+          </td></tr>
         </tbody>
       </table>
     </div>
@@ -52,35 +75,151 @@
 </div>
 
 <script>
-async function addProxy() {
-  const proxy = document.getElementById('proxyInput').value.trim();
-  const errEl = document.getElementById('proxyError');
-  const res = await fetch('/admin/proxies/add', {
+const SOURCE_LABELS = {
+  ozon: 'Ozon',
+  wildberries: 'Wildberries',
+  yandex_market: 'Yandex Market',
+  megamarket: 'Megamarket',
+};
+
+async function loadProxies() {
+  const tbody = document.getElementById('proxyTableBody');
+  const res = await fetch('/admin/proxies/api');
+  if (!res.ok) {
+    tbody.innerHTML = '<tr><td colspan="3" class="text-danger">Failed to load proxies.</td></tr>';
+    return;
+  }
+  const data = await res.json();
+  const proxies = data.proxies || [];
+  if (!proxies.length) {
+    tbody.innerHTML = '<tr><td colspan="3" class="text-muted">Proxy pool is empty.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = proxies.map(p => `
+    <tr>
+      <td>${p.index}</td>
+      <td><code>${p.proxy}</code></td>
+      <td>
+        <button class="btn btn-sm btn-outline-danger" onclick="removeProxy(${p.index}, this)">Remove</button>
+      </td>
+    </tr>`).join('');
+}
+
+(async function initSettings() {
+  const res = await fetch('/admin/proxies/settings');
+  if (!res.ok) return;
+  const data = await res.json();
+
+  const type = data.type || 'http';
+  const radio = document.querySelector(`input[name="proxyType"][value="${type}"]`);
+  if (radio) radio.checked = true;
+
+  loadProxies();
+
+  const container = document.getElementById('sourceSwitches');
+  for (const [src, active] of Object.entries(data.sources || {})) {
+    const label = SOURCE_LABELS[src] || src;
+    const id = `src_${src}`;
+    const row = document.createElement('div');
+    row.className = 'd-flex align-items-center justify-content-between py-2';
+    row.innerHTML = `
+      <span class="text-body">${label}</span>
+      <div class="form-check form-switch ms-3">
+        <input class="form-check-input" type="checkbox" id="${id}"
+               style="width:2em;height:1.2em;cursor:pointer;"
+               ${active ? 'checked' : ''}
+               onchange="setSourceProxy('${src}', this.checked)">
+      </div>`;
+    container.appendChild(row);
+  }
+})();
+
+async function setProxyType(type) {
+  await fetch('/admin/proxies/settings', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({proxy})
+    body: JSON.stringify({type})
   });
-  const data = await res.json();
-  if (!res.ok) {
-    errEl.textContent = data.error || 'Error';
-    errEl.style.display = '';
+}
+
+async function setSourceProxy(source, value) {
+  await fetch('/admin/proxies/settings', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({source, source_active: value})
+  });
+}
+
+function setLoading(btn, loading) {
+  if (loading) {
+    btn.disabled = true;
+    btn.dataset.orig = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
   } else {
-    location.reload();
+    btn.disabled = false;
+    btn.innerHTML = btn.dataset.orig;
   }
 }
 
-async function removeProxy(index) {
+async function addProxy() {
+  const host = document.getElementById('proxyHost').value.trim();
+  const port = document.getElementById('proxyPort').value.trim();
+  const login = document.getElementById('proxyLogin').value.trim();
+  const password = document.getElementById('proxyPassword').value.trim();
+  const errEl = document.getElementById('proxyError');
+  const btn = document.getElementById('addBtn');
+  errEl.style.display = 'none';
+
+  if (!host || !port) {
+    errEl.textContent = 'Host and port are required';
+    errEl.style.display = '';
+    return;
+  }
+
+  let proxy = login && password
+    ? `${login}:${password}@${host}:${port}`
+    : `${host}:${port}`;
+
+  setLoading(btn, true);
+  try {
+    const res = await fetch('/admin/proxies/add', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({proxy})
+    });
+    const data = await res.json().catch(function() { return {}; });
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Error ' + res.status;
+      errEl.style.display = '';
+      setLoading(btn, false);
+    } else {
+      document.getElementById('proxyHost').value = '';
+      document.getElementById('proxyPort').value = '';
+      document.getElementById('proxyLogin').value = '';
+      document.getElementById('proxyPassword').value = '';
+      setLoading(btn, false);
+      loadProxies();
+    }
+  } catch(e) {
+    errEl.textContent = 'Request failed: ' + e;
+    errEl.style.display = '';
+    setLoading(btn, false);
+  }
+}
+
+async function removeProxy(index, btn) {
+  setLoading(btn, true);
   await fetch('/admin/proxies/remove', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({index})
   });
-  location.reload();
+  loadProxies();
 }
 
 async function reload() {
   await fetch('/admin/proxies/reload', {method: 'POST'});
-  location.reload();
+  loadProxies();
 }
 </script>
 {% endblock %}

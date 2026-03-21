@@ -49,7 +49,8 @@ class WildberriesCrawler(BaseCrawler):
 
     async def _save_upstreams_data(self) -> None:
         response = await self.session.get(
-            url=f"https://cdn.wbbasket.ru/api/v3/upstreams?t={int(time.time() * 1000)}"
+            url=f"https://cdn.wbbasket.ru/api/v3/upstreams?t={int(time.time() * 1000)}",
+            proxy=self.proxy,
         )
         data = response.json()
         if "recommend" in data:
@@ -111,7 +112,8 @@ class WildberriesCrawler(BaseCrawler):
         try:
             upstream_host = await self._get_upstream_host_by_sku(sku)
             response = await self.session.get(
-                url=f"{upstream_host}/{sku}/info/ru/card.json"
+                url=f"{upstream_host}/{sku}/info/ru/card.json",
+                proxy=self.proxy,
             )
             return response.json()
         except Exception as e:
@@ -131,7 +133,7 @@ class WildberriesCrawler(BaseCrawler):
             path = f"cards/{version}/detail" if version else "cards/detail"
             url = f"https://card.wb.ru/{path}?{params}"
             try:
-                response = await self.session.get(url=url, headers=self._build_headers())
+                response = await self.session.get(url=url, headers=self._build_headers(), proxy=self.proxy)
                 if response.status_code == 404:
                     logger.debug(f"WB details {path} → 404 for #{sku}, trying next")
                     continue
@@ -163,6 +165,7 @@ class WildberriesCrawler(BaseCrawler):
             response = await self.session.get(
                 url=f"https://search.wb.ru/exactmatch/ru/common/v9/search?{params}",
                 headers=self._build_headers(),
+                proxy=self.proxy,
             )
             if response.status_code != 200:
                 logger.debug(f"WB search API HTTP {response.status_code} for #{sku}")
@@ -314,6 +317,7 @@ class WildberriesCrawler(BaseCrawler):
     # ------------------------------------------------------------------
 
     async def get_product_links(self, url: str, max_pages: int = 10) -> list[str]:
+        self.proxy = await self.get_proxy(self.marketplace_name)
         links: list[str] = []
 
         seller_match = re.search(r"/seller/(\d+)", url)
@@ -326,7 +330,7 @@ class WildberriesCrawler(BaseCrawler):
                         f"?appType=1&curr=rub&dest=-1257786"
                         f"&supplier={supplier_id}&limit=100&page={page}&sort=popular"
                     )
-                    response = await self.session.get(api_url, headers=self._build_headers())
+                    response = await self.session.get(api_url, headers=self._build_headers(), proxy=self.proxy)
                     if response.status_code != 200:
                         break
                     data = response.json()
@@ -351,6 +355,7 @@ class WildberriesCrawler(BaseCrawler):
     # ------------------------------------------------------------------
 
     async def parse(self, url: str) -> ProductCard:
+        self.proxy = await self.get_proxy(self.marketplace_name)
         product_original_price: Decimal = Decimal(0)
         product_current_price: Decimal = Decimal(0)
         product_images: list[str] = []

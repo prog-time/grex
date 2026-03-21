@@ -8,7 +8,7 @@ from loguru import logger
 from fastapi import HTTPException, status
 
 from models import ProductCard, BatchItemResult
-from core.exceptions import UnsupportedMarketplaceError, CrawlerNotFoundError
+from core.exceptions import UnsupportedMarketplaceError, CrawlerNotFoundError, ProductCardParsingException
 # Import the crawlers package (not just the registry) so that all concrete
 # crawler classes are loaded and auto-registered via __init_subclass__.
 import crawlers as _crawlers_pkg  # noqa: F401
@@ -69,6 +69,21 @@ class ParsingService:
                 )
             raise
 
+        except ProductCardParsingException as e:
+            finished_at = datetime.now(timezone.utc)
+            elapsed = time.monotonic() - t_start
+            if marketplace:
+                await self._record_stat(marketplace, success=False, elapsed=elapsed)
+                await self._save_job(
+                    url, marketplace, started_at, finished_at,
+                    success=False, error=str(e),
+                )
+            logger.warning(f"Parsing failed for {url}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(e),
+            )
+
         except Exception as e:
             finished_at = datetime.now(timezone.utc)
             elapsed = time.monotonic() - t_start
@@ -76,7 +91,7 @@ class ParsingService:
                 await self._record_stat(marketplace, success=False, elapsed=elapsed)
                 await self._save_job(
                     url, marketplace, started_at, finished_at,
-                    success=False, error=traceback.format_exc(),
+                    success=False, error=str(e),
                 )
             logger.error(f"Parsing error for {url}: {e}")
             traceback.print_exc()
@@ -158,6 +173,7 @@ class ParsingService:
             from models.job import async_session, Job, JobStatus  # noqa: PLC0415
 
             if async_session is None:
+                logger.warning(f"_save_job skipped (DB not initialised) for {url}")
                 return
 
             async with async_session() as session:
@@ -172,8 +188,8 @@ class ParsingService:
                 )
                 session.add(job)
                 await session.commit()
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as _exc:  # noqa: BLE001
+            logger.error(f"_save_job failed for {url}: {_exc}")
 
     async def _apply_rate_limit(self, marketplace: str) -> None:
         """Pace requests to match the configured rate limit (requests/min).

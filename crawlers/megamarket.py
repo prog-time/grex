@@ -261,13 +261,12 @@ class MegaMarketCrawler(CookieCrawler):
 
         for attempt in range(settings.get("max_retries", 3)):
             try:
-                if settings.get("proxy", {}).get("active", False):
-                    self.proxy = await ProxyManager.get_random_proxy()
-                    if self.proxy:
-                        self.session.proxies = {
-                            "http": self.proxy,
-                            "https": self.proxy,
-                        }
+                self.proxy = await self.get_proxy(self.marketplace_name)
+                if self.proxy:
+                    self.session.proxies = {
+                        "http": self.proxy,
+                        "https": self.proxy,
+                    }
 
                 response = await self.session.post(
                     url="https://megamarket.ru/api/mobile/v1/catalogService/productCardMainInfo/get",
@@ -278,7 +277,7 @@ class MegaMarketCrawler(CookieCrawler):
                 result = response.json()
 
                 if "error" in result and "Попробуйте отключить VPN" in result["error"]:
-                    logger.warning(f"Bad proxy for MegaMarket {url}")
+                    logger.warning(f"MegaMarket blocked request (IP flagged as VPN/proxy): {url}")
                     self.cookies_data = None
                     self.delete_cookies_file()
                     continue
