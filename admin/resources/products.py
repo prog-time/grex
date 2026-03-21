@@ -186,8 +186,17 @@ class ProductsRouter:
 
 
 def register_products_routes(app) -> None:  # type: ignore[no-untyped-def]
+    from fastapi import Depends  # noqa: PLC0415
+    from admin.resources.auth import require_admin  # noqa: PLC0415
+    _auth = [Depends(require_admin)]
     router = ProductsRouter()
-    app.add_api_route("/admin/products/api", router.list_products, methods=["GET"], tags=["admin"])
-    app.add_api_route("/admin/products/export", router.export_products, methods=["POST"], tags=["admin"])
-    app.add_api_route("/admin/products/delete", router.delete_product, methods=["POST"], tags=["admin"])
-    app.add_api_route("/admin/products/clear", router.clear_products, methods=["POST"], tags=["admin"])
+    app.add_api_route("/admin/products/api", router.list_products, methods=["GET"], tags=["admin"], dependencies=_auth)
+    app.add_api_route(
+        "/admin/products/export", router.export_products, methods=["POST"], tags=["admin"], dependencies=_auth,
+    )
+    app.add_api_route(
+        "/admin/products/delete", router.delete_product, methods=["POST"], tags=["admin"], dependencies=_auth,
+    )
+    app.add_api_route(
+        "/admin/products/clear", router.clear_products, methods=["POST"], tags=["admin"], dependencies=_auth,
+    )

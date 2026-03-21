@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import List, Dict
 from fastapi.security.api_key import APIKeyHeader
 from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 
 from config import settings
 from models import (
@@ -42,6 +43,18 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
         await StatsCollector.set_start_time()
     except Exception as exc:
         logger.warning(f"Redis init failed (admin panel will be unavailable): {exc}")
+
+    _UNSAFE_DEFAULTS = {
+        "security.api_key": ("4353456dfvbdfg34", settings.get("security", {}).get("api_key", "")),
+        "admin.password": ("admin", settings.get("admin", {}).get("password", "")),
+        "admin.secret_key": ("change-me-in-production-secret-key", settings.get("admin", {}).get("secret_key", "")),
+    }
+    for key, (bad, current) in _UNSAFE_DEFAULTS.items():
+        if current == bad:
+            logger.warning(
+                f"SECURITY: '{key}' is set to an insecure default value"
+                " — change it in data/settings.yml before going to production!"
+            )
 
     try:
         from admin import setup_admin  # noqa: PLC0415
@@ -258,11 +271,14 @@ async def log_requests(request, call_next):  # type: ignore[no-untyped-def]
 async def general_exception_handler(request, exc):  # type: ignore[no-untyped-def]
     logger.error(f"Unhandled exception for {request.url}: {exc}")
 
-    return ParseResponse(
-        success=False,
-        error="Internal server error occurred",
-        marketplace=None,
-        processing_time=0.0,
+    return JSONResponse(
+        status_code=500,
+        content=ParseResponse(
+            success=False,
+            error="Internal server error occurred",
+            marketplace=None,
+            processing_time=0.0,
+        ).model_dump(),
     )
 
 

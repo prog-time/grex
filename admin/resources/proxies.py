@@ -110,28 +110,35 @@ class ProxiesRouter:
 
 def register_proxies_routes(app) -> None:  # type: ignore[no-untyped-def]
     """Attach proxy management endpoints to *app*."""
+    from fastapi import Depends  # noqa: PLC0415
+    from admin.resources.auth import require_admin  # noqa: PLC0415
+    _auth = [Depends(require_admin)]
     router = ProxiesRouter()
     app.add_api_route(
         "/admin/proxies/api",
         router.list_proxies,
         methods=["GET"],
         tags=["admin"],
+        dependencies=_auth,
     )
     app.add_api_route(
         "/admin/proxies/add",
         router.add_proxy,
         methods=["POST"],
         tags=["admin"],
+        dependencies=_auth,
     )
     app.add_api_route(
         "/admin/proxies/remove",
         router.remove_proxy,
         methods=["POST"],
         tags=["admin"],
+        dependencies=_auth,
     )
     app.add_api_route(
         "/admin/proxies/reload",
         router.reload_from_file,
         methods=["POST"],
         tags=["admin"],
+        dependencies=_auth,
     )

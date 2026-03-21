@@ -62,6 +62,9 @@ class UsersRouter:
 
 
 def register_users_routes(app) -> None:  # type: ignore[no-untyped-def]
+    from fastapi import Depends  # noqa: PLC0415
+    from admin.resources.auth import require_admin  # noqa: PLC0415
+    _auth = [Depends(require_admin)]
     router = UsersRouter()
-    app.add_api_route("/admin/users/api", router.get_user, methods=["GET"], tags=["admin"])
-    app.add_api_route("/admin/users/update", router.update_user, methods=["POST"], tags=["admin"])
+    app.add_api_route("/admin/users/api", router.get_user, methods=["GET"], tags=["admin"], dependencies=_auth)
+    app.add_api_route("/admin/users/update", router.update_user, methods=["POST"], tags=["admin"], dependencies=_auth)

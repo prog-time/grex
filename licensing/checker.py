@@ -93,6 +93,18 @@ def check_updates_allowed() -> bool:
         return False
 
 
+def get_updates_until() -> str:
+    """Return the updates_until date (YYYY-MM-DD) from the online registry, or '' on error."""
+    try:
+        lic = _read_license_file()
+        entry = _fetch_license_entry(lic["key"])
+        if not entry:
+            return ""
+        return entry.get("updates_until", "")
+    except Exception:
+        return ""
+
+
 def _abort(message: str) -> None:
     print(f"\n  ОШИБКА ЛИЦЕНЗИИ: {message}\n")
     raise SystemExit(1)

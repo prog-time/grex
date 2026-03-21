@@ -44,16 +44,12 @@ ok "Лицензия действительна"
 info "Проверка подписки на обновления..."
 
 UPDATES_UNTIL=$(.venv/bin/python -c "
-import json, sys
-try:
-    lic = json.load(open('license.json'))
-    print(lic.get('updates_until', ''))
-except Exception as e:
-    print('')
+from licensing.checker import get_updates_until
+print(get_updates_until())
 " 2>/dev/null)
 
 if [ -z "$UPDATES_UNTIL" ]; then
-    fail "Поле updates_until отсутствует в license.json. Обратитесь к поставщику."
+    fail "Не удалось получить дату подписки на обновления из реестра. Проверьте лицензию и интернет-соединение."
 fi
 
 TODAY=$(date +%Y-%m-%d)

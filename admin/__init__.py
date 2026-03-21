@@ -182,6 +182,9 @@ async def setup_admin(app: FastAPI) -> None:
     # Stats reset endpoint
     from fastapi.responses import JSONResponse  # noqa: PLC0415
 
+    from fastapi import Depends  # noqa: PLC0415
+    from admin.resources.auth import require_admin  # noqa: PLC0415
+
     async def stats_reset() -> JSONResponse:
         try:
             from services.stats import StatsCollector  # noqa: PLC0415
@@ -190,7 +193,10 @@ async def setup_admin(app: FastAPI) -> None:
         except Exception as exc:  # noqa: BLE001
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
 
-    app.add_api_route("/admin/api/stats/reset", stats_reset, methods=["POST"], tags=["admin"])
+    app.add_api_route(
+        "/admin/api/stats/reset", stats_reset,
+        methods=["POST"], tags=["admin"], dependencies=[Depends(require_admin)],
+    )
 
     logger.info("Admin API routes registered")
 
