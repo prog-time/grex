@@ -106,7 +106,7 @@ async def setup_admin(app: FastAPI) -> None:
 
     admin = Admin(
         engine,
-        title="Parser Admin",
+        title="Grex Parser",
         auth_provider=SettingsAuthProvider(),
         templates_dir=templates_dir,
         middlewares=[Middleware(SessionMiddleware, secret_key=secret_key)],

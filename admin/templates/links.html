@@ -18,24 +18,21 @@
     <div class="card-header"><h3 class="card-title">Source</h3></div>
     <div class="card-body">
       <div class="row g-3 mb-3">
-        <div class="col-12 col-md-8">
+        <div class="col-12 col-md-9">
           <label class="form-label">Seller or catalog URL <span class="text-danger">*</span></label>
           <input id="lUrl" type="url" class="form-control"
                  placeholder="https://www.wildberries.ru/seller/123456 or https://ozon.ru/seller/apple/products/">
           <div class="form-hint">Marketplace is detected automatically. Seller pages, catalogs and search pages are supported.</div>
         </div>
-        <div class="col-6 col-md-2">
+        <div class="col-6 col-md-3">
           <label class="form-label">Max pages</label>
           <input id="lMaxPages" type="number" class="form-control" value="10" min="1" max="50">
         </div>
-        <div class="col-6 col-md-2">
-          <label class="form-label">&nbsp;</label>
-          <button type="button" class="btn btn-primary w-100" id="btnExtract" onclick="startExtraction()">
-            Extract
-          </button>
-        </div>
       </div>
-      <div id="lError" class="alert alert-danger mb-0" style="display:none;"></div>
+      <div id="lError" class="alert alert-danger mb-3" style="display:none;"></div>
+      <button type="button" class="btn btn-primary" id="btnExtract" onclick="startExtraction()">
+        Extract
+      </button>
     </div>
   </div>
 
