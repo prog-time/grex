@@ -324,7 +324,6 @@ class TargetsRouter:
             return JSONResponse({"error": str(exc)}, status_code=500)
 
     @staticmethod
-    @staticmethod
     async def clear_all_targets(request: Request) -> JSONResponse:
         try:
             from models.job import async_session  # noqa: PLC0415

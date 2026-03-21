@@ -102,7 +102,7 @@
           <option value="50">50</option>
           <option value="100">100</option>
         </select>
-        <div id="runAllProgress" style="display:none;" class="d-flex align-items-center gap-2">
+        <div id="runAllProgress" class="d-none align-items-center gap-2">
           <div class="spinner-border spinner-border-sm text-success" role="status"></div>
           <span id="runAllProgressText" class="text-muted small">Starting…</span>
         </div>
@@ -477,7 +477,7 @@ function renderDataTable(data, url) {
     } else {
       display = esc(String(val));
     }
-    return '<tr><td class="text-muted" style="width:160px">' + esc(key) + '</td><td>' + display + '</td></tr>';
+    return '<tr><td class="text-muted" style="width:160px">' + esc(key) + '</td><td style="word-break:break-word;overflow-wrap:anywhere">' + display + '</td></tr>';
   }).join('');
 
   return '<table class="table table-sm">' + rows + '</table>';
@@ -502,7 +502,8 @@ async function checkActiveSession() {
       var btn = document.getElementById('btnRunAll');
       btn.disabled = true;
       btn.textContent = 'Running…';
-      document.getElementById('runAllProgress').style.display = '';
+      document.getElementById('runAllProgress').classList.remove('d-none');
+      document.getElementById('runAllProgress').classList.add('d-flex');
       _runAllPollTimer = setInterval(pollRunAllStatus, 2000);
     }
   } catch(e) {
@@ -516,7 +517,8 @@ async function runAll() {
   var btn = document.getElementById('btnRunAll');
   btn.disabled = true;
   btn.textContent = 'Starting…';
-  document.getElementById('runAllProgress').style.display = '';
+  document.getElementById('runAllProgress').classList.remove('d-none');
+  document.getElementById('runAllProgress').classList.add('d-flex');
   document.getElementById('runAllProgressText').textContent = 'Starting…';
 
   try {
@@ -573,7 +575,8 @@ function resetRunAllUI() {
   var btn = document.getElementById('btnRunAll');
   btn.disabled = false;
   btn.textContent = 'Run all';
-  document.getElementById('runAllProgress').style.display = 'none';
+  document.getElementById('runAllProgress').classList.add('d-none');
+  document.getElementById('runAllProgress').classList.remove('d-flex');
   _runAllSessionId = null;
 }
 
