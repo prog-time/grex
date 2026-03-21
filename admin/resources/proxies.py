@@ -163,6 +163,15 @@ class ProxiesRouter:
             except Exception as exc:  # noqa: BLE001
                 logger.warning(f"Failed to persist proxy settings: {exc}")
 
+        # Protocol type
+        if "type" in body:
+            proxy_type = body["type"]
+            if proxy_type not in ("http", "socks5"):
+                return JSONResponse({"error": "type must be http or socks5"}, status_code=422)
+            settings.setdefault("proxy", {})["type"] = proxy_type
+            _persist(lambda raw: raw.setdefault("proxy", {}).__setitem__("type", proxy_type))
+            logger.info(f"Proxy type set to {proxy_type}")
+
         # Per-source toggle
         if "source" in body and "source_active" in body:
             source = body["source"]
