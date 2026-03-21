@@ -14,9 +14,7 @@ warn() { echo -e "${YELLOW}  ⚠ $1${NC}"; }
 fail() { echo -e "${RED}  ✗ $1${NC}"; exit 1; }
 
 echo ""
-echo -e "${CYAN}╔══════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║      Marketplace Parser — Startup        ║${NC}"
-echo -e "${CYAN}╚══════════════════════════════════════════╝${NC}"
+echo -e "${CYAN}  Grex Parser — Startup${NC}"
 echo ""
 
 # ── Директория скрипта ───────────────────────────────────────────────────────

@@ -32,10 +32,7 @@ def _compute_key(mac: str) -> str:
 
 def _read_license_file() -> dict:
     if not _LICENSE_PATH.exists():
-        _abort(
-            "Файл license.json не найден.\n"
-            "  ║  Запустите: python register.py"
-        )
+        _abort("Файл license.json не найден. Запустите: python register.py")
     try:
         return json.loads(_LICENSE_PATH.read_text(encoding="utf-8"))
     except Exception:
@@ -48,10 +45,7 @@ def _fetch_license_entry(key: str) -> dict:
             data = json.loads(resp.read().decode())
         return data.get(key)
     except Exception:
-        _abort(
-            "Не удалось проверить лицензию онлайн.\n"
-            "  ║  Проверьте интернет-соединение и повторите попытку."
-        )
+        _abort("Не удалось проверить лицензию. Проверьте интернет-соединение.")
 
 
 def check_license() -> dict:
@@ -61,28 +55,19 @@ def check_license() -> dict:
     lic = _read_license_file()
 
     if "key" not in lic:
-        _abort(
-            "Файл license.json неполный: отсутствует поле 'key'.\n"
-            "  ║  Запустите: python register.py"
-        )
+        _abort("Файл license.json неполный. Запустите: python register.py")
 
     # 2. Verify key matches this machine's MAC (prevents copying license to another machine)
     mac = _get_mac()
     expected_key = _compute_key(mac)
     if not hmac.compare_digest(expected_key, lic["key"]):
-        _abort(
-            "Лицензия выдана для другого устройства.\n"
-            "  ║  Обратитесь к поставщику для переноса лицензии."
-        )
+        _abort("Лицензия выдана для другого устройства. Обратитесь к поставщику.")
 
     # 3. Online activation check (mandatory — app requires internet)
     entry = _fetch_license_entry(lic["key"])
 
     if entry is None:
-        _abort(
-            "Лицензия ещё не активирована.\n"
-            "  ║  Запустите python register.py и отправьте ключ разработчику."
-        )
+        _abort("Лицензия не активирована. Запустите register.py и отправьте ключ разработчику.")
 
     status = entry.get("status")
 
@@ -90,10 +75,7 @@ def check_license() -> dict:
         _abort("Лицензия заблокирована. Обратитесь к поставщику.")
 
     if status != "active":
-        _abort(
-            f"Лицензия не активна (статус: {status}).\n"
-            "  ║  Обратитесь к поставщику."
-        )
+        _abort(f"Лицензия не активна (статус: {status}). Обратитесь к поставщику.")
 
     return {**lic, **entry}
 
@@ -112,7 +94,5 @@ def check_updates_allowed() -> bool:
 
 
 def _abort(message: str) -> None:
-    print("\n  ╔══ ОШИБКА ЛИЦЕНЗИИ ══════════════════════════════════╗")
-    print(f"  ║  {message}")
-    print("  ╚═════════════════════════════════════════════════════╝\n")
+    print(f"\n  ОШИБКА ЛИЦЕНЗИИ: {message}\n")
     raise SystemExit(1)

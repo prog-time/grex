@@ -22,9 +22,7 @@ cleanup() { rm -rf "$TMP_DIR"; }
 trap cleanup EXIT
 
 echo ""
-echo -e "${CYAN}╔══════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║      Marketplace Parser — Updater        ║${NC}"
-echo -e "${CYAN}╚══════════════════════════════════════════╝${NC}"
+echo -e "${CYAN}  Grex Parser — Updater${NC}"
 echo ""
 
 cd "$INSTALL_DIR"
