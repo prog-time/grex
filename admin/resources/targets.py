@@ -33,6 +33,7 @@ async def _upsert_parsed_product(
     from sqlalchemy import select  # noqa: PLC0415
 
     images_json = _json.dumps(data.get("images", []))
+    chars_json = _json.dumps(data.get("characteristics", {}))
     orig = float(data["original_price"]) if data.get("original_price") else None
     cur = float(data["current_price"]) if data.get("current_price") else None
 
@@ -48,6 +49,8 @@ async def _upsert_parsed_product(
             existing.original_price = orig
             existing.current_price = cur
             existing.images = images_json
+            existing.description = data.get("description") or None
+            existing.characteristics = chars_json
             existing.parsed_at = _dt.utcnow()
         else:
             s.add(ParsedProduct(
@@ -61,6 +64,8 @@ async def _upsert_parsed_product(
                 original_price=orig,
                 current_price=cur,
                 images=images_json,
+                description=data.get("description") or None,
+                characteristics=chars_json,
                 parsed_at=_dt.utcnow(),
             ))
         await s.commit()

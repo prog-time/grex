@@ -45,7 +45,9 @@ class ParsedProduct(Base):
     sku = Column(String(255), nullable=True)
     original_price = Column(Float, nullable=True)
     current_price = Column(Float, nullable=True)
-    images = Column(Text, nullable=True)  # JSON array
+    images = Column(Text, nullable=True)          # JSON array
+    description = Column(Text, nullable=True)
+    characteristics = Column(Text, nullable=True)  # JSON object {name: value}
     parsed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     def to_dict(self) -> dict:
@@ -53,6 +55,12 @@ class ParsedProduct(Base):
         if self.images:
             try:
                 images = json.loads(self.images)
+            except Exception:  # noqa: BLE001
+                pass
+        chars = {}
+        if self.characteristics:
+            try:
+                chars = json.loads(self.characteristics)
             except Exception:  # noqa: BLE001
                 pass
         return {
@@ -66,5 +74,7 @@ class ParsedProduct(Base):
             "original_price": self.original_price,
             "current_price": self.current_price,
             "images": images,
+            "description": self.description or "",
+            "characteristics": chars,
             "parsed_at": self.parsed_at.isoformat() if self.parsed_at else None,
         }

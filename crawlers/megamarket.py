@@ -242,6 +242,8 @@ class MegaMarketCrawler(CookieCrawler):
         product_original_price: Decimal = Decimal(0)
         product_current_price: Decimal = Decimal(0)
         product_images: list = []
+        product_description: str = ""
+        product_characteristics: dict = {}
 
         parsed_url = parse_url(url)
         product_sku = (
@@ -294,6 +296,22 @@ class MegaMarketCrawler(CookieCrawler):
                     logger.warning(f"Error parsing MegaMarket title for {url}: {e}")
 
                 try:
+                    product_description = result["goods"].get("description") or ""
+                except Exception as e:
+                    logger.warning(f"Error parsing MegaMarket description for {url}: {e}")
+
+                try:
+                    for attr in result["goods"].get("attributes", []):
+                        name = attr.get("title") or attr.get("name")
+                        value = attr.get("value") or attr.get("values")
+                        if isinstance(value, list):
+                            value = ", ".join(str(v) for v in value)
+                        if name and value is not None:
+                            product_characteristics[name] = str(value)
+                except Exception as e:
+                    logger.warning(f"Error parsing MegaMarket characteristics for {url}: {e}")
+
+                try:
                     offers = await self._fetch_product_offers(url, product_sku)
                     if offers:
                         best_offer = offers[0]
@@ -310,6 +328,8 @@ class MegaMarketCrawler(CookieCrawler):
                     current_price=product_current_price,
                     images=product_images,
                     source_url=url,
+                    description=product_description,
+                    characteristics=product_characteristics,
                 )
                 logger.debug(card.to_dict())
                 return card

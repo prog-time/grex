@@ -258,6 +258,43 @@ class YandexMarketCrawler(CookieCrawler):
                 except Exception as e:
                     logger.warning(f"Failed to get current price from YM {clean_url}: {e}")
 
+                product_description: str = ""
+                product_characteristics: dict = {}
+
+                # Description: data-auto="product-description" → first div child (skip input)
+                try:
+                    pd_block = soup.find("div", {"data-auto": "product-description"})
+                    if pd_block:
+                        div_children = [c for c in pd_block.children if isinstance(c, Tag) and c.name == "div"]
+                        if div_children:
+                            product_description = div_children[0].get_text(separator="\n", strip=True)
+                    else:
+                        logger.debug(f"YM: 'product-description' block not found for {clean_url}")
+                except Exception as e:
+                    logger.warning(f"Failed to get description from YM {clean_url}: {e}")
+
+                # Characteristics: each span[data-auto="product-spec"] is a key label;
+                # the value lives in the sibling div of the grandparent row.
+                try:
+                    spec_spans = soup.find_all(attrs={"data-auto": "product-spec"})
+                    if spec_spans:
+                        for spec_span in spec_spans:
+                            try:
+                                key = spec_span.get_text(strip=True)
+                                # span → parent div → parent div → grandparent row div
+                                grandparent = spec_span.parent.parent.parent
+                                siblings = [c for c in grandparent.children if isinstance(c, Tag)]
+                                if len(siblings) == 2:
+                                    value = siblings[1].get_text(strip=True)
+                                    if key and value and key not in product_characteristics and len(key) < 120:
+                                        product_characteristics[key] = value
+                            except Exception:
+                                continue
+                    else:
+                        logger.debug(f"YM: 'product-spec' spans not found for {clean_url}")
+                except Exception as e:
+                    logger.warning(f"Failed to get characteristics from YM {clean_url}: {e}")
+
                 try:
                     gallery_div = soup.find("div", {"data-apiary-widget-name": "@card/ShortUrl"})
                     if gallery_div and isinstance(gallery_div, Tag):
@@ -290,6 +327,8 @@ class YandexMarketCrawler(CookieCrawler):
                     current_price=product_current_price,
                     images=product_images,
                     source_url=url,
+                    description=product_description,
+                    characteristics=product_characteristics,
                 )
 
             except Exception as e:

@@ -67,12 +67,14 @@
             <th style="width:36px">
               <input type="checkbox" class="form-check-input" id="selectAll" onchange="toggleSelectAll(this)">
             </th>
-            <th style="width:56px"></th>
+            <th style="width:56px;min-width:56px"></th>
             <th>Title</th>
             <th>Marketplace</th>
             <th>SKU</th>
             <th>Original price</th>
             <th>Current price</th>
+            <th>Description</th>
+            <th>Characteristics</th>
             <th>Parsed at</th>
             <th></th>
           </tr>
@@ -144,7 +146,7 @@ function renderProducts() {
   var tbody = document.getElementById('productsBody');
 
   if (!page.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="text-muted text-center py-3">No products yet.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" class="text-muted text-center py-3">No products yet.</td></tr>';
     document.getElementById('productsPager').innerHTML = '';
     updateSelectionCount();
     return;
@@ -152,7 +154,7 @@ function renderProducts() {
 
   tbody.innerHTML = page.map(function(p) {
     var img = (p.images && p.images.length)
-      ? '<img src="' + esc(p.images[0]) + '" style="width:48px;height:48px;object-fit:contain;border-radius:4px" onerror="this.style.display=\'none\'">'
+      ? '<img src="' + esc(p.images[0]) + '" style="width:48px;height:48px;min-width:48px;min-height:48px;object-fit:contain;border-radius:4px;flex-shrink:0" onerror="this.style.display=\'none\'">'
       : '<span class="text-muted">—</span>';
 
     var title = p.title
@@ -163,6 +165,14 @@ function renderProducts() {
     var curPrice  = p.current_price  != null ? '<strong>' + p.current_price.toLocaleString('ru-RU') + ' ₽</strong>' : '—';
     var parsedAt  = p.parsed_at ? p.parsed_at.replace('T', ' ').slice(0, 16) : '—';
 
+    var descLink = p.description
+      ? '<a href="#" class="text-primary small" onclick="showModal(\'desc\',\'' + esc(p.id) + '\');return false;">Посмотреть описание</a>'
+      : '<span class="text-muted small">—</span>';
+
+    var charsLink = p.characteristics && Object.keys(p.characteristics).length
+      ? '<a href="#" class="text-primary small" onclick="showModal(\'chars\',\'' + esc(p.id) + '\');return false;">Посмотреть характеристики</a>'
+      : '<span class="text-muted small">—</span>';
+
     return '<tr>'
       + '<td><input type="checkbox" class="form-check-input product-cb" data-id="' + esc(p.id) + '" onchange="updateSelectionCount()"></td>'
       + '<td>' + img + '</td>'
@@ -171,6 +181,8 @@ function renderProducts() {
       + '<td class="text-muted">' + esc(p.sku || '—') + '</td>'
       + '<td class="text-muted text-decoration-line-through">' + origPrice + '</td>'
       + '<td>' + curPrice + '</td>'
+      + '<td>' + descLink + '</td>'
+      + '<td>' + charsLink + '</td>'
       + '<td class="text-muted small">' + parsedAt + '</td>'
       + '<td class="text-end">'
       + '<button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteProduct(\'' + p.id + '\')">✕</button>'
@@ -271,6 +283,38 @@ function buildPagination(current, totalPages, goFn) {
   return html + '</ul>';
 }
 
+function showModal(type, productId) {
+  var product = _filteredProducts.find(function(p) { return p.id === productId; })
+    || _allProducts.find(function(p) { return p.id === productId; });
+  if (!product) return;
+
+  var title, body;
+  if (type === 'desc') {
+    title = 'Описание — ' + esc(product.title || product.url);
+    var text = product.description || '';
+    body = '<div style="white-space:pre-wrap;word-break:break-word;max-height:60vh;overflow-y:auto">' + esc(text) + '</div>';
+  } else {
+    title = 'Характеристики — ' + esc(product.title || product.url);
+    var chars = product.characteristics || {};
+    var keys = Object.keys(chars);
+    if (!keys.length) {
+      body = '<p class="text-muted">Нет данных</p>';
+    } else {
+      body = '<table class="table table-sm table-striped"><tbody>'
+        + keys.map(function(k) {
+            return '<tr><td class="text-muted fw-semibold" style="width:45%;word-break:break-word">' + esc(k) + '</td>'
+              + '<td style="word-break:break-word">' + esc(String(chars[k])) + '</td></tr>';
+          }).join('')
+        + '</tbody></table>';
+    }
+  }
+
+  document.getElementById('productModalLabel').textContent = title;
+  document.getElementById('productModalBody').innerHTML = body;
+  var modal = new bootstrap.Modal(document.getElementById('productModal'));
+  modal.show();
+}
+
 function esc(s) {
   return String(s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;')
@@ -279,4 +323,19 @@ function esc(s) {
 
 loadProducts();
 </script>
+
+<div class="modal modal-blur fade" id="productModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="productModalLabel"></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="productModalBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}

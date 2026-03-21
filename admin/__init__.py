@@ -54,6 +54,27 @@ class SettingsAuthProvider(AuthProvider):
 # Views
 # ---------------------------------------------------------------------------
 
+
+class DashboardView(CustomView):
+    async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
+        license_key = ""
+        updates_until = ""
+        try:
+            from licensing.checker import _read_license_file, get_updates_until  # noqa: PLC0415
+            lic = _read_license_file()
+            raw_key = lic.get("key", "")
+            license_key = raw_key[:8] + "…" + raw_key[-8:] if len(raw_key) > 16 else raw_key
+            updates_until = get_updates_until()
+        except Exception:
+            pass
+
+        return templates.TemplateResponse("dashboard.html", {
+            "request": request,
+            "license_key": license_key,
+            "updates_until": updates_until,
+        })
+
+
 class JobsView(CustomView):
     async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
         return templates.TemplateResponse("jobs.html", {"request": request})
@@ -110,6 +131,10 @@ async def setup_admin(app: FastAPI) -> None:
         auth_provider=SettingsAuthProvider(),
         templates_dir=templates_dir,
         middlewares=[Middleware(SessionMiddleware, secret_key=secret_key)],
+        index_view=DashboardView(
+            "Home", icon="fa fa-home",
+            path="/", template_path="dashboard.html", name="index",
+        ),
     )
 
     admin.add_view(TargetsView(

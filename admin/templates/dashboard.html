@@ -1,120 +1,93 @@
 {% extends "layout.html" %}
 
-{% block content %}
-<div class="container-xl">
-  <div class="page-header">
-    <div class="row align-items-center">
-      <div class="col-auto">
-        <h2 class="page-title">Dashboard</h2>
-      </div>
-      <div class="col-auto ms-auto">
-        <button id="resetBtn" class="btn btn-outline-danger btn-sm" onclick="resetStats()">
-          <i class="fa fa-refresh"></i> Reset statistics
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <div class="row row-cards">
-    <div class="col-sm-6 col-lg-3">
-      <div class="card card-sm">
-        <div class="card-body">
-          <div class="row align-items-center">
-            <div class="col-auto">
-              <span class="bg-green text-white avatar"><i class="fa fa-check"></i></span>
-            </div>
-            <div class="col">
-              <div class="font-weight-medium">Parsed</div>
-              <div class="text-muted">{{ stats.total_parsed }}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="col-sm-6 col-lg-3">
-      <div class="card card-sm">
-        <div class="card-body">
-          <div class="row align-items-center">
-            <div class="col-auto">
-              <span class="bg-red text-white avatar"><i class="fa fa-times"></i></span>
-            </div>
-            <div class="col">
-              <div class="font-weight-medium">Failed</div>
-              <div class="text-muted">{{ stats.total_failed }}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="col-sm-6 col-lg-3">
-      <div class="card card-sm">
-        <div class="card-body">
-          <div class="row align-items-center">
-            <div class="col-auto">
-              <span class="bg-blue text-white avatar"><i class="fa fa-clock-o"></i></span>
-            </div>
-            <div class="col">
-              <div class="font-weight-medium">Avg Time</div>
-              <div class="text-muted">{{ "%.3f"|format(stats.avg_processing_time) }}s</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="col-sm-6 col-lg-3">
-      <div class="card card-sm">
-        <div class="card-body">
-          <div class="row align-items-center">
-            <div class="col-auto">
-              <span class="bg-yellow text-white avatar"><i class="fa fa-server"></i></span>
-            </div>
-            <div class="col">
-              <div class="font-weight-medium">Uptime</div>
-              <div class="text-muted">{{ uptime }}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  {% if stats.by_marketplace %}
-  <div class="row mt-3">
-    <div class="col-12">
-      <div class="card">
-        <div class="card-header"><h3 class="card-title">By Marketplace</h3></div>
-        <div class="table-responsive">
-          <table class="table table-vcenter card-table">
-            <thead><tr><th>Marketplace</th><th>Parsed</th></tr></thead>
-            <tbody>
-              {% for name, count in stats.by_marketplace.items() %}
-              <tr><td>{{ name }}</td><td>{{ count }}</td></tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  </div>
-  {% endif %}
+{% block header %}
+<div class="d-flex justify-content-between align-items-center">
+  <h1>Home</h1>
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{{ url_for(__name__ ~ ':index') }}">Admin</a></li>
+    <li class="breadcrumb-item active">Home</li>
+  </ol>
 </div>
 {% endblock %}
 
-{% block javascript %}
-<script>
-async function resetStats() {
-  if (!confirm('Reset all statistics?')) return;
-  const btn = document.getElementById('resetBtn');
-  btn.disabled = true;
-  try {
-    const res = await fetch('/admin/api/stats/reset', {method: 'POST'});
-    if ((await res.json()).ok) location.reload();
-  } finally {
-    btn.disabled = false;
-  }
-}
-</script>
+{% block content %}
+<div class="container-xl">
+
+  <div class="row mt-3">
+
+    <!-- About -->
+    <div class="col-12 col-lg-4 mb-3">
+      <div class="card h-100">
+        <div class="card-header">
+          <h3 class="card-title"><i class="fa fa-info-circle me-2 text-blue"></i>О продукте</h3>
+        </div>
+        <div class="card-body">
+          <p class="text-muted mb-2">
+            <strong>Grex Parser</strong> — профессиональный парсер маркетплейсов для сбора данных
+            о товарах: названия, цены, изображения, описания и характеристики.
+          </p>
+          <p class="text-muted mb-1">Поддерживаемые площадки:</p>
+          <div style="display:flex;flex-direction:row;flex-wrap:wrap;gap:4px">
+            <span class="badge bg-azure text-white">Wildberries</span>
+            <span class="badge bg-azure text-white">Ozon</span>
+            <span class="badge bg-azure text-white">Яндекс Маркет</span>
+            <span class="badge bg-azure text-white">MegaMarket</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- License -->
+    <div class="col-12 col-lg-4 mb-3">
+      <div class="card h-100">
+        <div class="card-header">
+          <h3 class="card-title"><i class="fa fa-key me-2 text-yellow"></i>Лицензия</h3>
+        </div>
+        <div class="card-body">
+          {% if license_key %}
+          <div class="mb-2">
+            <div class="text-muted small">Ключ лицензии</div>
+            <code class="text-break">{{ license_key }}</code>
+          </div>
+          <div>
+            <div class="text-muted small">Обновления до</div>
+            {% if updates_until %}
+            <span class="fw-medium">{{ updates_until }}</span>
+            {% else %}
+            <span class="text-muted">—</span>
+            {% endif %}
+          </div>
+          {% else %}
+          <p class="text-muted mb-0">Информация о лицензии недоступна.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Contacts -->
+    <div class="col-12 col-lg-4 mb-3">
+      <div class="card h-100">
+        <div class="card-header">
+          <h3 class="card-title"><i class="fa fa-envelope me-2 text-green"></i>Поддержка</h3>
+        </div>
+        <div class="card-body">
+          <p class="text-muted mb-3">
+            По вопросам использования, ошибкам и предложениям обращайтесь в нашу группу поддержки.
+          </p>
+          <a href="https://t.me/grex_parser" target="_blank" rel="noopener"
+             class="btn btn-outline-primary w-100">
+            <svg xmlns="http://www.w3.org/2000/svg" class="icon me-2" width="24" height="24" viewBox="0 0 24 24"
+                 stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+              <path d="M15 10l-4 4l6 6l4 -16l-18 7l4 2l2 6l3 -4"/>
+            </svg>
+            Группа поддержки в Telegram
+          </a>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
 {% endblock %}
+

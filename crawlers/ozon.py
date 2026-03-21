@@ -238,13 +238,15 @@ class OzonCrawler(CookieCrawler):
 
     def _extract_from_widget_states(
         self, widget_states: dict, url: str
-    ) -> tuple[str | None, str | None, Decimal, Decimal, list]:
-        """Parse title, sku, prices, and images from Ozon widgetStates JSON."""
+    ) -> tuple[str | None, str | None, Decimal, Decimal, list, str, dict]:
+        """Parse title, sku, prices, images, description, characteristics from Ozon widgetStates JSON."""
         product_title = None
         product_sku = None
         product_original_price: Decimal = Decimal(0)
         product_current_price: Decimal = Decimal(0)
         product_images: list = []
+        product_description: str = ""
+        product_characteristics: dict = {}
 
         for widget_name, widget_data in widget_states.items():
             try:
@@ -282,7 +284,31 @@ class OzonCrawler(CookieCrawler):
             except Exception as e:
                 logger.warning(f"Error parsing prices for {url}: {e}")
 
-        return product_title, product_sku, product_original_price, product_current_price, product_images
+            try:
+                if "webDescription" in widget_name and not product_description:
+                    data = json.loads(widget_data)
+                    product_description = data.get("description") or data.get("html") or ""
+                    if isinstance(product_description, dict):
+                        product_description = product_description.get("text") or ""
+            except Exception as e:
+                logger.warning(f"Error parsing description for {url}: {e}")
+
+            try:
+                if "webCharacteristics" in widget_name and not product_characteristics:
+                    data = json.loads(widget_data)
+                    for section in data.get("characteristics", []):
+                        for item in section.get("short", []) + section.get("full", []):
+                            name = item.get("name")
+                            values = item.get("values", [])
+                            if name and values:
+                                product_characteristics[name] = ", ".join(
+                                    str(v.get("text", "")) for v in values if v.get("text")
+                                )
+            except Exception as e:
+                logger.warning(f"Error parsing characteristics for {url}: {e}")
+
+        return (product_title, product_sku, product_original_price, product_current_price,
+                product_images, product_description, product_characteristics)
 
     async def _parse_via_browser(self, url: str) -> dict | None:
         """Fallback: open the page in a browser and extract data from API + DOM."""
@@ -466,8 +492,8 @@ class OzonCrawler(CookieCrawler):
         dom = browser_result.get("dom") or {}
 
         widget_states = api_data.get("widgetStates", {})
-        title, sku, orig_price, cur_price, images = self._extract_from_widget_states(
-            widget_states, url
+        title, sku, orig_price, cur_price, images, description, characteristics = (
+            self._extract_from_widget_states(widget_states, url)
         )
 
         # Fill gaps from API top-level fields
@@ -507,6 +533,8 @@ class OzonCrawler(CookieCrawler):
             current_price=cur_price,
             images=images,
             source_url=url,
+            description=description,
+            characteristics=characteristics,
         )
 
 

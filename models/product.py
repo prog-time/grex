@@ -14,6 +14,8 @@ class ProductCard:
     images: List[str]
     source_url: str
 
+    description: str = ""
+    characteristics: Dict[str, Any] = field(default_factory=dict)
     parsed_at: datetime = field(default_factory=datetime.now)
 
     def to_dict(self) -> dict:
@@ -23,9 +25,9 @@ class ProductCard:
             "source_url": self.source_url,
             "original_price": float(self.original_price) if self.original_price else None,
             "current_price": float(self.current_price) if self.current_price else None,
-            "images": [
-                image_url for image_url in self.images
-            ],
+            "images": [image_url for image_url in self.images],
+            "description": self.description,
+            "characteristics": self.characteristics,
         }
 
 
