@@ -35,20 +35,6 @@
           <button class="btn btn-outline-secondary" onclick="loadJobs()">Refresh</button>
         </div>
       </div>
-      <div class="d-flex align-items-center gap-2">
-        <div class="dropdown">
-          <button class="btn btn-outline-success dropdown-toggle" type="button" data-bs-toggle="dropdown">
-            Export
-          </button>
-          <div class="dropdown-menu">
-            <a class="dropdown-item" href="#" onclick="exportJobs('csv');return false;">CSV (Excel)</a>
-            <a class="dropdown-item" href="#" onclick="exportJobs('xlsx');return false;">XLSX</a>
-            <a class="dropdown-item" href="#" onclick="exportJobs('json');return false;">JSON</a>
-          </div>
-        </div>
-        <button class="btn btn-outline-danger" onclick="clearAll()">Clear all</button>
-        <span id="selectionCount" class="text-muted small"></span>
-      </div>
     </div>
   </div>
 
@@ -58,12 +44,24 @@
       <h3 class="card-title">Job history</h3>
       <div class="card-options d-flex align-items-center gap-2">
         <span class="text-muted small" id="jobsCount"></span>
+        <span id="selectionCount" class="text-muted small"></span>
         <select class="form-select form-select-sm w-auto" id="jobsPerPage" onchange="setPerPage(this.value)">
           <option value="10">10</option>
           <option value="25" selected>25</option>
           <option value="50">50</option>
           <option value="100">100</option>
         </select>
+        <div class="dropdown">
+          <button class="btn btn-sm btn-outline-success dropdown-toggle" type="button" data-bs-toggle="dropdown">
+            Export
+          </button>
+          <div class="dropdown-menu dropdown-menu-end">
+            <a class="dropdown-item" href="#" onclick="exportJobs('csv');return false;">CSV (Excel)</a>
+            <a class="dropdown-item" href="#" onclick="exportJobs('xlsx');return false;">XLSX</a>
+            <a class="dropdown-item" href="#" onclick="exportJobs('json');return false;">JSON</a>
+          </div>
+        </div>
+        <button class="btn btn-sm btn-outline-danger" onclick="clearAll()">Clear all</button>
       </div>
     </div>
     <div class="table-responsive">

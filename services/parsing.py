@@ -158,6 +158,7 @@ class ParsingService:
             from models.job import async_session, Job, JobStatus  # noqa: PLC0415
 
             if async_session is None:
+                logger.warning(f"_save_job skipped (DB not initialised) for {url}")
                 return
 
             async with async_session() as session:
@@ -172,8 +173,8 @@ class ParsingService:
                 )
                 session.add(job)
                 await session.commit()
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as _exc:  # noqa: BLE001
+            logger.error(f"_save_job failed for {url}: {_exc}")
 
     async def _apply_rate_limit(self, marketplace: str) -> None:
         """Pace requests to match the configured rate limit (requests/min).

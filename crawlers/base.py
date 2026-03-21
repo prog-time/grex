@@ -139,9 +139,18 @@ class BaseCrawler(ABC):
         result_queue: Queue[dict] = Queue()
         process = Process(target=target, args=(*args, result_queue))
         process.start()
+        deadline = asyncio.get_event_loop().time() + timeout
         while process.is_alive():
+            if asyncio.get_event_loop().time() >= deadline:
+                process.terminate()
+                process.join()
+                logger.warning(
+                    f"_run_in_process: {getattr(target, '__name__', target)!r} "
+                    f"killed after {timeout}s timeout"
+                )
+                return None
             await asyncio.sleep(0.2)
-        process.join(timeout=timeout)
+        process.join()
         if not result_queue.empty():
             return result_queue.get()
         logger.warning(
