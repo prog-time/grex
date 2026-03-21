@@ -66,13 +66,13 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
         from models.job import async_session  # noqa: PLC0415
         from models.parsed_product import ParseSession  # noqa: PLC0415
         from sqlalchemy import update  # noqa: PLC0415
-        from datetime import datetime  # noqa: PLC0415
+        from datetime import datetime, timezone  # noqa: PLC0415
         if async_session is not None:
             async with async_session() as s:
                 await s.execute(
                     update(ParseSession)
                     .where(ParseSession.status.in_(["pending", "running"]))
-                    .values(status="failed", finished_at=datetime.utcnow())
+                    .values(status="failed", finished_at=datetime.now(timezone.utc))
                 )
                 await s.commit()
             logger.info("Stale parse sessions reset to 'failed' on startup")
