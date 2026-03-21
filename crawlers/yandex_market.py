@@ -158,7 +158,7 @@ class YandexMarketCrawler(CookieCrawler):
                     self.delete_cookies_file()
                     break
 
-                soup = BeautifulSoup(response.content, "lxml")
+                soup = BeautifulSoup(response.content, "html.parser")
                 page_links: list[str] = []
                 seen: set[str] = set()
                 for a_tag in soup.find_all("a", href=True):
@@ -227,7 +227,7 @@ class YandexMarketCrawler(CookieCrawler):
                     self.delete_cookies_file()
                     raise ValueError("captcha")
 
-                soup = BeautifulSoup(response.content, "lxml")
+                soup = BeautifulSoup(response.content, "html.parser")
 
                 try:
                     title_el = soup.find("h1", {"data-auto": "productCardTitle"})
