@@ -12,36 +12,39 @@
   → сохраняется в license.json
   → клиент присылает ключ тебе
 
-Ты добавляешь ключ в grex/licenses.json на GitHub (prog-time/licenses)
-  → редактируешь файл вручную или через браузер на GitHub
-  → коммитишь
+Ты добавляешь ключ в grex/licenses.json
+в репозитории github.com/prog-time/licenses
 
 При каждом запуске приложение:
-  1. Вычисляет HMAC(MAC) и сравнивает с ключом в license.json
-     → если не совпадает — license.json скопирован на чужую машину, стоп
-  2. Скачивает grex/licenses.json с GitHub, проверяет статус ключа
-     → pending / blocked / отсутствует → стоп
-     → active → запуск
+  1. Читает license.json → берёт ключ
+  2. Вычисляет HMAC(MAC текущей машины)
+     → если не совпадает — чужая машина, стоп
+  3. Скачивает grex/licenses.json с GitHub
+     → ключ отсутствует → стоп (не активирован)
+     → status: blocked → стоп
+     → status: active → продолжает
+  4. Проверяет updates_until (только для update.sh)
+     → истёк → обновление заблокировано, но приложение работает
 ```
 
 **Ключ криптографически привязан к MAC-адресу.** Скопировать `license.json` на другую машину бесполезно — проверка не пройдёт.
 
 ---
 
-## Структура файлов
+## Файлы системы
 
 ```
-register.py              — клиент запускает один раз для регистрации
-license.json             — генерируется register.py, не трогать вручную
+register.py                  — клиент запускает один раз
+license.json                 — создаётся register.py (не редактировать вручную)
 licensing/
-├── checker.py           — проверка при запуске (обфусцируется)
+├── checker.py               — проверка при запуске (обфусцируется в релизе)
 └── __init__.py
-update.sh                — обновление у клиента
-Makefile                 — сборка релиза
+update.sh                    — обновление у клиента
+Makefile                     — сборка релиза
 
-github.com/prog-time/licenses  — репозиторий лицензий
+github.com/prog-time/licenses
 └── grex/
-    └── licenses.json    — список активных ключей
+    └── licenses.json        — список ключей (редактируешь ты)
 ```
 
 ---
@@ -58,13 +61,13 @@ _SECRET = "одно-и-то-же-значение"
 
 > Не меняй `_SECRET` после первого релиза — все выданные ключи перестанут работать.
 
-### 2. Создай пустой `grex/licenses.json` в репозитории `prog-time/licenses`
+### 2. Создай `grex/licenses.json` в репозитории `prog-time/licenses`
 
 ```json
 {}
 ```
 
-### 3. Укажи репозиторий в `update.sh`
+### 3. Укажи свой репозиторий в `update.sh`
 
 ```bash
 GITHUB_REPO="prog-time/grex"
@@ -80,22 +83,25 @@ GITHUB_REPO="prog-time/grex"
 python register.py
 ```
 
-Выводит:
+Вывод:
 ```
-  Ваш ключ:  a3f9c2d1e8b4...7f2e1a0b9c3d
+  Grex Parser — Registration
+
+  Ваш ключ:  a3f9c2d1e8b47f2e1a0b9c3d...
 
   Отправьте ключ разработчику для активации.
+  После активации запустите: ./start.sh
 ```
 
-Клиент присылает тебе этот ключ.
+Клиент присылает тебе ключ.
 
 ### Шаг 2. Добавляешь ключ в `grex/licenses.json`
 
-Открываешь `github.com/prog-time/licenses/blob/main/grex/licenses.json` → редактируешь → коммитишь.
+Открываешь `github.com/prog-time/licenses` → редактируешь `grex/licenses.json` → коммитишь.
 
 ```json
 {
-  "a3f9c2d1e8b4...7f2e1a0b9c3d": {
+  "a3f9c2d1e8b47f2e1a0b9c3d...": {
     "status": "active",
     "customer": "ООО Ромашка",
     "updates_until": "2027-03-21"
@@ -111,15 +117,18 @@ python register.py
 
 Всё делается через редактирование `grex/licenses.json` в репозитории `prog-time/licenses`.
 
-**Заблокировать клиента:**
+**Заблокировать:**
 ```json
-"a3f9c2d1e8b4...": { "status": "blocked", "customer": "ООО Ромашка", "updates_until": "2027-03-21" }
+"ключ": { "status": "blocked", "customer": "ООО Ромашка", "updates_until": "2027-03-21" }
 ```
 
-**Продлить подписку на обновления** — изменить `updates_until`:
+**Продлить подписку на обновления:**
 ```json
-"a3f9c2d1e8b4...": { "status": "active", "customer": "ООО Ромашка", "updates_until": "2028-03-21" }
+"ключ": { "status": "active", "customer": "ООО Ромашка", "updates_until": "2028-03-21" }
 ```
+
+**Перенос на другой компьютер:**
+Клиент запускает `register.py` на новой машине → присылает новый ключ → ты добавляешь новый ключ, старый удаляешь или меняешь на `blocked`.
 
 ---
 
@@ -152,7 +161,7 @@ python register.py
 
 | # | Проверка | Блокирует запуск | Блокирует обновления |
 |---|----------|:---:|:---:|
-| 1 | Файл `license.json` существует | Да | Да |
+| 1 | `license.json` существует | Да | Да |
 | 2 | Ключ соответствует MAC этой машины | Да | — |
 | 3 | Ключ найден в `licenses.json` со статусом `active` | Да | — |
 | 4 | `updates_until` не истёк | Нет | Да |
@@ -164,14 +173,22 @@ python register.py
 ## Разработка на своей машине
 
 ```bash
-# Зарегистрировать свою машину
+# 1. Зарегистрировать машину
 python register.py
 
-# Добавить свой ключ в grex/licenses.json на GitHub вручную
-# status: active, updates_until: 2030-01-01
+# 2. Добавить свой ключ в grex/licenses.json на GitHub вручную:
+#    status: active, updates_until: 2030-01-01
 
-# Запустить
+# 3. Запустить
 ./start.sh
+```
+
+Если MAC изменился (например после смены сетевого адаптера):
+
+```bash
+rm license.json
+python register.py
+# обновить ключ в licenses.json
 ```
 
 ---
@@ -191,11 +208,11 @@ soft_version: "1.1.0"
 make release VERSION=1.1.0
 ```
 
-Команда:
-1. Удаляет старый `dist/`
-2. Обфусцирует `crawlers/`, `services/`, `licensing/checker.py`, `register.py` через PyArmor
-3. Копирует остальные файлы (`api.py`, `start.sh`, `update.sh` и др.)
-4. Упаковывает в `release-v1.1.0.tar.gz`
+Что происходит:
+1. Удаляется старый `dist/`
+2. PyArmor обфусцирует: `crawlers/`, `services/`, `licensing/checker.py`, `register.py`
+3. Копируются без изменений: `api.py`, `config.py`, `models/`, `core/`, `utils/`, `admin/`, `start.sh`, `update.sh`
+4. Упаковывается в `release-v1.1.0.tar.gz`
 
 > Если PyArmor не установлен: `pip install pyarmor`
 
@@ -213,6 +230,8 @@ gh release create v1.1.0 release-v1.1.0.tar.gz \
 ./update.sh
 ```
 
+Скрипт проверяет лицензию и `updates_until`, создаёт бэкап в `backups/`, скачивает и применяет обновление (не трогает `data/`, `.venv/`, `license.json`).
+
 ---
 
 ## Что обфусцируется, что нет
@@ -224,18 +243,22 @@ gh release create v1.1.0 release-v1.1.0.tar.gz \
 | `licensing/checker.py` | Обфусцирован | Скрывает `_SECRET` |
 | `register.py` | Обфусцирован | Скрывает `_SECRET` |
 | `api.py`, `config.py` | Как есть | Нужны для диагностики |
-| `start.sh`, `update.sh` | Как есть | Должны быть читаемы |
+| `models/`, `core/`, `utils/`, `admin/` | Как есть | Не содержат секретов |
+| `start.sh`, `update.sh` | Как есть | Должны быть читаемы клиентом |
 
 ---
 
-## Шпаргалка команд
+## Шпаргалка
 
 ```bash
+# Разработка
+./start.sh                              # запустить локально
+
 # Сборка
-make build                          # обфусцировать → dist/
-make release VERSION=1.2.0         # собрать архив релиза
-make clean                         # удалить dist/
+make build                              # обфусцировать → dist/
+make release VERSION=1.2.0             # собрать архив
+make clean                             # удалить dist/
 
 # Публикация
-gh release create v1.2.0 release-v1.2.0.tar.gz
+gh release create v1.2.0 release-v1.2.0.tar.gz --title "v1.2.0"
 ```
