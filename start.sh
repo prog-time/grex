@@ -50,17 +50,30 @@ else
     ok "Виртуальное окружение уже существует"
 fi
 
-source .venv/bin/activate
+# ── Пути venv (Windows / Unix) ───────────────────────────────────────────────
+if [ -f ".venv/Scripts/activate" ]; then
+    VENV_ACTIVATE=".venv/Scripts/activate"
+    VENV_PYTHON=".venv/Scripts/python"
+    VENV_PIP=".venv/Scripts/pip"
+    VENV_PATCHRIGHT=".venv/Scripts/patchright"
+else
+    VENV_ACTIVATE=".venv/bin/activate"
+    VENV_PYTHON=".venv/bin/python"
+    VENV_PIP=".venv/bin/pip"
+    VENV_PATCHRIGHT=".venv/bin/patchright"
+fi
+
+source "$VENV_ACTIVATE"
 
 # ── 3. Зависимости ───────────────────────────────────────────────────────────
 info "Установка зависимостей из requirements.txt..."
-.venv/bin/pip install -r requirements.txt -q
+"$VENV_PIP" install -r requirements.txt -q
 ok "Зависимости установлены"
 
 # ── 4. Patchright (браузер для Ozon / MegaMarket) ────────────────────────────
 info "Проверка браузера Patchright..."
-if .venv/bin/python -c "import patchright" &>/dev/null; then
-    .venv/bin/patchright install chromium -q \
+if "$VENV_PYTHON" -c "import patchright" &>/dev/null; then
+    "$VENV_PATCHRIGHT" install chromium \
         && ok "Браузер Chromium готов" \
         || warn "Не удалось установить Chromium — парсинг Ozon/MegaMarket может не работать"
 else
@@ -109,7 +122,7 @@ info "Проверка лицензии..."
 if [ ! -f "license.json" ]; then
     fail "Файл license.json не найден. Обратитесь к поставщику."
 fi
-.venv/bin/python -c "from licensing import check_license; check_license()" \
+"$VENV_PYTHON" -c "from licensing import check_license; check_license()" \
     || exit 1
 ok "Лицензия действительна"
 
@@ -126,4 +139,4 @@ echo -e "${GREEN}  Стоп:     Ctrl+C${NC}"
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
-exec .venv/bin/python api.py
+exec "$VENV_PYTHON" api.py
