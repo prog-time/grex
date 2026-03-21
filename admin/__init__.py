@@ -205,11 +205,6 @@ async def setup_admin(app: FastAPI) -> None:
     admin.mount_to(app)
     logger.info("starlette-admin mounted at /admin")
 
-    # Add SessionMiddleware to the FastAPI app so that request.session is
-    # available on auxiliary API routes (e.g. /admin/logs/stream).
-    from starlette.middleware.sessions import SessionMiddleware as _SM  # noqa: PLC0415
-    app.add_middleware(_SM, secret_key=secret_key)
-
     # Log all /admin routes for diagnostics
     admin_routes = [
         f"{getattr(r, 'methods', {'*'})} {getattr(r, 'path', '?')}"

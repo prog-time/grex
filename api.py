@@ -103,6 +103,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+from starlette.middleware.sessions import SessionMiddleware as _SessionMiddleware  # noqa: E402
+app.add_middleware(_SessionMiddleware, secret_key=settings.get("admin", {}).get("secret_key", "change-me"))
+
 X_API_KEY = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 parsing_service = ParsingService()
