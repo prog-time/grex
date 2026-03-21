@@ -158,8 +158,9 @@ function renderJobs() {
 
     var procTime  = j.processing_time != null ? j.processing_time.toFixed(2) + ' s' : '—';
     var startedAt = j.started_at ? j.started_at.replace('T', ' ').slice(0, 16) : '—';
-    var errText   = j.error
-      ? '<span class="text-danger text-truncate d-block" style="max-width:200px" title="' + esc(j.error) + '">' + esc(j.error) + '</span>'
+    var errShort  = j.error ? j.error.split('\n').filter(function(l){ return l.trim(); })[0] : null;
+    var errText   = errShort
+      ? '<span class="text-danger text-truncate d-block" style="max-width:200px" title="' + esc(j.error) + '">' + esc(errShort) + '</span>'
       : '<span class="text-muted">—</span>';
 
     return '<tr>'

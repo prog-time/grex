@@ -62,7 +62,6 @@ class JobsView(CustomView):
 class ProxiesView(CustomView):
     async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
         import re  # noqa: PLC0415
-        from core.managers import ProxyManager  # noqa: PLC0415
 
         def mask(p: str) -> str:
             masked = re.sub(r"(://[^:]+):([^@]+)@", r"\1:***@", p)
@@ -71,10 +70,11 @@ class ProxiesView(CustomView):
             return masked
 
         try:
-            raw_proxies = await ProxyManager.get_all_proxies()
+            from admin.resources.proxies import _get_proxies  # noqa: PLC0415
+            raw_proxies = await _get_proxies()
             logger.debug(f"Proxies page: loaded {len(raw_proxies)} proxies")
         except Exception as exc:  # noqa: BLE001
-            logger.warning(f"ProxyManager unavailable on proxies page: {exc}")
+            logger.warning(f"Failed to load proxies on page: {exc}")
             raw_proxies = []
 
         proxies = [{"index": i, "proxy": mask(p)} for i, p in enumerate(raw_proxies)]

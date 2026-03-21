@@ -8,7 +8,7 @@ from loguru import logger
 from fastapi import HTTPException, status
 
 from models import ProductCard, BatchItemResult
-from core.exceptions import UnsupportedMarketplaceError, CrawlerNotFoundError
+from core.exceptions import UnsupportedMarketplaceError, CrawlerNotFoundError, ProductCardParsingException
 # Import the crawlers package (not just the registry) so that all concrete
 # crawler classes are loaded and auto-registered via __init_subclass__.
 import crawlers as _crawlers_pkg  # noqa: F401
@@ -69,6 +69,21 @@ class ParsingService:
                 )
             raise
 
+        except ProductCardParsingException as e:
+            finished_at = datetime.now(timezone.utc)
+            elapsed = time.monotonic() - t_start
+            if marketplace:
+                await self._record_stat(marketplace, success=False, elapsed=elapsed)
+                await self._save_job(
+                    url, marketplace, started_at, finished_at,
+                    success=False, error=str(e),
+                )
+            logger.warning(f"Parsing failed for {url}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(e),
+            )
+
         except Exception as e:
             finished_at = datetime.now(timezone.utc)
             elapsed = time.monotonic() - t_start
@@ -76,7 +91,7 @@ class ParsingService:
                 await self._record_stat(marketplace, success=False, elapsed=elapsed)
                 await self._save_job(
                     url, marketplace, started_at, finished_at,
-                    success=False, error=traceback.format_exc(),
+                    success=False, error=str(e),
                 )
             logger.error(f"Parsing error for {url}: {e}")
             traceback.print_exc()
