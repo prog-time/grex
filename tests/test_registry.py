@@ -65,6 +65,16 @@ class TestDetectMarketplaceKnownURLs:
     def test_detects_vseinstrumenti(self, url):
         assert CrawlerRegistry.detect_marketplace(url) == "vseinstrumenti"
 
+    @pytest.mark.parametrize("url", [
+        "https://nizhniy-novgorod.bigam.ru/product/motoblok-2064429/",
+        "https://moskva.bigam.ru/product/some-product-1234567/",
+        "https://bigam.ru/product/some-product-1234567/",
+        "https://NIZHNIY-NOVGOROD.BIGAM.RU/product/uppercase-999/",
+        "https://spb.bigam.ru/catalog/motobloki/",
+    ])
+    def test_detects_bigam(self, url):
+        assert CrawlerRegistry.detect_marketplace(url) == "bigam"
+
 
 # ---------------------------------------------------------------------------
 # detect_marketplace — unsupported URL
@@ -92,7 +102,7 @@ class TestDetectMarketplaceUnsupportedURL:
 # ---------------------------------------------------------------------------
 
 class TestRegistryAll:
-    """all() must contain exactly the four registered marketplaces."""
+    """all() must contain exactly the six registered marketplaces."""
 
     def test_contains_wildberries(self):
         assert "wildberries" in CrawlerRegistry.all()
@@ -109,8 +119,11 @@ class TestRegistryAll:
     def test_contains_vseinstrumenti(self):
         assert "vseinstrumenti" in CrawlerRegistry.all()
 
-    def test_returns_five_entries(self):
-        assert len(CrawlerRegistry.all()) == 5
+    def test_contains_bigam(self):
+        assert "bigam" in CrawlerRegistry.all()
+
+    def test_returns_six_entries(self):
+        assert len(CrawlerRegistry.all()) == 6
 
     def test_returns_shallow_copy(self):
         """Mutating the returned dict must not affect the registry."""
@@ -143,6 +156,10 @@ class TestRegistryGet:
     def test_get_returns_crawler_class_for_vseinstrumenti(self):
         from crawlers.vseinstrumenti import VseInstrumentiCrawler
         assert CrawlerRegistry.get("vseinstrumenti") is VseInstrumentiCrawler
+
+    def test_get_returns_crawler_class_for_bigam(self):
+        from crawlers.bigam import BigamCrawler
+        assert CrawlerRegistry.get("bigam") is BigamCrawler
 
     def test_get_raises_for_unknown_marketplace(self):
         from core.exceptions import CrawlerNotFoundError
