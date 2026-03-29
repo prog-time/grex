@@ -7,6 +7,7 @@ from .wildberries import WildberriesCrawler
 from .ozon import OzonCrawler
 from .yandex_market import YandexMarketCrawler
 from .megamarket import MegaMarketCrawler
+from .vseinstrumenti import VseInstrumentiCrawler
 
 __all__ = [
     "BaseCrawler",
@@ -16,4 +17,5 @@ __all__ = [
     "OzonCrawler",
     "YandexMarketCrawler",
     "MegaMarketCrawler",
+    "VseInstrumentiCrawler",
 ]

@@ -56,6 +56,15 @@ class TestDetectMarketplaceKnownURLs:
     def test_detects_megamarket(self, url):
         assert CrawlerRegistry.detect_marketplace(url) == "megamarket"
 
+    @pytest.mark.parametrize("url", [
+        "https://www.vseinstrumenti.ru/product/drel-shurupovert-aeg-bs18g4-202c-4935478630-1760653/",
+        "https://vseinstrumenti.ru/product/some-tool-12345/",
+        "https://VSEINSTRUMENTI.RU/product/uppercase-999/",
+        "https://www.vseinstrumenti.ru/category/shurupoverty-1774/",
+    ])
+    def test_detects_vseinstrumenti(self, url):
+        assert CrawlerRegistry.detect_marketplace(url) == "vseinstrumenti"
+
 
 # ---------------------------------------------------------------------------
 # detect_marketplace — unsupported URL
@@ -97,8 +106,11 @@ class TestRegistryAll:
     def test_contains_megamarket(self):
         assert "megamarket" in CrawlerRegistry.all()
 
-    def test_returns_four_entries(self):
-        assert len(CrawlerRegistry.all()) == 4
+    def test_contains_vseinstrumenti(self):
+        assert "vseinstrumenti" in CrawlerRegistry.all()
+
+    def test_returns_five_entries(self):
+        assert len(CrawlerRegistry.all()) == 5
 
     def test_returns_shallow_copy(self):
         """Mutating the returned dict must not affect the registry."""
@@ -127,6 +139,10 @@ class TestRegistryGet:
     def test_get_returns_crawler_class_for_megamarket(self):
         from crawlers.megamarket import MegaMarketCrawler
         assert CrawlerRegistry.get("megamarket") is MegaMarketCrawler
+
+    def test_get_returns_crawler_class_for_vseinstrumenti(self):
+        from crawlers.vseinstrumenti import VseInstrumentiCrawler
+        assert CrawlerRegistry.get("vseinstrumenti") is VseInstrumentiCrawler
 
     def test_get_raises_for_unknown_marketplace(self):
         from core.exceptions import CrawlerNotFoundError
