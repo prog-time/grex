@@ -147,7 +147,7 @@ class BigamCrawler(BaseCrawler):
         prices: list[int] = []
         for el in soup.find_all(string=re.compile(r"\d[\d\s]*₽")):
             cleaned = re.sub(r"[^\d]", "", str(el))
-            if cleaned:
+            if cleaned and len(cleaned) <= 10:
                 prices.append(int(cleaned))
 
         prices_above = sorted({p for p in prices if p > current_int})
@@ -155,6 +155,67 @@ class BigamCrawler(BaseCrawler):
             return Decimal(prices_above[0])
 
         return Decimal(0)
+
+    # ------------------------------------------------------------------
+    # Image extraction helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_images(html: str, jsonld: dict) -> list[str]:
+        """Extract product image URLs using multiple strategies.
+
+        Priority:
+        1. JSON-LD ``image`` field
+        2. ``og:image`` meta tag
+        3. Image URLs from Nuxt state (CDN pattern matching)
+        4. ``<img>`` tags inside product gallery containers
+        """
+        images: list[str] = []
+        seen: set[str] = set()
+
+        def add(url: str) -> None:
+            url = url.strip()
+            if url.startswith("http") and url not in seen:
+                seen.add(url)
+                images.append(url)
+
+        # Strategy 1 — JSON-LD image field
+        raw_images = jsonld.get("image") or []
+        if isinstance(raw_images, str):
+            raw_images = [raw_images]
+        for img in raw_images:
+            if isinstance(img, str):
+                add(img)
+
+        # Strategy 2 — og:image meta tag
+        soup = BeautifulSoup(html, "html.parser")
+        for meta in soup.find_all("meta", property="og:image"):
+            content = meta.get("content", "")
+            if content:
+                add(content)
+
+        # Strategy 3 — image URLs in Nuxt state / inline scripts
+        # bigam.ru CDN typically uses patterns like: https://...bigam.ru/.../filename.jpg
+        cdn_pattern = re.compile(
+            r'"(https://[^"]*bigam\.ru[^"]*\.(?:jpg|jpeg|png|webp)(?:\?[^"]*)?)"',
+            re.IGNORECASE,
+        )
+        for m in cdn_pattern.finditer(html):
+            add(m.group(1))
+
+        # Strategy 4 — <img> tags in gallery/slider containers
+        gallery_selectors = [
+            {"class": re.compile(r"(gallery|slider|swiper|product.?image|photo)", re.I)},
+        ]
+        for selector in gallery_selectors:
+            for container in soup.find_all(True, selector):
+                for img_tag in container.find_all("img"):
+                    for attr in ("src", "data-src", "data-lazy-src", "data-original"):
+                        src = img_tag.get(attr, "")
+                        if src:
+                            add(src)
+
+        return images
 
     # ------------------------------------------------------------------
     # Characteristics extraction
@@ -397,14 +458,8 @@ class BigamCrawler(BaseCrawler):
         if product_current_price:
             product_original_price = self._extract_old_price(html, product_current_price)
 
-        # Images from JSON-LD
-        product_images: list[str] = []
-        raw_images = jsonld.get("image") or []
-        if isinstance(raw_images, str):
-            raw_images = [raw_images]
-        for img in raw_images:
-            if isinstance(img, str) and img.startswith("http"):
-                product_images.append(img)
+        # Images — multi-strategy extraction
+        product_images: list[str] = self._extract_images(html, jsonld)
 
         # Characteristics from Nuxt state
         product_characteristics: dict[str, str] = self._extract_characteristics(html)
