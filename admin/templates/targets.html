@@ -294,19 +294,25 @@ async function importFromFile() {
     }
 
     // Show results
-    var cls = data.errors && data.errors.length ? 'alert-warning' : 'alert-success';
-    var html = '<strong>Done.</strong> '
-      + 'Added: <strong>' + data.added + '</strong>, '
-      + 'skipped (duplicates): <strong>' + data.skipped + '</strong>';
-    if (data.errors && data.errors.length) {
-      html += ', errors: <strong>' + data.errors.length + '</strong>';
-      html += '<ul class="mb-0 mt-2">'
-        + data.errors.slice(0, 5).map(function(e) {
-            return '<li class="text-truncate" title="' + esc(e.url) + '">'
-              + esc(e.url) + ' — ' + esc(e.reason) + '</li>';
+    var hasErrors = data.errors && data.errors.length;
+    var cls = hasErrors ? 'alert-warning' : 'alert-success';
+    var html = '<div class="d-flex flex-column gap-1">'
+      + '<div><span class="badge bg-success text-white me-1">' + data.added + '</span>добавлено</div>'
+      + '<div><span class="badge bg-secondary text-white me-1">' + data.skipped + '</span>дублей пропущено</div>'
+      + (hasErrors ? '<div><span class="badge bg-danger text-white me-1">' + data.errors.length + '</span>ошибок</div>' : '')
+      + '</div>';
+    if (hasErrors) {
+      html += '<hr class="my-2">'
+        + '<div style="max-height:160px;overflow-y:auto;">'
+        + data.errors.map(function(e) {
+            return '<div class="d-flex gap-2 py-1 border-bottom">'
+              + '<div class="text-truncate flex-grow-1" style="min-width:0" title="' + esc(e.url) + '">'
+              + '<a href="' + esc(e.url) + '" target="_blank" class="text-truncate d-block">' + esc(e.url) + '</a>'
+              + '</div>'
+              + '<div class="text-muted small text-nowrap">' + esc(e.reason) + '</div>'
+              + '</div>';
           }).join('')
-        + (data.errors.length > 5 ? '<li>and ' + (data.errors.length - 5) + ' more…</li>' : '')
-        + '</ul>';
+        + '</div>';
     }
     resultEl.className = 'alert mb-3 ' + cls;
     resultEl.innerHTML = html;
