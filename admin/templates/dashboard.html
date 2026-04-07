@@ -22,17 +22,10 @@
           <h3 class="card-title"><i class="fa fa-info-circle me-2 text-blue"></i>О продукте</h3>
         </div>
         <div class="card-body">
-          <p class="text-muted mb-2">
+          <p class="text-muted mb-0">
             <strong>Grex Parser</strong> — профессиональный парсер маркетплейсов для сбора данных
             о товарах: названия, цены, изображения, описания и характеристики.
           </p>
-          <p class="text-muted mb-1">Поддерживаемые площадки:</p>
-          <div style="display:flex;flex-direction:row;flex-wrap:wrap;gap:4px">
-            <span class="badge bg-azure text-white">Wildberries</span>
-            <span class="badge bg-azure text-white">Ozon</span>
-            <span class="badge bg-azure text-white">Яндекс Маркет</span>
-            <span class="badge bg-azure text-white">MegaMarket</span>
-          </div>
         </div>
       </div>
     </div>
@@ -45,14 +38,18 @@
         </div>
         <div class="card-body">
           {% if license_key %}
-          <div class="mb-2">
-            <div class="text-muted small">Ключ лицензии</div>
+          <div class="mb-3">
+            <div class="text-muted small">API токен</div>
             <code class="text-break">{{ license_key }}</code>
           </div>
           <div>
-            <div class="text-muted small">Обновления до</div>
-            {% if updates_until %}
-            <span class="fw-medium">{{ updates_until }}</span>
+            <div class="text-muted small mb-1">Доступные источники</div>
+            {% if allowed_sources %}
+            <div style="display:flex;flex-direction:row;flex-wrap:wrap;gap:4px">
+              {% for source in allowed_sources %}
+              <span class="badge bg-green text-white">{{ source }}</span>
+              {% endfor %}
+            </div>
             {% else %}
             <span class="text-muted">—</span>
             {% endif %}

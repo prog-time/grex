@@ -58,20 +58,25 @@ class SettingsAuthProvider(AuthProvider):
 class DashboardView(CustomView):
     async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
         license_key = ""
-        updates_until = ""
+        allowed_sources: list[str] = []
         try:
-            from licensing.checker import _read_license_file, get_updates_until  # noqa: PLC0415
+            from licensing.checker import _read_license_file, _decode_token_source  # noqa: PLC0415
+            from services.license import get_allowed_sources  # noqa: PLC0415
             lic = _read_license_file()
-            raw_key = lic.get("key", "")
-            license_key = raw_key[:8] + "…" + raw_key[-8:] if len(raw_key) > 16 else raw_key
-            updates_until = get_updates_until()
+            client_id = lic.get("client_id", "")
+            license_key = client_id[:8] + "…" + client_id[-8:] if len(client_id) > 16 else client_id
+            # Prefer in-memory sources (loaded at startup); fall back to decoding cache tokens
+            allowed_sources = get_allowed_sources() or [
+                s for s in (_decode_token_source(t) for t in lic.get("tokens", []))
+                if s is not None
+            ]
         except Exception:
             pass
 
         return templates.TemplateResponse("dashboard.html", {
             "request": request,
             "license_key": license_key,
-            "updates_until": updates_until,
+            "allowed_sources": allowed_sources,
         })
 
 
