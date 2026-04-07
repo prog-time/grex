@@ -75,6 +75,7 @@ class BaseCrawler(ABC):
     marketplace_name: ClassVar[str]
     url_pattern: ClassVar[str]
     requires_cookie_lock: ClassVar[bool] = False
+    license_source_name: ClassVar[str] = ""  # override when JWT source name differs from marketplace_name
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
