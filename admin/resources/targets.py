@@ -96,6 +96,13 @@ async def _run_all_background(session_id: str, targets: list[dict]) -> None:
 
         for tgt in targets:
             try:
+                from services.license import is_marketplace_allowed  # noqa: PLC0415
+                if not is_marketplace_allowed(tgt["marketplace"]):
+                    logger.warning(f"bg-parse SKIP (license): {tgt['url']} [{tgt['marketplace']}]")
+                    failed_count += 1
+                    await _update_session(succeeded=succeeded, failed_count=failed_count)
+                    continue
+
                 product = await svc.parse_product(tgt["url"])
                 data = product.to_dict()
 
@@ -173,6 +180,13 @@ class TargetsRouter:
                 return JSONResponse(
                     {"error": f"Cannot detect marketplace for URL: {url}"},
                     status_code=422,
+                )
+
+            from services.license import is_marketplace_allowed  # noqa: PLC0415
+            if not is_marketplace_allowed(marketplace):
+                return JSONResponse(
+                    {"error": f"Источник '{marketplace}' не разрешён вашей лицензией"},
+                    status_code=403,
                 )
 
             target = ParseTarget(
@@ -301,6 +315,11 @@ class TargetsRouter:
                         marketplace = CrawlerRegistry.detect_marketplace(url)
                     except UnsupportedMarketplaceError:
                         errors.append({"url": url, "reason": "Неизвестный маркетплейс"})
+                        continue
+
+                    from services.license import is_marketplace_allowed  # noqa: PLC0415
+                    if not is_marketplace_allowed(marketplace):
+                        errors.append({"url": url, "reason": f"Источник '{marketplace}' не разрешён лицензией"})
                         continue
 
                     target = ParseTarget(
@@ -436,6 +455,13 @@ class TargetsRouter:
 
             if row is None:
                 return JSONResponse({"error": "Target not found"}, status_code=404)
+
+            from services.license import is_marketplace_allowed  # noqa: PLC0415
+            if not is_marketplace_allowed(str(row.marketplace)):
+                return JSONResponse(
+                    {"error": f"Источник '{row.marketplace}' не разрешён вашей лицензией"},
+                    status_code=403,
+                )
 
             logger.info(f"Running parse for target {target_id}: {row.url}")
             svc = ParsingService()
