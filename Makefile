@@ -35,7 +35,7 @@ build:
 		licensing/checker.py
 
 	@echo "  → Копирование необфусцированных файлов"
-	@cp api.py config.py requirements.txt start.sh update.sh register.py $(DIST)/
+	@cp api.py config.py requirements.txt start.sh $(DIST)/
 	@cp -r models core utils admin $(DIST)/
 
 	@# licensing/__init__.py и generate.py — отдельно
@@ -48,6 +48,8 @@ build:
 	@echo "  → Копирование шаблона конфига"
 	@mkdir -p $(DIST)/data
 	@[ -f data/settings.yml ] && cp data/settings.yml $(DIST)/data/ || true
+	@# Очищаем api_key в дистрибутиве — клиент вводит свой ключ при первом запуске
+	@$(PYTHON) scripts/clear_api_key.py $(DIST)/data/settings.yml
 
 	@echo ""
 	@echo "  ✓ Сборка готова → $(DIST)/"
