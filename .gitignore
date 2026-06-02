@@ -39,3 +39,6 @@ backups/
 # PyArmor build output
 dist/
 resources
+
+# Large media — keep videos out of git (host externally)
+landing/src/video/*.mp4
