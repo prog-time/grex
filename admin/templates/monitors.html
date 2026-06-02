@@ -41,7 +41,7 @@
             <th style="width:130px">Price</th>
             <th style="width:90px">Monitor</th>
             <th style="width:130px">Interval</th>
-            <th style="width:150px">Last / Next</th>
+            <th style="width:185px">Last / Next</th>
             <th style="width:90px">Status</th>
             <th style="width:80px"></th>
           </tr>
@@ -147,8 +147,8 @@ function intervalSelect(r) {
 }
 
 function lastNext(r) {
-  var last = r.last_checked_at ? relTime(r.last_checked_at) : '—';
-  var next = r.next_run_at ? relTime(r.next_run_at) : '—';
+  var last = r.last_checked_at ? fmtDateFull(r.last_checked_at) : '—';
+  var next = r.next_run_at ? fmtDateFull(r.next_run_at) : '—';
   return 'Last: ' + last + '<br>Next: ' + next;
 }
 
@@ -284,14 +284,26 @@ function fmtPrice(v) {
   if (v === null || v === undefined) return '—';
   return Math.round(v).toLocaleString('ru-RU') + ' ₽';
 }
+function asUTC(s) {
+  // Backend sends naive UTC (datetime.utcnow().isoformat(), no offset). Tag it
+  // as UTC so the browser converts to local time instead of reading it as local.
+  if (s && !/[zZ]$|[+\-]\d{2}:?\d{2}$/.test(s)) s += 'Z';
+  return new Date(s);
+}
 function fmtDate(s) {
   if (!s) return '—';
-  var d = new Date(s);
+  var d = asUTC(s);
   return isNaN(d) ? s : d.toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+}
+function fmtDateFull(s) {
+  if (!s) return '—';
+  var d = asUTC(s);
+  return isNaN(d) ? s : d.toLocaleString('ru-RU',
+    {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit'});
 }
 function relTime(s) {
   if (!s) return '—';
-  var d = new Date(s); if (isNaN(d)) return s;
+  var d = asUTC(s); if (isNaN(d)) return s;
   var diff = (d - new Date()) / 1000;
   var abs = Math.abs(diff);
   var unit = 'm', val = Math.round(abs / 60);
