@@ -155,6 +155,20 @@ class CdekCrawler(BaseCrawler):
         return Decimal(0)
 
     @staticmethod
+    def _extract_old_price(html: str) -> Decimal:
+        """Old/strikethrough price from ``.sh-product-page__old-price`` (``'22 109₽'``).
+
+        Present only when the item is discounted; absent otherwise.
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        el = soup.find(class_="sh-product-page__old-price")
+        if isinstance(el, Tag):
+            digits = re.sub(r"[^\d]", "", el.get_text(strip=True))
+            if digits:
+                return Decimal(digits)
+        return Decimal(0)
+
+    @staticmethod
     def _extract_images(html: str, jsonld: dict) -> list[str]:
         """Image URLs from the JSON-LD ``image`` field, falling back to og:image."""
         images: list[str] = []
@@ -316,6 +330,9 @@ class CdekCrawler(BaseCrawler):
 
         product_title: str = (jsonld.get("name") or "").strip()
         product_current_price: Decimal = self._extract_price(jsonld)
+        product_original_price: Decimal = self._extract_old_price(html)
+        if product_original_price and product_original_price <= product_current_price:
+            product_original_price = Decimal(0)
         product_images: list[str] = self._extract_images(html, jsonld)
         product_description: str = self._extract_description(html, jsonld)
         product_sku: str = self._extract_sku_from_url(clean_url)
@@ -331,7 +348,7 @@ class CdekCrawler(BaseCrawler):
         return ProductCard(
             title=product_title,
             sku=product_sku,
-            original_price=Decimal(0),  # cdek shows no strikethrough/old price
+            original_price=product_original_price,
             current_price=product_current_price,
             images=product_images,
             source_url=clean_url,
