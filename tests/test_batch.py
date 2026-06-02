@@ -1,14 +1,14 @@
 import asyncio
-import pytest
 from decimal import Decimal
 
+import pytest
+
 from models.product import (
-    BatchParseRequest,
     BatchItemResult,
+    BatchParseRequest,
     BatchParseResponse,
 )
 from services.parsing import ParsingService
-
 
 # ---------------------------------------------------------------------------
 # Model validation tests
@@ -24,8 +24,10 @@ class TestBatchParseRequest:
         assert req.concurrency == 5
 
     def test_default_concurrency(self):
+        # Default is None — the effective value is resolved from batch.concurrency
+        # in settings and clamped by the service layer, not hardcoded on the model.
         req = BatchParseRequest(urls=["https://wildberries.ru/catalog/1/detail.aspx"])
-        assert req.concurrency == 10
+        assert req.concurrency is None
 
     def test_rejects_empty_urls(self):
         with pytest.raises(Exception):
@@ -45,8 +47,11 @@ class TestBatchParseRequest:
             BatchParseRequest(urls=["https://ozon.ru/product/test"], concurrency=0)
 
     def test_concurrency_upper_bound(self):
+        # The model bound is le=200; values above the configured batch cap are
+        # clamped by the service, not rejected by the model.
+        BatchParseRequest(urls=["https://ozon.ru/product/test"], concurrency=200)
         with pytest.raises(Exception):
-            BatchParseRequest(urls=["https://ozon.ru/product/test"], concurrency=51)
+            BatchParseRequest(urls=["https://ozon.ru/product/test"], concurrency=201)
 
     def test_all_supported_domains_accepted(self):
         urls = [

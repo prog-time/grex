@@ -10,8 +10,8 @@ Strategy
 """
 from __future__ import annotations
 
-import sys
 import os
+import sys
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
@@ -25,6 +25,7 @@ sys.argv[0] = os.path.join(PROJECT_ROOT, "main.py")
 # call does not trigger SystemExit in CI / isolated environments.
 with patch("licensing.checker.check_license", return_value={"key": "test-key"}):
     from fastapi.testclient import TestClient
+
     import api  # noqa: E402  (import after patch is intentional)
     from models.product import ProductCard
 
@@ -356,9 +357,10 @@ class TestParseErrorHandling:
 # ---------------------------------------------------------------------------
 
 class TestFavicon:
-    def test_returns_204(self, client):
+    def test_serves_svg(self, client):
         r = client.get("/favicon.ico")
-        assert r.status_code == 204
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "image/svg+xml"
 
 
 # ---------------------------------------------------------------------------
@@ -388,18 +390,21 @@ class TestParseRequestModel:
 
     def test_rejects_unsupported_amazon_url(self):
         from pydantic import ValidationError
+
         from models.product import ParseRequest
         with pytest.raises(ValidationError):
             ParseRequest(url="https://amazon.com/dp/B08N5WRWNW")
 
     def test_rejects_completely_invalid_domain(self):
         from pydantic import ValidationError
+
         from models.product import ParseRequest
         with pytest.raises(ValidationError):
             ParseRequest(url="https://notamarketplace.example.com/product/1")
 
     def test_rejects_non_url_string(self):
         from pydantic import ValidationError
+
         from models.product import ParseRequest
         with pytest.raises(ValidationError):
             ParseRequest(url="this-is-not-a-url")
