@@ -4,10 +4,20 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
+from pathlib import Path
 
 from fastapi import Request
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from loguru import logger
+
+# resources/{marketplace}/{sku}/ — where the image worker saves downloaded files.
+_RESOURCES_BASE = Path(__file__).resolve().parent.parent.parent / "resources"
+
+
+def _safe_segment(value: str) -> str:
+    """Sanitise a path segment (matches the image downloader's naming)."""
+    return re.sub(r"[^\w.\-]", "_", value or "")
 
 _EXPORT_COLUMNS = [
     "title", "sku", "marketplace", "original_price", "current_price",
@@ -16,6 +26,29 @@ _EXPORT_COLUMNS = [
 
 
 class ProductsRouter:
+
+    @staticmethod
+    async def product_image(request: Request) -> Response:
+        """Serve a locally-downloaded product image (``resources/{mp}/{sku}/{n}.*``).
+
+        Used as an ``<img>`` fallback when a marketplace CDN blocks hot-linking
+        from the browser (e.g. citilink's Qrator-protected CDN returns 403), so
+        the already-downloaded local copy is shown instead.
+        """
+        marketplace = _safe_segment(request.query_params.get("marketplace", ""))
+        sku = _safe_segment(request.query_params.get("sku", ""))
+        try:
+            n = max(1, int(request.query_params.get("n", "1")))
+        except ValueError:
+            n = 1
+        if not marketplace or not sku:
+            return Response(status_code=404)
+
+        directory = _RESOURCES_BASE / marketplace / sku
+        matches = sorted(directory.glob(f"{n}.*"))
+        if matches and matches[0].is_file():
+            return FileResponse(matches[0])
+        return Response(status_code=404)
 
     @staticmethod
     async def list_products(request: Request) -> JSONResponse:
@@ -191,6 +224,7 @@ def register_products_routes(app) -> None:  # type: ignore[no-untyped-def]
     _auth = [Depends(require_admin)]
     router = ProductsRouter()
     app.add_api_route("/admin/products/api", router.list_products, methods=["GET"], tags=["admin"], dependencies=_auth)
+    app.add_api_route("/admin/products/image", router.product_image, methods=["GET"], tags=["admin"], dependencies=_auth)
     app.add_api_route(
         "/admin/products/export", router.export_products, methods=["POST"], tags=["admin"], dependencies=_auth,
     )

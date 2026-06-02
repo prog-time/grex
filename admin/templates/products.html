@@ -153,8 +153,11 @@ function renderProducts() {
   }
 
   tbody.innerHTML = page.map(function(p) {
+    var localImg = '/admin/products/image?marketplace=' + encodeURIComponent(p.marketplace || '')
+      + '&sku=' + encodeURIComponent(p.sku || '') + '&n=1';
     var img = (p.images && p.images.length)
-      ? '<img src="' + esc(p.images[0]) + '" style="width:48px;height:48px;min-width:48px;min-height:48px;object-fit:contain;border-radius:4px;flex-shrink:0" onerror="this.style.display=\'none\'">'
+      ? '<img src="' + esc(p.images[0]) + '" style="width:48px;height:48px;min-width:48px;min-height:48px;object-fit:contain;border-radius:4px;flex-shrink:0"'
+        + ' onerror="if(!this.dataset.f){this.dataset.f=1;this.src=\'' + localImg + '\'}else{this.style.display=\'none\'}">'
       : '<span class="text-muted">—</span>';
 
     var title = p.title
