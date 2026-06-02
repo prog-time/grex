@@ -30,12 +30,24 @@
   <div class="card mb-3">
     <div class="card-header">
       <h3 class="card-title">Monitored products</h3>
-      <div class="card-options"><span class="text-muted small" id="monCount"></span></div>
+      <div class="card-options d-flex align-items-center gap-2">
+        <span class="text-muted small" id="monCount"></span>
+        <span id="monSelectionCount" class="text-muted small"></span>
+        <select class="form-select form-select-sm w-auto" id="monPerPage" onchange="setMonPerPage(this.value)">
+          <option value="10">10</option>
+          <option value="25" selected>25</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+      </div>
     </div>
     <div class="table-responsive">
       <table class="table table-vcenter card-table">
         <thead>
           <tr>
+            <th style="width:36px">
+              <input type="checkbox" class="form-check-input" id="monSelectAll" onchange="toggleSelectAllMon(this)">
+            </th>
             <th>Product</th>
             <th style="width:90px">Market</th>
             <th style="width:130px">Price</th>
@@ -47,12 +59,13 @@
           </tr>
         </thead>
         <tbody id="monBody">
-          <tr><td colspan="8" class="text-center text-muted py-3">
+          <tr><td colspan="9" class="text-center text-muted py-3">
             <span class="spinner-border spinner-border-sm me-2"></span>Loading…
           </td></tr>
         </tbody>
       </table>
     </div>
+    <div class="card-footer d-flex align-items-center" id="monPager"></div>
   </div>
 
   <div class="card">
@@ -73,11 +86,34 @@
       </table>
     </div>
   </div>
+
+  <!-- spacer so the sticky action bar never hides the last rows -->
+  <div id="bulkSpacer" style="height:0"></div>
+</div>
+
+<!-- Sticky bulk-action bar — shown when one or more rows are selected -->
+<div id="monBulkBar" class="position-fixed bottom-0 start-0 end-0 border-top bg-white shadow-sm py-2"
+     style="display:none; z-index:1030;">
+  <div class="container-xl d-flex align-items-center gap-2 flex-wrap">
+    <span class="fw-medium me-1" id="bulkCount"></span>
+    <select id="bulkAction" class="form-select form-select-sm w-auto" onchange="onBulkActionChange()">
+      <option value="">Action for selected…</option>
+      <option value="enable">Enable monitoring</option>
+      <option value="disable">Disable monitoring</option>
+      <option value="interval">Set interval…</option>
+    </select>
+    <select id="bulkInterval" class="form-select form-select-sm w-auto" style="display:none;"></select>
+    <button class="btn btn-sm btn-primary" id="bulkApplyBtn" onclick="applyBulk(this)" disabled>Apply</button>
+    <button class="btn btn-sm btn-link ms-auto text-muted" onclick="clearMonSelection()">Clear selection</button>
+  </div>
 </div>
 
 <script>
 var _defaultInterval = 3600;
 var _monitorsById = {};
+var _allMonitors = [];
+var _monPage = 1;
+var _monPerPage = 25;
 
 var _intervalPresets = [
   {label: 'Default', value: ''},
@@ -91,32 +127,58 @@ var _intervalPresets = [
 ];
 
 async function loadMonitors() {
-  const tbody = document.getElementById('monBody');
   let data;
   try {
     const res = await fetch('/admin/monitors/api');
     if (!res.ok) throw new Error('http ' + res.status);
     data = await res.json();
   } catch (e) {
-    tbody.innerHTML = '<tr><td colspan="8" class="text-danger text-center py-3">Failed to load monitors.</td></tr>';
+    document.getElementById('monBody').innerHTML =
+      '<tr><td colspan="9" class="text-danger text-center py-3">Failed to load monitors.</td></tr>';
     return;
   }
   _defaultInterval = data.default_interval_seconds || 3600;
-  const rows = data.monitors || [];
+  _allMonitors = data.monitors || [];
   _monitorsById = {};
-  rows.forEach(function(r){ _monitorsById[r.id] = r; });
-  document.getElementById('monCount').textContent =
-    rows.filter(function(r){return r.monitor_enabled;}).length + ' active / ' + rows.length + ' total';
+  _allMonitors.forEach(function(r){ _monitorsById[r.id] = r; });
+  _monPage = 1;
+  renderMonitors();
+}
 
-  if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="text-muted text-center py-3">No targets yet. Add targets on the Targets page.</td></tr>';
+function setMonPerPage(val) {
+  _monPerPage = parseInt(val) || 25;
+  _monPage = 1;
+  renderMonitors();
+}
+
+function goToMonPage(p) {
+  var totalPages = Math.max(1, Math.ceil(_allMonitors.length / _monPerPage));
+  _monPage = Math.max(1, Math.min(p, totalPages));
+  renderMonitors();
+}
+
+function renderMonitors() {
+  var total = _allMonitors.length;
+  var active = _allMonitors.filter(function(r){ return r.monitor_enabled; }).length;
+  var totalPages = Math.max(1, Math.ceil(total / _monPerPage));
+  var start = (_monPage - 1) * _monPerPage;
+  var pageRows = _allMonitors.slice(start, start + _monPerPage);
+  var tbody = document.getElementById('monBody');
+
+  document.getElementById('monCount').textContent = active + ' active / ' + total + ' total';
+
+  if (!pageRows.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="text-muted text-center py-3">No targets yet. Add targets on the Targets page.</td></tr>';
+    document.getElementById('monPager').innerHTML = '';
+    updateMonSelection();
     return;
   }
 
-  tbody.innerHTML = rows.map(function(r) {
+  tbody.innerHTML = pageRows.map(function(r) {
     return '<tr>'
-      + '<td><div class="text-truncate" style="max-width:380px">' + esc(r.title || r.name || r.url) + '</div>'
-      + '<div class="text-muted small text-truncate" style="max-width:380px"><a href="' + esc(r.url) + '" target="_blank" rel="noopener">' + esc(r.url) + '</a></div></td>'
+      + '<td><input type="checkbox" class="form-check-input mon-cb" data-id="' + esc(r.id) + '" onchange="updateMonSelection()"></td>'
+      + '<td><div class="text-truncate" style="max-width:340px">' + esc(r.title || r.name || r.url) + '</div>'
+      + '<div class="text-muted small text-truncate" style="max-width:340px"><a href="' + esc(r.url) + '" target="_blank" rel="noopener">' + esc(r.url) + '</a></div></td>'
       + '<td><span class="badge bg-azure text-white">' + esc(r.marketplace || '?') + '</span></td>'
       + '<td>' + priceCell(r) + '</td>'
       + '<td><label class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" '
@@ -127,6 +189,110 @@ async function loadMonitors() {
       + '<td><button class="btn btn-sm btn-outline-secondary" onclick="showChart(\'' + r.id + '\')">Chart</button></td>'
       + '</tr>';
   }).join('');
+
+  var from = total ? start + 1 : 0;
+  var to = Math.min(start + _monPerPage, total);
+  document.getElementById('monPager').innerHTML =
+    '<p class="m-0 text-secondary">Showing ' + from + '–' + to + ' of ' + total + '</p>'
+    + buildPagination(_monPage, totalPages, 'goToMonPage');
+  updateMonSelection();
+}
+
+// --- selection + bulk actions ---
+function getSelectedMonIds() {
+  return Array.from(document.querySelectorAll('.mon-cb:checked')).map(function(c){ return c.dataset.id; });
+}
+
+function toggleSelectAllMon(cb) {
+  document.querySelectorAll('.mon-cb').forEach(function(c){ c.checked = cb.checked; });
+  updateMonSelection();
+}
+
+function updateMonSelection() {
+  var checked = document.querySelectorAll('.mon-cb:checked').length;
+  var total = document.querySelectorAll('.mon-cb').length;
+  var saEl = document.getElementById('monSelectAll');
+  if (saEl) saEl.checked = total > 0 && checked === total;
+  document.getElementById('monSelectionCount').textContent = checked ? checked + ' selected' : '';
+
+  var bar = document.getElementById('monBulkBar');
+  document.getElementById('bulkCount').textContent = checked + ' selected';
+  document.getElementById('bulkApplyBtn').disabled = checked === 0;
+  if (checked > 0) {
+    bar.style.display = '';
+    document.getElementById('bulkSpacer').style.height = '64px';
+  } else {
+    bar.style.display = 'none';
+    document.getElementById('bulkSpacer').style.height = '0';
+  }
+}
+
+function clearMonSelection() {
+  document.querySelectorAll('.mon-cb').forEach(function(c){ c.checked = false; });
+  var sa = document.getElementById('monSelectAll'); if (sa) sa.checked = false;
+  document.getElementById('bulkAction').value = '';
+  onBulkActionChange();
+  updateMonSelection();
+}
+
+function onBulkActionChange() {
+  var action = document.getElementById('bulkAction').value;
+  var sel = document.getElementById('bulkInterval');
+  if (action === 'interval') {
+    sel.innerHTML = _intervalPresets.map(function(p) {
+      var lbl = p.value === '' ? 'Default (' + Math.round(_defaultInterval/3600*10)/10 + 'h)' : p.label;
+      return '<option value="' + p.value + '">' + lbl + '</option>';
+    }).join('');
+    sel.style.display = '';
+  } else {
+    sel.style.display = 'none';
+  }
+}
+
+async function applyBulk(btn) {
+  var ids = getSelectedMonIds();
+  if (!ids.length) return;
+  var action = document.getElementById('bulkAction').value;
+  if (!action) { alert('Choose an action for the selected items.'); return; }
+
+  var body = {ids: ids, action: action};
+  if (action === 'interval') {
+    var v = document.getElementById('bulkInterval').value;
+    body.interval_seconds = v === '' ? null : parseInt(v);
+  }
+
+  setBtnLoading(btn, true);
+  try {
+    var res = await fetch('/admin/monitors/bulk', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+    });
+    var d = await res.json().catch(function(){ return {}; });
+    if (!res.ok) alert(d.error || 'Bulk action failed (HTTP ' + res.status + ')');
+  } catch (e) { alert('Bulk action failed'); }
+  setBtnLoading(btn, false);
+  document.getElementById('bulkAction').value = '';
+  onBulkActionChange();
+  await loadMonitors();
+}
+
+function buildPagination(current, totalPages, goFn) {
+  if (totalPages <= 1) return '';
+  var items = [];
+  var s = Math.max(1, current - 2), e = Math.min(totalPages, current + 2);
+  if (s > 1) { items.push(1); if (s > 2) items.push('…'); }
+  for (var i = s; i <= e; i++) items.push(i);
+  if (e < totalPages) { if (e < totalPages - 1) items.push('…'); items.push(totalPages); }
+  var html = '<ul class="pagination m-0 ms-auto">';
+  html += '<li class="page-item' + (current === 1 ? ' disabled' : '') + '">'
+    + '<a class="page-link" href="#" onclick="' + goFn + '(' + (current - 1) + ');return false;">‹</a></li>';
+  items.forEach(function(p) {
+    if (p === '…') html += '<li class="page-item disabled"><span class="page-link">…</span></li>';
+    else html += '<li class="page-item' + (p === current ? ' active' : '') + '">'
+      + '<a class="page-link" href="#" onclick="' + goFn + '(' + p + ');return false;">' + p + '</a></li>';
+  });
+  html += '<li class="page-item' + (current === totalPages ? ' disabled' : '') + '">'
+    + '<a class="page-link" href="#" onclick="' + goFn + '(' + (current + 1) + ');return false;">›</a></li>';
+  return html + '</ul>';
 }
 
 function priceCell(r) {
@@ -337,6 +503,10 @@ function esc(s) {
 
 loadMonitors();
 loadAlerts();
-setInterval(loadMonitors, 30000);
+// Live-refresh the table, but pause while the user has a selection so their
+// checkboxes (and the bulk bar) aren't wiped out mid-action.
+setInterval(function() {
+  if (document.querySelectorAll('.mon-cb:checked').length === 0) loadMonitors();
+}, 30000);
 </script>
 {% endblock %}

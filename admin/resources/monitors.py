@@ -117,6 +117,62 @@ class MonitorsRouter:
         return JSONResponse({"ok": True, "monitor": result})
 
     @staticmethod
+    async def bulk(request: Request) -> JSONResponse:
+        """Apply a bulk action to several targets at once.
+
+        Body: {"ids": [str], "action": "enable"|"disable"|"interval",
+               "interval_seconds": int|null?}.
+        """
+        from sqlalchemy import select  # noqa: PLC0415
+
+        from models.job import async_session  # noqa: PLC0415
+        from models.parse_target import ParseTarget  # noqa: PLC0415
+        from services.monitoring import cfg  # noqa: PLC0415
+
+        body = await request.json()
+        ids = body.get("ids")
+        action = body.get("action")
+        if not isinstance(ids, list) or not ids:
+            return JSONResponse({"error": "ids (non-empty list) is required"}, status_code=422)
+        if action not in ("enable", "disable", "interval"):
+            return JSONResponse({"error": "action must be enable, disable or interval"}, status_code=422)
+        ids = [str(i) for i in ids]
+
+        interval = None
+        if action == "interval":
+            raw = body.get("interval_seconds", None)
+            if raw is not None:
+                try:
+                    interval = int(raw)
+                except (TypeError, ValueError):
+                    return JSONResponse({"error": "interval_seconds must be an integer or null"}, status_code=422)
+                min_interval = int(cfg()["min_interval_seconds"])
+                if interval < min_interval:
+                    return JSONResponse({"error": f"interval_seconds must be >= {min_interval}"}, status_code=422)
+
+        if async_session is None:
+            return JSONResponse({"error": "DB not initialised"}, status_code=503)
+
+        now = datetime.utcnow()
+        async with async_session() as session:
+            targets = (await session.execute(
+                select(ParseTarget).where(ParseTarget.id.in_(ids))
+            )).scalars().all()
+            for t in targets:
+                if action == "enable":
+                    t.monitor_enabled = True
+                    if t.next_run_at is None:
+                        t.next_run_at = now
+                elif action == "disable":
+                    t.monitor_enabled = False
+                else:  # interval
+                    t.interval_seconds = interval
+            await session.commit()
+            updated = len(targets)
+
+        return JSONResponse({"ok": True, "updated": updated, "action": action})
+
+    @staticmethod
     async def history(request: Request) -> JSONResponse:
         """Return the price snapshot series for a target's URL (oldest → newest)."""
         from sqlalchemy import select  # noqa: PLC0415
@@ -200,6 +256,7 @@ def register_monitors_routes(app) -> None:  # type: ignore[no-untyped-def]
 
     app.add_api_route("/admin/monitors/api", router.list_monitors, methods=["GET"], tags=["admin"], dependencies=_auth)
     app.add_api_route("/admin/monitors/toggle", router.toggle_monitor, methods=["POST"], tags=["admin"], dependencies=_auth)
+    app.add_api_route("/admin/monitors/bulk", router.bulk, methods=["POST"], tags=["admin"], dependencies=_auth)
     app.add_api_route("/admin/monitors/history", router.history, methods=["GET"], tags=["admin"], dependencies=_auth)
     app.add_api_route("/admin/monitors/alerts", router.alerts, methods=["GET"], tags=["admin"], dependencies=_auth)
     app.add_api_route("/admin/monitors/run", router.run_now, methods=["POST"], tags=["admin"], dependencies=_auth)
