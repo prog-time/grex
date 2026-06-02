@@ -1,0 +1,317 @@
+{% extends "layout.html" %}
+
+{% block header %}
+<div class="d-flex justify-content-between align-items-center">
+  <h1>Monitoring</h1>
+  <div class="d-flex align-items-center gap-3">
+    <button class="btn btn-outline-primary" id="runNowBtn" onclick="runNow(this)">Run due now</button>
+    <ol class="breadcrumb mb-0">
+      <li class="breadcrumb-item"><a href="{{ url_for(__name__ ~ ':index') }}">Admin</a></li>
+      <li class="breadcrumb-item active">Monitoring</li>
+    </ol>
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="container-xl">
+
+  <!-- Price history chart (shown when a row's Chart button is clicked) -->
+  <div class="card mb-3" id="chartCard" style="display:none;">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <h3 class="card-title mb-0" id="chartTitle">Price history</h3>
+      <button class="btn btn-sm btn-outline-secondary" onclick="hideChart()">Close</button>
+    </div>
+    <div class="card-body">
+      <div id="chartBox" class="text-muted">Loading…</div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header">
+      <h3 class="card-title">Monitored products</h3>
+      <div class="card-options"><span class="text-muted small" id="monCount"></span></div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table">
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th style="width:90px">Market</th>
+            <th style="width:130px">Price</th>
+            <th style="width:90px">Monitor</th>
+            <th style="width:130px">Interval</th>
+            <th style="width:150px">Last / Next</th>
+            <th style="width:90px">Status</th>
+            <th style="width:80px"></th>
+          </tr>
+        </thead>
+        <tbody id="monBody">
+          <tr><td colspan="8" class="text-center text-muted py-3">
+            <span class="spinner-border spinner-border-sm me-2"></span>Loading…
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h3 class="card-title">Recent price changes</h3></div>
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table">
+        <thead>
+          <tr>
+            <th style="width:160px">When</th>
+            <th style="width:80px">Change</th>
+            <th>Product</th>
+            <th style="width:160px">Price</th>
+          </tr>
+        </thead>
+        <tbody id="alertBody">
+          <tr><td colspan="4" class="text-center text-muted py-3">—</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+var _defaultInterval = 3600;
+
+var _intervalPresets = [
+  {label: 'Default', value: ''},
+  {label: '30 min', value: 1800},
+  {label: '1 hour', value: 3600},
+  {label: '2 hours', value: 7200},
+  {label: '3 hours', value: 10800},
+  {label: '6 hours', value: 21600},
+  {label: '12 hours', value: 43200},
+  {label: '24 hours', value: 86400},
+];
+
+async function loadMonitors() {
+  const tbody = document.getElementById('monBody');
+  let data;
+  try {
+    const res = await fetch('/admin/monitors/api');
+    if (!res.ok) throw new Error('http ' + res.status);
+    data = await res.json();
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="8" class="text-danger text-center py-3">Failed to load monitors.</td></tr>';
+    return;
+  }
+  _defaultInterval = data.default_interval_seconds || 3600;
+  const rows = data.monitors || [];
+  document.getElementById('monCount').textContent =
+    rows.filter(function(r){return r.monitor_enabled;}).length + ' active / ' + rows.length + ' total';
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="text-muted text-center py-3">No targets yet. Add targets on the Targets page.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rows.map(function(r) {
+    return '<tr>'
+      + '<td><div class="text-truncate" style="max-width:380px">' + esc(r.title || r.name || r.url) + '</div>'
+      + '<div class="text-muted small text-truncate" style="max-width:380px"><a href="' + esc(r.url) + '" target="_blank" rel="noopener">' + esc(r.url) + '</a></div></td>'
+      + '<td><span class="badge bg-secondary">' + esc(r.marketplace || '?') + '</span></td>'
+      + '<td>' + priceCell(r) + '</td>'
+      + '<td><label class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" '
+        + (r.monitor_enabled ? 'checked' : '') + ' onchange="toggleMonitor(\'' + r.id + '\', this.checked)"></label></td>'
+      + '<td>' + intervalSelect(r) + '</td>'
+      + '<td class="small text-muted">' + lastNext(r) + '</td>'
+      + '<td>' + statusBadge(r.last_status) + '</td>'
+      + '<td><button class="btn btn-sm btn-outline-secondary" onclick="showChart(\'' + r.id + '\', ' + jsStr(r.title || r.url) + ')">Chart</button></td>'
+      + '</tr>';
+  }).join('');
+}
+
+function priceCell(r) {
+  if (r.current_price === null || r.current_price === undefined) return '<span class="text-muted">—</span>';
+  var html = '<span class="fw-bold">' + fmtPrice(r.current_price) + '</span>';
+  if (r.original_price && r.original_price > r.current_price) {
+    html += ' <s class="text-muted small">' + fmtPrice(r.original_price) + '</s>';
+  }
+  return html;
+}
+
+function intervalSelect(r) {
+  var cur = r.interval_seconds || '';
+  var opts = _intervalPresets.map(function(p) {
+    var lbl = p.label;
+    if (p.value === '') lbl = 'Default (' + Math.round(_defaultInterval/3600*10)/10 + 'h)';
+    var sel = (String(p.value) === String(cur)) ? ' selected' : '';
+    return '<option value="' + p.value + '"' + sel + '>' + lbl + '</option>';
+  }).join('');
+  return '<select class="form-select form-select-sm" onchange="setIntervalFor(\'' + r.id + '\', this.value)">' + opts + '</select>';
+}
+
+function lastNext(r) {
+  var last = r.last_checked_at ? relTime(r.last_checked_at) : '—';
+  var next = r.next_run_at ? relTime(r.next_run_at) : '—';
+  return 'Last: ' + last + '<br>Next: ' + next;
+}
+
+function statusBadge(s) {
+  if (s === 'ok') return '<span class="badge bg-success">ok</span>';
+  if (s === 'failed') return '<span class="badge bg-danger">failed</span>';
+  return '<span class="badge bg-secondary">—</span>';
+}
+
+async function toggleMonitor(id, enabled) {
+  await postToggle({id: id, monitor_enabled: enabled});
+  loadMonitors();
+}
+
+async function setIntervalFor(id, value) {
+  var body = {id: id, interval_seconds: value === '' ? null : parseInt(value)};
+  await postToggle(body);
+  loadMonitors();
+}
+
+async function postToggle(body) {
+  try {
+    const res = await fetch('/admin/monitors/toggle', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(function(){return {};});
+      alert(d.error || 'Update failed (HTTP ' + res.status + ')');
+    }
+  } catch (e) { alert('Update failed'); }
+}
+
+async function runNow(btn) {
+  setBtnLoading(btn, true);
+  try {
+    const res = await fetch('/admin/monitors/run', {method: 'POST'});
+    const d = await res.json().catch(function(){return {};});
+    if (res.ok) alert('Checked ' + (d.checked || 0) + ' due (' + (d.ok || 0) + ' ok, ' + (d.failed || 0) + ' failed)');
+    else alert(d.error || 'Run failed');
+  } catch (e) { alert('Run failed'); }
+  setBtnLoading(btn, false);
+  loadMonitors();
+  loadAlerts();
+}
+
+async function showChart(id, title) {
+  document.getElementById('chartCard').style.display = '';
+  document.getElementById('chartTitle').textContent = 'Price history — ' + title;
+  document.getElementById('chartBox').innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Loading…';
+  window.scrollTo({top: 0, behavior: 'smooth'});
+  let d;
+  try {
+    const res = await fetch('/admin/monitors/history?target_id=' + encodeURIComponent(id));
+    d = await res.json();
+  } catch (e) {
+    document.getElementById('chartBox').innerHTML = '<span class="text-danger">Failed to load history.</span>';
+    return;
+  }
+  const pts = (d.points || []).filter(function(p){ return p.current_price !== null && p.current_price !== undefined; });
+  if (pts.length < 2) {
+    document.getElementById('chartBox').innerHTML = '<span class="text-muted">Not enough data yet — at least two checks are needed to draw a chart.</span>';
+    return;
+  }
+  document.getElementById('chartBox').innerHTML = buildChart(pts);
+}
+
+function hideChart() { document.getElementById('chartCard').style.display = 'none'; }
+
+// Dependency-free SVG line chart.
+function buildChart(pts) {
+  var W = 900, H = 260, padL = 60, padR = 20, padT = 20, padB = 28;
+  var prices = pts.map(function(p){ return p.current_price; });
+  var min = Math.min.apply(null, prices), max = Math.max.apply(null, prices);
+  if (min === max) { min = min * 0.95; max = max * 1.05 || 1; }
+  var n = pts.length;
+  function x(i) { return padL + (W - padL - padR) * (i / (n - 1)); }
+  function y(v) { return padT + (H - padT - padB) * (1 - (v - min) / (max - min)); }
+
+  var line = pts.map(function(p, i){ return (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(p.current_price).toFixed(1); }).join(' ');
+  var area = line + ' L' + x(n-1).toFixed(1) + ' ' + (H - padB) + ' L' + x(0).toFixed(1) + ' ' + (H - padB) + ' Z';
+
+  var grid = '';
+  for (var g = 0; g <= 4; g++) {
+    var gv = min + (max - min) * g / 4;
+    var gy = y(gv).toFixed(1);
+    grid += '<line x1="' + padL + '" y1="' + gy + '" x2="' + (W - padR) + '" y2="' + gy + '" stroke="#e9ecef"/>';
+    grid += '<text x="' + (padL - 8) + '" y="' + (parseFloat(gy) + 4) + '" text-anchor="end" font-size="11" fill="#888">' + fmtPrice(gv) + '</text>';
+  }
+  var first = pts[0], last = pts[n-1];
+  var diff = last.current_price - first.current_price;
+  var pct = first.current_price ? (diff / first.current_price * 100) : 0;
+  var color = diff < 0 ? '#2fb344' : (diff > 0 ? '#d63939' : '#4263eb');
+  var caption = fmtDate(first.t) + ' → ' + fmtDate(last.t)
+    + '  ·  ' + fmtPrice(first.current_price) + ' → ' + fmtPrice(last.current_price)
+    + '  (' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%, min ' + fmtPrice(min) + ' / max ' + fmtPrice(max) + ')';
+
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" preserveAspectRatio="xMidYMid meet" role="img">'
+    + grid
+    + '<path d="' + area + '" fill="' + color + '" fill-opacity="0.08"/>'
+    + '<path d="' + line + '" fill="none" stroke="' + color + '" stroke-width="2"/>'
+    + '<circle cx="' + x(n-1).toFixed(1) + '" cy="' + y(last.current_price).toFixed(1) + '" r="3.5" fill="' + color + '"/>'
+    + '</svg>'
+    + '<div class="text-muted small mt-2">' + esc(caption) + '</div>';
+}
+
+async function loadAlerts() {
+  let d;
+  try {
+    const res = await fetch('/admin/monitors/alerts?limit=50');
+    d = await res.json();
+  } catch (e) { return; }
+  const rows = d.alerts || [];
+  const tbody = document.getElementById('alertBody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center py-3">No price changes detected yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(function(a) {
+    var badge = a.kind === 'drop'
+      ? '<span class="badge bg-success">▼ ' + Math.abs(a.change_pct).toFixed(1) + '%</span>'
+      : '<span class="badge bg-danger">▲ ' + Math.abs(a.change_pct).toFixed(1) + '%</span>';
+    return '<tr>'
+      + '<td class="text-muted small">' + fmtDate(a.created_at) + '</td>'
+      + '<td>' + badge + '</td>'
+      + '<td><div class="text-truncate" style="max-width:420px"><a href="' + esc(a.url) + '" target="_blank" rel="noopener">' + esc(a.title || a.url) + '</a></div></td>'
+      + '<td>' + fmtPrice(a.old_price) + ' → <span class="fw-bold">' + fmtPrice(a.new_price) + '</span></td>'
+      + '</tr>';
+  }).join('');
+}
+
+// --- helpers ---
+function fmtPrice(v) {
+  if (v === null || v === undefined) return '—';
+  return Math.round(v).toLocaleString('ru-RU') + ' ₽';
+}
+function fmtDate(s) {
+  if (!s) return '—';
+  var d = new Date(s);
+  return isNaN(d) ? s : d.toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+}
+function relTime(s) {
+  if (!s) return '—';
+  var d = new Date(s); if (isNaN(d)) return s;
+  var diff = (d - new Date()) / 1000;
+  var abs = Math.abs(diff);
+  var unit = 'm', val = Math.round(abs / 60);
+  if (abs >= 3600) { unit = 'h'; val = Math.round(abs / 3600 * 10) / 10; }
+  if (abs < 60) { unit = 's'; val = Math.round(abs); }
+  return (diff >= 0 ? 'in ' : '') + val + unit + (diff < 0 ? ' ago' : '');
+}
+function setBtnLoading(btn, loading) {
+  if (loading) { btn.disabled = true; btn.dataset.orig = btn.innerHTML; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+  else { btn.disabled = false; btn.innerHTML = btn.dataset.orig || btn.innerHTML; }
+}
+function jsStr(s) { return JSON.stringify(String(s)); }
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+loadMonitors();
+loadAlerts();
+setInterval(loadMonitors, 30000);
+</script>
+{% endblock %}
