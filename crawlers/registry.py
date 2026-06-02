@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 from core.exceptions import CrawlerNotFoundError, UnsupportedMarketplaceError
 
@@ -65,12 +66,20 @@ class CrawlerRegistry:
     def detect_marketplace(cls, url: str) -> str:
         """Infer marketplace name from *url* using each crawler's ``url_pattern``.
 
+        The pattern is matched against the URL **host only** (not the whole
+        URL) to prevent SSRF: a request like ``http://169.254.169.254/?x=ozon.ru``
+        or ``http://ozon.ru@10.0.0.1/`` must not be accepted as a marketplace
+        URL just because the marketplace token appears in the path/query/userinfo.
+
         Raises :class:`~core.exceptions.UnsupportedMarketplaceError` when no
-        registered crawler matches the URL.
+        registered crawler matches the host.
         """
-        url_lower = url.lower()
+        netloc = urlsplit(url).netloc.lower()
+        host = netloc.rsplit("@", 1)[-1].split(":", 1)[0]  # strip userinfo and port
+        if not host:
+            raise UnsupportedMarketplaceError(f"Unsupported marketplace URL: {url}")
         for name, crawler_cls in cls._registry.items():
             pattern: str = getattr(crawler_cls, "url_pattern", "")
-            if pattern and re.search(pattern, url_lower):
+            if pattern and re.search(pattern, host):
                 return name
         raise UnsupportedMarketplaceError(f"Unsupported marketplace URL: {url}")
