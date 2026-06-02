@@ -26,31 +26,76 @@ class OzonCrawler(CookieCrawler):
     cookies_file_path: str = os.path.join(data_path, "ozon_cookies.json")
     api_headers_file_path: str = os.path.join(data_path, "ozon_api_headers.json")
 
+    # Reuse a captured Ozon session for this long before recapturing via browser.
+    # The ~30s browser capture then runs at most once per window instead of per
+    # product. Overridable via settings: ozon.cookie_ttl_seconds.
+    cookie_ttl_seconds: ClassVar[int] = 1800  # 30 minutes
+
     def __init__(self) -> None:
         super().__init__()
         self.api_headers_data: dict | None = None
         self.session = AsyncSession(impersonate="chrome136")
 
+    # Phrases that mark an Ozon anti-bot / CAPTCHA challenge page (lowercased).
+    # When these appear as the page title, the page is a challenge, not a product.
+    _ANTIBOT_MARKERS: ClassVar[tuple[str, ...]] = (
+        "сопоставьте пазл",
+        "двигая ползунок",
+        "не бот",
+        "подтвердите, что вы не робот",
+        "я не робот",
+        "доступ ограничен",
+        "проверка безопасности",
+        "проверка соединения",
+        "ошибка доступа",
+        "captcha",
+        "challenge",
+    )
+
     def is_valid_url(self, url: str) -> bool:
         return "ozon." in url
+
+    @classmethod
+    def _looks_like_antibot(cls, text: str | None) -> bool:
+        """True when *text* matches a known Ozon anti-bot / CAPTCHA phrase."""
+        if not text:
+            return False
+        low = text.lower()
+        return any(marker in low for marker in cls._ANTIBOT_MARKERS)
 
     # ------------------------------------------------------------------
     # Cookie management (overrides CookieCrawler.get_cookies to also
     # load API headers captured during the browser session)
     # ------------------------------------------------------------------
 
+    def _cookies_fresh(self) -> bool:
+        """True when the cached cookie file exists and is within its TTL."""
+        ttl = int(settings.get("ozon", {}).get("cookie_ttl_seconds", self.cookie_ttl_seconds))
+        try:
+            age = time.time() - os.path.getmtime(self.cookies_file_path)
+        except OSError:
+            return False
+        return age < ttl
+
     async def get_cookies(self, url: str) -> dict:
-        self.cookies_data = await self.load_cookies_from_file()
+        # Reuse the cached session while fresh (within cookie_ttl_seconds) so the
+        # ~30s browser capture runs at most once per TTL window — not per product.
+        if self._cookies_fresh():
+            self.cookies_data = await self.load_cookies_from_file()
+        else:
+            self.cookies_data = {}
         if not self.cookies_data:
+            logger.debug("Ozon: cookies missing or stale — capturing fresh session via browser")
             await self.save_cookies(url)
         if not self.api_headers_data:
             self.api_headers_data = await self._load_api_headers_from_file()
         return self.cookies_data or {}
 
     async def save_cookies(self, url: str) -> bool:
+        proxy_dict = self._playwright_proxy(await self.get_proxy(self.marketplace_name))
         result = await self._run_in_process(
             self._process_save_cookies,
-            (url, self.cookies_file_path, self.api_headers_file_path),
+            (url, self.cookies_file_path, self.api_headers_file_path, proxy_dict),
             timeout=30,
         )
         if result and result.get("success"):
@@ -80,18 +125,20 @@ class OzonCrawler(CookieCrawler):
 
     @staticmethod
     def _process_save_cookies(
-        url: str, cookies_file_path: str, api_headers_file_path: str, result_queue: Queue
+        url: str, cookies_file_path: str, api_headers_file_path: str,
+        proxy: dict | None, result_queue: Queue
     ) -> None:
         """Open Ozon in a browser, capture session cookies and API headers."""
         try:
             from patchright.sync_api import sync_playwright
 
             captured_headers: dict[str, str] = {}
+            launch_kwargs: dict = {"user_data_dir": "", "headless": False}
+            if proxy:
+                launch_kwargs["proxy"] = proxy
 
             with sync_playwright() as p:
-                context = p.chromium.launch_persistent_context(
-                    user_data_dir="", headless=False,
-                )
+                context = p.chromium.launch_persistent_context(**launch_kwargs)
 
                 def on_request(request):
                     if "entrypoint-api.bx/page/json" in request.url and not captured_headers:
@@ -130,17 +177,18 @@ class OzonCrawler(CookieCrawler):
             result_queue.put({"success": False, "error": str(e)})
 
     @staticmethod
-    def _process_parse_via_browser(url: str, result_queue: Queue) -> None:
+    def _process_parse_via_browser(url: str, proxy: dict | None, result_queue: Queue) -> None:
         """Open the product page in a browser; extract data via API interception + DOM."""
         try:
             from patchright.sync_api import sync_playwright
 
             api_data: dict = {}
+            launch_kwargs: dict = {"user_data_dir": "", "headless": False}
+            if proxy:
+                launch_kwargs["proxy"] = proxy
 
             with sync_playwright() as p:
-                context = p.chromium.launch_persistent_context(
-                    user_data_dir="", headless=False,
-                )
+                context = p.chromium.launch_persistent_context(**launch_kwargs)
 
                 def on_response(response):
                     if "entrypoint-api.bx/page/json" in response.url:
@@ -193,6 +241,18 @@ class OzonCrawler(CookieCrawler):
 
                 context.close()
 
+            # If no product API was intercepted and the page title is an
+            # anti-bot challenge, report it as a CAPTCHA so the caller can retry
+            # with a fresh context instead of treating the challenge as success.
+            dom_title = (dom or {}).get("title") or ""
+            if not api_data.get("widgetStates") and OzonCrawler._looks_like_antibot(dom_title):
+                result_queue.put({
+                    "success": False,
+                    "error": "Ozon anti-bot challenge (CAPTCHA)",
+                    "captcha": True,
+                })
+                return
+
             result_queue.put({"success": True, "api_data": api_data, "dom": dom})
 
         except Exception as e:
@@ -238,13 +298,15 @@ class OzonCrawler(CookieCrawler):
 
     def _extract_from_widget_states(
         self, widget_states: dict, url: str
-    ) -> tuple[str | None, str | None, Decimal, Decimal, list]:
-        """Parse title, sku, prices, and images from Ozon widgetStates JSON."""
+    ) -> tuple[str | None, str | None, Decimal, Decimal, list, str, dict]:
+        """Parse title, sku, prices, images, description, characteristics from Ozon widgetStates JSON."""
         product_title = None
         product_sku = None
         product_original_price: Decimal = Decimal(0)
         product_current_price: Decimal = Decimal(0)
         product_images: list = []
+        product_description: str = ""
+        product_characteristics: dict = {}
 
         for widget_name, widget_data in widget_states.items():
             try:
@@ -282,16 +344,62 @@ class OzonCrawler(CookieCrawler):
             except Exception as e:
                 logger.warning(f"Error parsing prices for {url}: {e}")
 
-        return product_title, product_sku, product_original_price, product_current_price, product_images
+            try:
+                if "webDescription" in widget_name and not product_description:
+                    data = json.loads(widget_data)
+                    product_description = data.get("description") or data.get("html") or ""
+                    if isinstance(product_description, dict):
+                        product_description = product_description.get("text") or ""
+            except Exception as e:
+                logger.warning(f"Error parsing description for {url}: {e}")
+
+            try:
+                if "webCharacteristics" in widget_name and not product_characteristics:
+                    data = json.loads(widget_data)
+                    for section in data.get("characteristics", []):
+                        for item in section.get("short", []) + section.get("full", []):
+                            name = item.get("name")
+                            values = item.get("values", [])
+                            if name and values:
+                                product_characteristics[name] = ", ".join(
+                                    str(v.get("text", "")) for v in values if v.get("text")
+                                )
+            except Exception as e:
+                logger.warning(f"Error parsing characteristics for {url}: {e}")
+
+        return (product_title, product_sku, product_original_price, product_current_price,
+                product_images, product_description, product_characteristics)
 
     async def _parse_via_browser(self, url: str) -> dict | None:
-        """Fallback: open the page in a browser and extract data from API + DOM."""
-        result = await self._run_in_process(
-            self._process_parse_via_browser, (url,), timeout=50,
+        """Fallback: open the page in a browser and extract data from API + DOM.
+
+        Retries with a fresh browser context when Ozon serves an anti-bot
+        CAPTCHA, which it often rotates per session.
+        """
+        captcha_retries = int(
+            settings.get("ozon", {}).get("browser_captcha_retries", 3)
         )
-        if result and result.get("success"):
-            logger.debug("Ozon: browser extraction complete")
-            return result
+        result = None
+        for attempt in range(captcha_retries):
+            # Fetch a fresh proxy each attempt so CAPTCHA retries rotate the
+            # exit IP. SOCKS5-auth proxies convert to None (Chromium can't use
+            # them) → browser runs direct; add HTTP proxies to route via RU IP.
+            proxy_str = await self.get_proxy(self.marketplace_name)
+            proxy_dict = self._playwright_proxy(proxy_str)
+            result = await self._run_in_process(
+                self._process_parse_via_browser, (url, proxy_dict),
+            )
+            if result and result.get("success"):
+                logger.debug("Ozon: browser extraction complete")
+                return result
+            if result and result.get("captcha"):
+                logger.warning(
+                    f"Ozon: anti-bot CAPTCHA in browser "
+                    f"(attempt {attempt + 1}/{captcha_retries}) for {url}"
+                )
+                await asyncio.sleep(random.uniform(1.0, 3.0))
+                continue
+            break  # non-CAPTCHA failure — handle below
 
         error = result.get("error", "") if result else ""
         if error:
@@ -302,8 +410,9 @@ class OzonCrawler(CookieCrawler):
         if browser_missing:
             logger.info("Ozon: browser not available, attempting patchright install...")
             if await self._install_patchright():
+                proxy_dict = self._playwright_proxy(await self.get_proxy(self.marketplace_name))
                 result = await self._run_in_process(
-                    self._process_parse_via_browser, (url,), timeout=50,
+                    self._process_parse_via_browser, (url, proxy_dict),
                 )
                 if result and result.get("success"):
                     logger.debug("Ozon: browser extraction complete after install")
@@ -438,14 +547,19 @@ class OzonCrawler(CookieCrawler):
             except Exception as e:
                 logger.warning(f"Ozon HTTP attempt {attempt + 1} failed for {url}: {e}")
                 err = str(e)
-                if "Expecting value" in err or "HTTP 403" in err or "HTTP 401" in err:
-                    if "HTTP 403" in err or "HTTP 401" in err:
-                        got_403 = True
-                    self.cookies_data = None
-                    self.api_headers_data = None
-                    self.delete_cookies_file()
-                    if os.path.exists(self.api_headers_file_path):
-                        os.remove(self.api_headers_file_path)
+                blocked = "HTTP 403" in err or "HTTP 401" in err
+                non_json = "Expecting value" in err
+                if blocked:
+                    got_403 = True
+                if blocked or non_json:
+                    # The HTTP API path is unusable for this request. Do NOT
+                    # invalidate the cached session: Ozon 403s even with a freshly
+                    # captured session, so deleting cookies only forces a wasteful
+                    # ~30s recapture on the next product. Keep the cache (TTL
+                    # governs refresh) and go straight to the browser fallback,
+                    # which works independently of cookies.
+                    logger.debug(f"Ozon HTTP unusable ({err}), switching to browser for {url}")
+                    break
                 await asyncio.sleep(random.uniform(0.1, 1.5))
 
         # --- Fallback: browser-based extraction ---
@@ -466,8 +580,8 @@ class OzonCrawler(CookieCrawler):
         dom = browser_result.get("dom") or {}
 
         widget_states = api_data.get("widgetStates", {})
-        title, sku, orig_price, cur_price, images = self._extract_from_widget_states(
-            widget_states, url
+        title, sku, orig_price, cur_price, images, description, characteristics = (
+            self._extract_from_widget_states(widget_states, url)
         )
 
         # Fill gaps from API top-level fields
@@ -484,7 +598,7 @@ class OzonCrawler(CookieCrawler):
 
         # Fill gaps from DOM extraction
         if dom:
-            if not title and dom.get("title") and "не бот" not in dom["title"]:
+            if not title and dom.get("title") and not self._looks_like_antibot(dom["title"]):
                 title = dom["title"]
             if not images and dom.get("imgs"):
                 images = dom["imgs"]
@@ -500,6 +614,18 @@ class OzonCrawler(CookieCrawler):
                 elif len(nums) == 1:
                     cur_price = Decimal(nums[0])
 
+        # Reject anti-bot challenge pages: their CAPTCHA text can leak in as the
+        # title (e.g. "Сопоставьте пазл, двигая ползунок"). Fail cleanly instead
+        # of persisting the challenge page as a product.
+        if self._looks_like_antibot(title):
+            raise ProductCardParsingException(
+                f"Ozon anti-bot challenge (CAPTCHA) encountered for {url}"
+            )
+        if not title:
+            raise ProductCardParsingException(
+                f"Ozon: could not extract product title for {url}"
+            )
+
         return ProductCard(
             title=title,
             sku=sku,
@@ -507,6 +633,8 @@ class OzonCrawler(CookieCrawler):
             current_price=cur_price,
             images=images,
             source_url=url,
+            description=description,
+            characteristics=characteristics,
         )
 
 

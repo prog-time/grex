@@ -30,12 +30,15 @@ data
 
 tasks
 
-# Licensing — real license files must not be committed
-license.json
-license_*.json
+# License cache — contains API tokens, must not be committed
+data/license_cache.json
 
-# Backups from update.sh
+# Backups
 backups/
 
 # PyArmor build output
 dist/
+resources
+
+# Large media — keep videos out of git (host externally)
+landing/src/video/*.mp4

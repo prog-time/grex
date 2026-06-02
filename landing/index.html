@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Grex Parser — Парсер маркетплейсов</title>
+  <meta name="description" content="REST API для автоматического сбора данных о товарах с Wildberries, Ozon, Яндекс Маркет и MegaMarket. Названия, цены, изображения, описания, характеристики.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════════════════
+     NAV
+════════════════════════════════════════════════════════ -->
+<nav class="nav">
+  <div class="nav-logo">
+    <div class="logo-icon">G</div>
+    Grex Parser
+  </div>
+  <ul class="nav-links">
+    <li><a href="#features">Возможности</a></li>
+    <li><a href="#data">Данные</a></li>
+    <li><a href="#admin">Админ-панель</a></li>
+    <li><a href="#cta" class="nav-cta">Начать работу</a></li>
+  </ul>
+</nav>
+
+<!-- ════════════════════════════════════════════════════════
+     HERO
+════════════════════════════════════════════════════════ -->
+<section class="hero" id="hero">
+  <div>
+    <div class="hero-badge">
+      <span class="dot"></span>
+      Готовое решение
+    </div>
+
+    <h1>
+      Парсинг маркетплейсов<br>
+      <span class="gradient">быстро и надёжно</span>
+    </h1>
+
+    <p>
+      Grex Parser — готовый парсер для автоматического сбора данных
+      о товарах с крупнейших российских маркетплейсов.
+    </p>
+
+    <div class="hero-actions">
+      <a href="https://t.me/grex_parser" target="_blank" rel="noopener" class="btn-primary">Оставить заявку</a>
+    </div>
+
+    <div class="mp-strip">
+      <div class="mp-badge">
+        <span class="mp-dot" style="background:#cb11ab"></span>
+        Wildberries
+      </div>
+      <div class="mp-badge">
+        <span class="mp-dot" style="background:#005bff"></span>
+        Ozon
+      </div>
+      <div class="mp-badge">
+        <span class="mp-dot" style="background:#fc3f1d"></span>
+        Яндекс Маркет
+      </div>
+      <div class="mp-badge">
+        <span class="mp-dot" style="background:#f93"></span>
+        MegaMarket
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════
+     FOR WHOM
+════════════════════════════════════════════════════════ -->
+<section id="for-whom">
+  <div class="container">
+    <div class="fade-up" style="text-align:center">
+      <div class="section-label">Для кого</div>
+      <h2 class="section-title">Кому подходит Grex Parser</h2>
+    </div>
+
+    <div class="forwhom-grid">
+
+      <div class="forwhom-card fade-up" style="transition-delay:0.05s">
+        <div class="forwhom-icon">🛒</div>
+        <h3>Селлеры WB и Ozon</h3>
+        <p>Следите за ценами конкурентов, собирайте данные о товарах в своей нише и оперативно реагируйте на изменения рынка.</p>
+      </div>
+
+      <div class="forwhom-card fade-up" style="transition-delay:0.1s">
+        <div class="forwhom-icon">📊</div>
+        <h3>Аналитики</h3>
+        <p>Автоматизируйте сбор данных для исследований рынка, построения отчётов и анализа ценовых трендов на маркетплейсах.</p>
+      </div>
+
+      <div class="forwhom-card fade-up" style="transition-delay:0.15s">
+        <div class="forwhom-icon">🏢</div>
+        <h3>Агентства</h3>
+        <p>Предоставляйте клиентам актуальные данные о конкурентах и рынке. Масштабируйте работу без ручного труда.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════
+     FEATURES
+════════════════════════════════════════════════════════ -->
+<section id="features">
+  <div class="container">
+    <div class="fade-up">
+      <div class="section-label">Возможности</div>
+      <h2 class="section-title">Всё что нужно для работы с данными</h2>
+      <p class="section-sub">Парсер берёт на себя обход защиты, управление куки и прокси — вам остаётся только работать с результатом.</p>
+    </div>
+
+    <div class="features-grid">
+
+      <div class="feature-card fade-up" style="transition-delay:0.05s">
+        <div class="feature-icon" style="background:rgba(47,129,247,0.12)">🔗</div>
+        <h3>Один URL — полная карточка</h3>
+        <p>Передайте ссылку на товар и получите название, артикул, цены, изображения, описание и характеристики в одном ответе.</p>
+      </div>
+
+      <div class="feature-card fade-up" style="transition-delay:0.1s">
+        <div class="feature-icon" style="background:rgba(63,185,80,0.12)">⚡</div>
+        <h3>Пакетный парсинг</h3>
+        <p>Парсер поддерживает массовую выгрузку товаров из категорий, страниц продавцов и результатов фильтрации.</p>
+      </div>
+
+      <div class="feature-card fade-up" style="transition-delay:0.15s">
+        <div class="feature-icon" style="background:rgba(163,113,247,0.12)">🛡️</div>
+        <h3>Обход защиты</h3>
+        <p>Встроенная ротация User-Agent, имплементация реального браузера Chrome и автоматическое управление куки-сессиями, позволяет защитить парсер от блокировок.</p>
+      </div>
+
+      <div class="feature-card fade-up" style="transition-delay:0.2s">
+        <div class="feature-icon" style="background:rgba(247,129,47,0.12)">🔄</div>
+        <h3>Прокси из коробки</h3>
+        <p>Подключите список прокси — парсер автоматически чередует их между запросами. Поддержка HTTP и SOCKS5.</p>
+      </div>
+
+      <div class="feature-card fade-up" style="transition-delay:0.25s">
+        <div class="feature-icon" style="background:rgba(47,129,247,0.12)">📦</div>
+        <h3>Извлечение ссылок</h3>
+        <p>Передайте URL категории или каталога — парсер обойдёт все страницы и вернёт список ссылок на товары.</p>
+      </div>
+
+      <div class="feature-card fade-up" style="transition-delay:0.3s">
+        <div class="feature-icon" style="background:rgba(63,185,80,0.12)">🖥️</div>
+        <h3>Админ-панель</h3>
+        <p>Встроенный веб-интерфейс для управления заданиями, просмотра результатов и экспорта данных в CSV, XLSX или JSON.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════
+     DEMO VIDEO
+════════════════════════════════════════════════════════ -->
+<section id="demo">
+  <div class="container">
+    <div class="fade-up" style="text-align:center">
+      <div class="section-label">Демонстрация</div>
+      <h2 class="section-title">Посмотрите как это работает</h2>
+      <p class="section-sub" style="margin:0 auto">Короткая демонстрация полного цикла работы: от добавления ссылки до выгрузки результатов.</p>
+    </div>
+
+    <div class="video-wrapper fade-up" style="transition-delay:0.1s">
+      <video controls>
+        <source src="src/video/grex-preview.mp4" type="video/mp4">
+      </video>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════
+     DATA FIELDS
+════════════════════════════════════════════════════════ -->
+<section id="data">
+  <div class="container">
+    <div class="fade-up">
+      <div class="section-label">Данные</div>
+      <h2 class="section-title">Какие данные собирает парсер</h2>
+      <p class="section-sub">Для каждого товара извлекаются все доступные поля. Ничего лишнего — только структурированный результат.</p>
+    </div>
+
+    <div class="data-grid">
+      <div class="data-item fade-up" style="transition-delay:0.05s">
+        <span class="di-icon">📝</span>
+        <span>Название товара</span>
+      </div>
+      <div class="data-item fade-up" style="transition-delay:0.1s">
+        <span class="di-icon">🔖</span>
+        <span>Артикул (SKU)</span>
+      </div>
+      <div class="data-item fade-up" style="transition-delay:0.15s">
+        <span class="di-icon">💰</span>
+        <span>Цена со скидкой</span>
+      </div>
+      <div class="data-item fade-up" style="transition-delay:0.2s">
+        <span class="di-icon">🏷️</span>
+        <span>Цена без скидки</span>
+      </div>
+      <div class="data-item fade-up" style="transition-delay:0.25s">
+        <span class="di-icon">🖼️</span>
+        <span>Изображения товара</span>
+      </div>
+      <div class="data-item fade-up" style="transition-delay:0.3s">
+        <span class="di-icon">📄</span>
+        <span>Описание</span>
+      </div>
+      <div class="data-item fade-up" style="transition-delay:0.35s">
+        <span class="di-icon">📋</span>
+        <span>Характеристики</span>
+      </div>
+      <div class="data-item fade-up" style="transition-delay:0.4s">
+        <span class="di-icon">🌐</span>
+        <span>Источник (URL)</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════
+     ADMIN OVERVIEW
+════════════════════════════════════════════════════════ -->
+<section id="admin">
+  <div class="container">
+    <div class="fade-up">
+      <div class="section-label">Админ-панель</div>
+      <h2 class="section-title">Удобный веб-интерфейс</h2>
+      <p class="section-sub">Управляйте парсером через браузер — без командной строки. Запускайте задания, смотрите результаты и экспортируйте данные.</p>
+    </div>
+
+    <div class="admin-tabs fade-up" style="transition-delay:0.1s">
+      <div class="admin-tab-btns">
+        <button class="admin-tab-btn active" data-tab="targets">Targets</button>
+        <button class="admin-tab-btn" data-tab="products">Products</button>
+        <button class="admin-tab-btn" data-tab="jobs">Jobs</button>
+        <button class="admin-tab-btn" data-tab="proxies">Proxies</button>
+      </div>
+
+      <div class="admin-tab-panel" data-panel="targets">
+        <div class="admin-panel-inner">
+          <div class="admin-screenshot">
+            <img src="src/images/pages/targets.png" alt="Targets page">
+          </div>
+          <div class="admin-desc">
+            <div class="admin-desc-icon">🎯</div>
+            <h3>Targets — управление целями</h3>
+            <p>Добавляйте ссылки на товары. Маркетплейс определяется автоматически по URL. Каждой цели можно задать имя для удобства навигации.</p>
+            <ul class="admin-desc-list">
+              <li>Добавление по одной ссылке или файлом</li>
+              <li>Авто-определение маркетплейса</li>
+              <li>Включение и отключение целей без удаления</li>
+              <li>Ручной запуск парсинга в один клик</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="admin-tab-panel" data-panel="products" style="display:none">
+        <div class="admin-panel-inner">
+          <div class="admin-screenshot">
+            <img src="src/images/pages/products.png" alt="Products page">
+          </div>
+          <div class="admin-desc">
+            <div class="admin-desc-icon">🛍️</div>
+            <h3>Products — результаты парсинга</h3>
+            <p>Все собранные товары в одной таблице. Фильтрация по маркетплейсу, поиск по названию, просмотр описания и характеристик в модальном окне.</p>
+            <ul class="admin-desc-list">
+              <li>Название, артикул, цены, изображение</li>
+              <li>Описание и характеристики товара</li>
+              <li>Фильтрация по маркетплейсу</li>
+              <li>Экспорт в CSV, XLSX или JSON</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="admin-tab-panel" data-panel="jobs" style="display:none">
+        <div class="admin-panel-inner">
+          <div class="admin-screenshot">
+            <img src="src/images/pages/jobs.png" alt="Jobs page">
+          </div>
+          <div class="admin-desc">
+            <div class="admin-desc-icon">📋</div>
+            <h3>Jobs — история заданий</h3>
+            <p>Полный журнал всех запросов на парсинг. Отслеживайте статус, время обработки и ошибки по каждому товару.</p>
+            <ul class="admin-desc-list">
+              <li>Статус: Success / Error</li>
+              <li>Время обработки каждого запроса</li>
+              <li>Дата и время запуска</li>
+              <li>Фильтрация по маркетплейсу и статусу</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="admin-tab-panel" data-panel="proxies" style="display:none">
+        <div class="admin-panel-inner">
+          <div class="admin-screenshot">
+            <img src="src/images/pages/proxies.png" alt="Proxies page">
+          </div>
+          <div class="admin-desc">
+            <div class="admin-desc-icon">🛡️</div>
+            <h3>Proxies — управление прокси</h3>
+            <p>Подключите прокси и настройте их использование отдельно для каждого маркетплейса. Поддержка HTTP и SOCKS5.</p>
+            <ul class="admin-desc-list">
+              <li>Добавление прокси через удобную форму</li>
+              <li>Включение/отключение по маркетплейсу</li>
+              <li>Поддержка HTTP и SOCKS5</li>
+              <li>Ротация прокси между запросами</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════
+     WHY NOT SAAS
+════════════════════════════════════════════════════════ -->
+<section id="why-not-saas">
+  <div class="container">
+    <div class="fade-up" style="text-align:center">
+      <div class="section-label">Почему не SaaS</div>
+      <h2 class="section-title">Все данные хранятся у вас</h2>
+      <p class="section-sub" style="margin:0 auto 48px">Без облаков и ограничений. Полный контроль над инструментом и данными.</p>
+    </div>
+
+    <div class="notsaas-grid fade-up" style="transition-delay:0.1s">
+
+      <div class="notsaas-item">
+        <div class="notsaas-icon">🔒</div>
+        <div>
+          <h3>Данные только на вашем сервере</h3>
+          <p>Никаких сторонних облаков. Результаты парсинга хранятся локально — доступны только вам.</p>
+        </div>
+      </div>
+
+      <div class="notsaas-item">
+        <div class="notsaas-icon">♾️</div>
+        <div>
+          <h3>Без лимитов на запросы</h3>
+          <p>Нет тарифных планов и счётчиков. Парсите столько, сколько нужно.</p>
+        </div>
+      </div>
+
+      <div class="notsaas-item">
+        <div class="notsaas-icon">⚙️</div>
+        <div>
+          <h3>Полный контроль над настройками</h3>
+          <p>Прокси, куки, расписание — всё настраивается под ваши задачи без ограничений платформы.</p>
+        </div>
+      </div>
+
+
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════
+     HOW TO START
+════════════════════════════════════════════════════════ -->
+<section id="how-to-start">
+  <div class="container">
+    <div class="fade-up" style="text-align:center">
+      <div class="section-label">Старт</div>
+      <h2 class="section-title">Как начать</h2>
+    </div>
+
+    <div class="steps-grid fade-up" style="transition-delay:0.1s">
+
+      <div class="step-card">
+        <div class="step-num">1</div>
+        <h3>Покупаете лицензию</h3>
+        <p>Напишите нам в Telegram — ответим на вопросы и оформим лицензию на ваше устройство.</p>
+      </div>
+
+      <div class="step-arrow">→</div>
+
+      <div class="step-card">
+        <div class="step-num">2</div>
+        <h3>Устанавливаем на сервер</h3>
+        <p>Поможем с установкой и настройкой. Парсер готов к работе в течение одного дня.</p>
+      </div>
+
+      <div class="step-arrow">→</div>
+
+      <div class="step-card">
+        <div class="step-num">3</div>
+        <h3>Запускаете</h3>
+        <p>Добавляете ссылки на товары и получаете данные. Всё управление через удобный веб-интерфейс.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════
+     PRICING
+════════════════════════════════════════════════════════ -->
+<section id="pricing">
+  <div class="container">
+    <div class="fade-up" style="text-align:center">
+      <div class="section-label">Стоимость</div>
+      <h2 class="section-title">Лицензия</h2>
+    </div>
+
+    <div class="pricing-grid fade-up" style="transition-delay:0.1s">
+
+      <div class="pricing-card">
+        <div class="pricing-label">Лицензия</div>
+        <div class="pricing-price">от 15 000 <span>₽</span></div>
+        <div class="pricing-note">единоразово</div>
+        <ul class="pricing-list">
+          <li>Полный доступ к парсеру</li>
+          <li>Все 4 маркетплейса</li>
+          <li>Установка на ваш сервер</li>
+          <li>Помощь с настройкой</li>
+        </ul>
+        <a href="https://t.me/grex_parser" target="_blank" rel="noopener" class="btn-primary" style="display:block;text-align:center;margin-top:28px">Оставить заявку</a>
+      </div>
+
+      <div class="pricing-card pricing-card--accent">
+        <div class="pricing-label">Обновления</div>
+        <div class="pricing-price">1 000 <span>₽</span></div>
+        <div class="pricing-note">в месяц</div>
+        <ul class="pricing-list">
+          <li>Новые версии парсера</li>
+          <li>Поддержка изменений маркетплейсов</li>
+          <li>Приоритетная поддержка</li>
+          <li>Подключается по желанию</li>
+        </ul>
+        <a href="https://t.me/grex_parser" target="_blank" rel="noopener" class="btn-primary" style="display:block;text-align:center;margin-top:28px">Подключить</a>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════
+     CTA
+════════════════════════════════════════════════════════ -->
+<section id="cta">
+  <div class="container">
+    <div class="cta-box fade-up">
+      <h2>Готовы начать?</h2>
+      <p>
+        Свяжитесь с нами в Telegram — ответим на вопросы,
+        расскажем об условиях лицензирования и поможем с настройкой.
+      </p>
+      <div class="cta-actions">
+        <a href="https://t.me/grex_parser" target="_blank" rel="noopener" class="btn-tg">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 10l-4 4l6 6l4 -16l-18 7l4 2l2 6l3 -4"/>
+          </svg>
+          Написать в Telegram
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════
+     FOOTER
+════════════════════════════════════════════════════════ -->
+<footer>
+  <p>© 2025 Grex Parser · <a href="https://t.me/grex_parser" target="_blank" rel="noopener">Поддержка</a></p>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>

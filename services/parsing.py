@@ -9,6 +9,7 @@ from fastapi import HTTPException, status
 
 from models import ProductCard, BatchItemResult
 from core.exceptions import UnsupportedMarketplaceError, CrawlerNotFoundError, ProductCardParsingException
+from config import settings
 # Import the crawlers package (not just the registry) so that all concrete
 # crawler classes are loaded and auto-registered via __init_subclass__.
 import crawlers as _crawlers_pkg  # noqa: F401
@@ -38,17 +39,34 @@ class ParsingService:
         try:
             marketplace = CrawlerRegistry.detect_marketplace(url)
 
+            if settings.get("licensing", {}).get("enabled", False):
+                from services.license import is_source_allowed  # noqa: PLC0415
+                if not is_source_allowed(marketplace):
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=f"Access to '{marketplace}' is not allowed for this API key",
+                    )
+
             # Enforce per-source rate limit from config.
             await self._apply_rate_limit(marketplace)
 
             crawler_cls = CrawlerRegistry.get(marketplace)
             crawler = crawler_cls()
+            # Normalize the URL (strip fragment/query/tab segments per crawler)
+            # so variant links collapse to one canonical URL and don't dupe.
+            url = crawler.normalize_url(url)
             product_card = await crawler.parse(url)
 
             finished_at = datetime.now(timezone.utc)
             elapsed = time.monotonic() - t_start
             await self._record_stat(marketplace, success=True, elapsed=elapsed)
             await self._save_job(url, marketplace, started_at, finished_at, success=True)
+
+            # Enqueue image download as a separate background task (fire-and-forget).
+            if product_card.images:
+                from services.image_queue import enqueue_image_task  # noqa: PLC0415
+                await enqueue_image_task(marketplace, product_card.sku, product_card.images)
+
             return product_card
 
         except (UnsupportedMarketplaceError, CrawlerNotFoundError) as e:
@@ -101,9 +119,17 @@ class ParsingService:
             )
 
     async def parse_products_batch(
-        self, urls: list[str], concurrency: int = 10
+        self, urls: list[str], concurrency: int | None = None
     ) -> list[BatchItemResult]:
-        semaphore = asyncio.Semaphore(concurrency)
+        # Resolve effective concurrency: request value, else batch.concurrency
+        # from settings; clamped to batch.max_concurrency.
+        batch_cfg = settings.get("batch", {})
+        default_conc = int(batch_cfg.get("concurrency", 10))
+        max_conc = int(batch_cfg.get("max_concurrency", 50))
+        effective = concurrency if concurrency else default_conc
+        effective = max(1, min(effective, max_conc))
+        logger.debug(f"Batch parse: concurrency={effective} (cap {max_conc})")
+        semaphore = asyncio.Semaphore(effective)
 
         async def parse_one(url: str) -> BatchItemResult:
             async with semaphore:

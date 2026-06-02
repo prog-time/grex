@@ -371,6 +371,14 @@ class WildberriesCrawler(BaseCrawler):
             raise ProductCardParsingException("Product card not found")
 
         product_title = product_card.get("imt_name")
+        product_description: str = product_card.get("description") or ""
+        product_characteristics: dict = {}
+        for group in product_card.get("grouped_options", []):
+            for opt in group.get("options", []):
+                name = opt.get("name")
+                value = opt.get("value")
+                if name and value is not None:
+                    product_characteristics[name] = value
         upstream_host = await self._get_upstream_host_by_sku(product_sku)
         product_photo_count = product_card.get("media", {}).get("photo_count") or 0
 
@@ -412,6 +420,8 @@ class WildberriesCrawler(BaseCrawler):
             current_price=product_current_price,
             images=product_images,
             source_url=url,
+            description=product_description,
+            characteristics=product_characteristics,
         )
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import uvicorn
 import traceback
 from contextlib import asynccontextmanager
@@ -10,8 +11,11 @@ from typing import List, Dict
 from fastapi.security.api_key import APIKeyHeader
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from config import settings
+from services.license import load_config_from_response, load_config_from_cache, get_allowed_sources
+from services.license_client import activate_device, fetch_license_config
 from models import (
     ParseRequest,
     ParseResponse,
@@ -36,13 +40,47 @@ check_license()
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # type: ignore[type-arg]
     """Initialise shared resources on startup and clean up on shutdown."""
+    _image_worker_task = None
+
     try:
         from services.redis_client import init_redis  # noqa: PLC0415
         await init_redis()
         from services.stats import StatsCollector  # noqa: PLC0415
         await StatsCollector.set_start_time()
+        from services.image_queue import image_worker  # noqa: PLC0415
+        _image_worker_task = asyncio.create_task(image_worker(), name="image_worker")
     except Exception as exc:
         logger.warning(f"Redis init failed (admin panel will be unavailable): {exc}")
+
+    licensing_cfg = settings.get("licensing", {})
+    if licensing_cfg.get("enabled", False):
+        try:
+            import uuid as _uuid  # noqa: PLC0415
+            _mac_int = _uuid.getnode()
+            _mac_address = ":".join(f"{(_mac_int >> i) & 0xff:02x}" for i in range(40, -1, -8)).upper()
+            await activate_device(
+                service_url=licensing_cfg.get("service_url", ""),
+                api_key=licensing_cfg.get("api_key", ""),
+                mac_address=_mac_address,
+                timeout=licensing_cfg.get("timeout_seconds", 5),
+            )
+            response = await fetch_license_config(
+                service_url=licensing_cfg.get("service_url", ""),
+                api_key=licensing_cfg.get("api_key", ""),
+                mac_address=_mac_address,
+                timeout=licensing_cfg.get("timeout_seconds", 5),
+            )
+            if response:
+                await load_config_from_response(response)
+                logger.info(f"License config loaded: {get_allowed_sources()}")
+            else:
+                loaded = await load_config_from_cache()
+                if loaded:
+                    logger.warning("License service unavailable, using cached config")
+                else:
+                    logger.error("No license config available, all sources disabled")
+        except Exception as exc:
+            logger.warning(f"License init failed: {exc}")
 
     _UNSAFE_DEFAULTS = {
         "security.api_key": ("4353456dfvbdfg34", settings.get("security", {}).get("api_key", "")),
@@ -66,13 +104,13 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
         from models.job import async_session  # noqa: PLC0415
         from models.parsed_product import ParseSession  # noqa: PLC0415
         from sqlalchemy import update  # noqa: PLC0415
-        from datetime import datetime  # noqa: PLC0415
+        from datetime import datetime, timezone  # noqa: PLC0415
         if async_session is not None:
             async with async_session() as s:
                 await s.execute(
                     update(ParseSession)
                     .where(ParseSession.status.in_(["pending", "running"]))
-                    .values(status="failed", finished_at=datetime.utcnow())
+                    .values(status="failed", finished_at=datetime.now(timezone.utc))
                 )
                 await s.commit()
             logger.info("Stale parse sessions reset to 'failed' on startup")
@@ -80,6 +118,13 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
         logger.warning(f"Failed to reset stale parse sessions: {exc}")
 
     yield
+
+    if _image_worker_task is not None and not _image_worker_task.done():
+        _image_worker_task.cancel()
+        try:
+            await _image_worker_task
+        except asyncio.CancelledError:
+            pass
 
     try:
         from admin import teardown_admin  # noqa: PLC0415
@@ -106,6 +151,10 @@ app = FastAPI(
 from starlette.middleware.sessions import SessionMiddleware as _SessionMiddleware  # noqa: E402
 app.add_middleware(_SessionMiddleware, secret_key=settings.get("admin", {}).get("secret_key", "change-me"))
 
+import os as _os  # noqa: E402
+_static_dir = _os.path.join(_os.path.dirname(__file__), "static")
+app.mount("/static", StaticFiles(directory=_static_dir), name="static")
+
 X_API_KEY = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 parsing_service = ParsingService()
@@ -117,8 +166,9 @@ parsing_service = ParsingService()
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
-    from fastapi.responses import Response  # noqa: PLC0415
-    return Response(status_code=204)
+    from fastapi.responses import FileResponse  # noqa: PLC0415
+    path = _os.path.join(_os.path.dirname(__file__), "static", "favicon.svg")
+    return FileResponse(path, media_type="image/svg+xml")
 
 
 @app.get("/", response_model=Dict[str, str])

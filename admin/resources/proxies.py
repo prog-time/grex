@@ -140,14 +140,40 @@ class ProxiesRouter:
             return JSONResponse({"error": str(exc)}, status_code=500)
 
     @staticmethod
+    async def remove_many(request: Request) -> JSONResponse:
+        """Bulk-delete proxies by their list indexes. Body: {"indexes": [int, ...]}."""
+        body = await request.json()
+        raw_indexes = body.get("indexes")
+        if not isinstance(raw_indexes, list) or not raw_indexes:
+            return JSONResponse({"error": "indexes (non-empty list) is required"}, status_code=422)
+
+        try:
+            indexes = sorted({int(i) for i in raw_indexes}, reverse=True)
+        except (TypeError, ValueError):
+            return JSONResponse({"error": "indexes must be integers"}, status_code=422)
+
+        try:
+            proxies = await _get_proxies()
+            removed = 0
+            for idx in indexes:  # descending — pop from the tail so positions stay valid
+                if 0 <= idx < len(proxies):
+                    proxies.pop(idx)
+                    removed += 1
+
+            await _set_proxies(proxies)
+            logger.info(f"Bulk proxy removal: {removed} removed, total={len(proxies)}")
+            return JSONResponse({"removed": removed, "total": len(proxies)})
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"Failed to bulk-remove proxies: {exc}")
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+    @staticmethod
     async def get_proxy_settings(request: Request) -> JSONResponse:
         proxy_cfg = settings.get("proxy", {})
-        sources = settings.get("sources", {})
-        source_proxy = {
-            src: proxy_cfg.get("sources", {}).get(src, False)
-            for src in sources
-        }
-        return JSONResponse({"sources": source_proxy})
+        return JSONResponse({
+            "active": bool(proxy_cfg.get("active", False)),
+            "type": proxy_cfg.get("type", "http"),
+        })
 
     @staticmethod
     async def update_proxy_settings(request: Request) -> JSONResponse:
@@ -172,34 +198,61 @@ class ProxiesRouter:
             _persist(lambda raw: raw.setdefault("proxy", {}).__setitem__("type", proxy_type))
             logger.info(f"Proxy type set to {proxy_type}")
 
-        # Per-source toggle
-        if "source" in body and "source_active" in body:
-            source = body["source"]
-            source_active = body["source_active"]
-            if not isinstance(source_active, bool):
-                return JSONResponse({"error": "source_active must be boolean"}, status_code=422)
-            settings.setdefault("proxy", {}).setdefault("sources", {})[source] = source_active
-
-            def _update_source(raw):
-                raw.setdefault("proxy", {}).setdefault("sources", {})[source] = source_active
-
-            _persist(_update_source)
-            logger.info(f"Proxy for {source} set to {source_active}")
+        # Global on/off toggle
+        if "active" in body:
+            active = body["active"]
+            if not isinstance(active, bool):
+                return JSONResponse({"error": "active must be boolean"}, status_code=422)
+            settings.setdefault("proxy", {})["active"] = active
+            _persist(lambda raw: raw.setdefault("proxy", {}).__setitem__("active", active))
+            logger.info(f"Proxy usage {'enabled' if active else 'disabled'}")
 
         return JSONResponse({"ok": True})
 
     @staticmethod
     async def reload_from_file(request: Request) -> JSONResponse:
+        """Replace the proxy pool with proxies from an uploaded .txt file.
+
+        Expects JSON body ``{"proxies": "<raw file text>"}`` — the content of
+        the .txt file the user picked in the browser, one proxy per line.
+        """
         from core.managers import ProxyManager  # noqa: PLC0415
 
-        logger.info("Proxy reload from file requested")
+        logger.info("Proxy reload from uploaded file requested")
         try:
-            proxies = await ProxyManager.load_proxies()
-            logger.info(f"Proxy reload complete: {len(proxies)} proxies loaded")
-            return JSONResponse({"reloaded": len(proxies)})
-        except Exception as exc:  # noqa: BLE001
-            logger.error(f"Proxy reload failed: {exc}")
-            return JSONResponse({"error": str(exc)}, status_code=500)
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            return JSONResponse({"error": "Invalid request body"}, status_code=400)
+
+        raw = body.get("proxies")
+        if isinstance(raw, str):
+            lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+        elif isinstance(raw, list):
+            lines = [str(ln).strip() for ln in raw if str(ln).strip()]
+        else:
+            return JSONResponse(
+                {"error": "No file content received"}, status_code=422
+            )
+
+        if not lines:
+            return JSONResponse(
+                {"error": "The selected file is empty — one proxy per line expected"},
+                status_code=422,
+            )
+
+        invalid = [p for p in lines if not ProxyManager.is_valid_proxy(p)]
+        if invalid:
+            return JSONResponse(
+                {"error": f"Invalid proxy in file: {_mask_proxy(invalid[0])}"},
+                status_code=422,
+            )
+
+        # Persist through the panel's storage (Redis best-effort + proxies.json),
+        # so the upload works even when Redis is down and stays consistent with
+        # the add/remove/list endpoints.
+        await _set_proxies(lines)
+        logger.info(f"Proxy reload complete: {len(lines)} proxies loaded from file")
+        return JSONResponse({"reloaded": len(lines)})
 
 
 def register_proxies_routes(app) -> None:  # type: ignore[no-untyped-def]
@@ -225,6 +278,13 @@ def register_proxies_routes(app) -> None:  # type: ignore[no-untyped-def]
     app.add_api_route(
         "/admin/proxies/remove",
         router.remove_proxy,
+        methods=["POST"],
+        tags=["admin"],
+        dependencies=_auth,
+    )
+    app.add_api_route(
+        "/admin/proxies/remove_many",
+        router.remove_many,
         methods=["POST"],
         tags=["admin"],
         dependencies=_auth,

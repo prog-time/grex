@@ -1,341 +1,391 @@
-"""Tests for licensing/checker.py and register.py.
+"""Tests for licensing/checker.py.
 
 All network calls and file I/O are mocked — no external dependencies required.
 """
 from __future__ import annotations
 
-import datetime
-import hmac
-import hashlib
 import json
-import uuid
-from pathlib import Path
+import urllib.error
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# check_license — disabled
 # ---------------------------------------------------------------------------
 
-_SECRET = "KBSox0KKob3hiCwAkdWfBzdYFRS8gIeFvWrO8dn5ipvttuW0jSdaxT3BlmmmFDHZ"
-
-
-def _compute_key(mac: str) -> str:
-    return hmac.new(_SECRET.encode(), mac.encode(), hashlib.sha256).hexdigest()
-
-
-def _this_mac() -> str:
-    mac_int = uuid.getnode()
-    return ":".join(f"{(mac_int >> i) & 0xff:02x}" for i in range(40, -1, -8))
-
-
-def _valid_key() -> str:
-    return _compute_key(_this_mac())
-
-
-# ---------------------------------------------------------------------------
-# check_license — file not found
-# ---------------------------------------------------------------------------
-
-class TestCheckLicenseFileNotFound:
-    def test_raises_systemexit_when_file_missing(self, tmp_path):
-        """If license.json does not exist, SystemExit(1) must be raised."""
+class TestCheckLicenseDisabled:
+    def test_raises_systemexit_when_api_key_is_default_placeholder(self):
+        """check_license must abort when api_key is the default placeholder value."""
         from licensing import checker
 
-        non_existent = tmp_path / "no_such_file.json"
-        with patch.object(checker, "_LICENSE_PATH", non_existent):
+        with patch.dict("config.settings", {"licensing": {
+            "service_url": "https://grex.iliya-code.ru/api",
+            "api_key": "your-client-api-key-here",
+        }}):
             with pytest.raises(SystemExit):
                 checker.check_license()
 
 
 # ---------------------------------------------------------------------------
-# check_license — key mismatch (wrong machine)
+# check_license — missing config
 # ---------------------------------------------------------------------------
 
-class TestCheckLicenseKeyMismatch:
-    def test_raises_systemexit_when_key_belongs_to_different_mac(self, tmp_path):
-        """A license.json whose key was generated for a different MAC must be rejected."""
+class TestCheckLicenseMissingConfig:
+    def test_raises_systemexit_when_service_url_missing(self):
         from licensing import checker
 
-        foreign_mac = "de:ad:be:ef:00:01"
-        foreign_key = _compute_key(foreign_mac)
-        license_file = tmp_path / "license.json"
-        license_file.write_text(json.dumps({"key": foreign_key}), encoding="utf-8")
+        with patch.dict("config.settings", {"licensing": {"enabled": True, "api_key": "key", "service_url": ""}}):
+            with pytest.raises(SystemExit):
+                checker.check_license()
 
-        with patch.object(checker, "_LICENSE_PATH", license_file):
+    def test_raises_systemexit_when_api_key_missing(self):
+        from licensing import checker
+
+        with patch.dict("config.settings", {
+            "licensing": {"enabled": True, "api_key": "", "service_url": "https://example.com"},
+        }):
             with pytest.raises(SystemExit):
                 checker.check_license()
 
 
 # ---------------------------------------------------------------------------
-# check_license — online status: blocked
+# check_license — HTTP 200 success
 # ---------------------------------------------------------------------------
 
-class TestCheckLicenseBlockedOnline:
-    def test_raises_systemexit_when_online_status_is_blocked(self, tmp_path):
-        """An online status of 'blocked' must cause SystemExit."""
-        from licensing import checker
-
-        key = _valid_key()
-        license_file = tmp_path / "license.json"
-        license_file.write_text(json.dumps({"key": key}), encoding="utf-8")
-
-        online_data = {key: {"status": "blocked", "updates_until": "2099-01-01"}}
-
-        def fake_urlopen(url, timeout=5):
+class TestCheckLicenseSuccess:
+    def _fake_urlopen(self, response_body: dict):
+        def _open(req, timeout=10):
             resp = MagicMock()
-            resp.read.return_value = json.dumps(online_data).encode()
-            resp.__enter__ = lambda s: s
-            resp.__exit__ = MagicMock(return_value=False)
-            return resp
-
-        with patch.object(checker, "_LICENSE_PATH", license_file), \
-             patch("urllib.request.urlopen", side_effect=fake_urlopen):
-            with pytest.raises(SystemExit):
-                checker.check_license()
-
-
-# ---------------------------------------------------------------------------
-# check_license — online status: pending (not active, not blocked)
-# ---------------------------------------------------------------------------
-
-class TestCheckLicensePendingOnline:
-    def test_raises_systemexit_when_online_status_is_pending(self, tmp_path):
-        """Any status other than 'active' (e.g. 'pending') must cause SystemExit."""
-        from licensing import checker
-
-        key = _valid_key()
-        license_file = tmp_path / "license.json"
-        license_file.write_text(json.dumps({"key": key}), encoding="utf-8")
-
-        online_data = {key: {"status": "pending", "updates_until": "2099-01-01"}}
-
-        def fake_urlopen(url, timeout=5):
-            resp = MagicMock()
-            resp.read.return_value = json.dumps(online_data).encode()
-            resp.__enter__ = lambda s: s
-            resp.__exit__ = MagicMock(return_value=False)
-            return resp
-
-        with patch.object(checker, "_LICENSE_PATH", license_file), \
-             patch("urllib.request.urlopen", side_effect=fake_urlopen):
-            with pytest.raises(SystemExit):
-                checker.check_license()
-
-
-# ---------------------------------------------------------------------------
-# check_license — online status: active → success
-# ---------------------------------------------------------------------------
-
-class TestCheckLicenseActiveOnline:
-    def test_returns_merged_dict_when_license_is_active(self, tmp_path):
-        """A valid license with 'active' online status must return a merged dict."""
-        from licensing import checker
-
-        key = _valid_key()
-        license_file = tmp_path / "license.json"
-        license_file.write_text(json.dumps({"key": key}), encoding="utf-8")
-
-        online_data = {key: {"status": "active", "updates_until": "2099-01-01"}}
-
-        def fake_urlopen(url, timeout=5):
-            resp = MagicMock()
-            resp.read.return_value = json.dumps(online_data).encode()
-            resp.__enter__ = lambda s: s
-            resp.__exit__ = MagicMock(return_value=False)
-            return resp
-
-        with patch.object(checker, "_LICENSE_PATH", license_file), \
-             patch("urllib.request.urlopen", side_effect=fake_urlopen):
-            result = checker.check_license()
-
-        assert result["key"] == key
-        assert result["status"] == "active"
-        assert result["updates_until"] == "2099-01-01"
-
-
-# ---------------------------------------------------------------------------
-# check_license — key not in online registry
-# ---------------------------------------------------------------------------
-
-class TestCheckLicenseKeyNotInRegistry:
-    def test_raises_systemexit_when_key_absent_from_online_registry(self, tmp_path):
-        """If the key is not found in the online registry, SystemExit must be raised."""
-        from licensing import checker
-
-        key = _valid_key()
-        license_file = tmp_path / "license.json"
-        license_file.write_text(json.dumps({"key": key}), encoding="utf-8")
-
-        # Registry is empty — key not present
-        online_data: dict = {}
-
-        def fake_urlopen(url, timeout=5):
-            resp = MagicMock()
-            resp.read.return_value = json.dumps(online_data).encode()
-            resp.__enter__ = lambda s: s
-            resp.__exit__ = MagicMock(return_value=False)
-            return resp
-
-        with patch.object(checker, "_LICENSE_PATH", license_file), \
-             patch("urllib.request.urlopen", side_effect=fake_urlopen):
-            with pytest.raises(SystemExit):
-                checker.check_license()
-
-
-# ---------------------------------------------------------------------------
-# check_license — network failure
-# ---------------------------------------------------------------------------
-
-class TestCheckLicenseNetworkFailure:
-    def test_raises_systemexit_when_network_is_unavailable(self, tmp_path):
-        """A network error during online check must cause SystemExit."""
-        from licensing import checker
-
-        key = _valid_key()
-        license_file = tmp_path / "license.json"
-        license_file.write_text(json.dumps({"key": key}), encoding="utf-8")
-
-        with patch.object(checker, "_LICENSE_PATH", license_file), \
-             patch("urllib.request.urlopen", side_effect=OSError("Network unreachable")):
-            with pytest.raises(SystemExit):
-                checker.check_license()
-
-
-# ---------------------------------------------------------------------------
-# check_license — corrupted JSON
-# ---------------------------------------------------------------------------
-
-class TestCheckLicenseCorruptedFile:
-    def test_raises_systemexit_when_license_json_is_corrupted(self, tmp_path):
-        """A license.json with invalid JSON content must cause SystemExit."""
-        from licensing import checker
-
-        license_file = tmp_path / "license.json"
-        license_file.write_text("not valid json {{{{", encoding="utf-8")
-
-        with patch.object(checker, "_LICENSE_PATH", license_file):
-            with pytest.raises(SystemExit):
-                checker.check_license()
-
-
-# ---------------------------------------------------------------------------
-# check_updates_allowed
-# ---------------------------------------------------------------------------
-
-class TestCheckUpdatesAllowed:
-    def _license_file_and_key(self, tmp_path) -> tuple[Path, str]:
-        key = _valid_key()
-        license_file = tmp_path / "license.json"
-        license_file.write_text(json.dumps({"key": key}), encoding="utf-8")
-        return license_file, key
-
-    def _fake_urlopen(self, online_data: dict):
-        def _open(url, timeout=5):
-            resp = MagicMock()
-            resp.read.return_value = json.dumps(online_data).encode()
+            resp.read.return_value = json.dumps(response_body).encode()
             resp.__enter__ = lambda s: s
             resp.__exit__ = MagicMock(return_value=False)
             return resp
         return _open
 
-    def test_returns_false_when_updates_until_is_in_the_past(self, tmp_path):
+    def test_returns_response_dict_on_success(self, tmp_path):
         from licensing import checker
 
-        license_file, key = self._license_file_and_key(tmp_path)
-        online_data = {key: {"status": "active", "updates_until": "2000-01-01"}}
+        response = {"client_id": "uuid-1", "issued_at": "2026-03-30T10:00:00Z", "tokens": ["tok1"]}
 
-        with patch.object(checker, "_LICENSE_PATH", license_file), \
-             patch("urllib.request.urlopen", side_effect=self._fake_urlopen(online_data)):
-            result = checker.check_updates_allowed()
+        with patch.dict("config.settings", {"licensing": {
+            "enabled": True,
+            "service_url": "https://grex.iliya-code.ru/api",
+            "api_key": "test-key",
+            "timeout_seconds": 5,
+            "cache_file": str(tmp_path / "cache.json"),
+        }}), patch("urllib.request.urlopen", side_effect=self._fake_urlopen(response)):
+            result = checker.check_license()
 
-        assert result is False
+        assert result["client_id"] == "uuid-1"
+        assert result["tokens"] == ["tok1"]
 
-    def test_returns_true_when_updates_until_is_in_the_future(self, tmp_path):
+    def test_saves_cache_on_success(self, tmp_path):
         from licensing import checker
 
-        license_file, key = self._license_file_and_key(tmp_path)
-        online_data = {key: {"status": "active", "updates_until": "2099-12-31"}}
+        cache_file = tmp_path / "cache.json"
+        response = {"client_id": "uuid-2", "issued_at": "2026-03-30T10:00:00Z", "tokens": ["tok-a", "tok-b"]}
 
-        with patch.object(checker, "_LICENSE_PATH", license_file), \
-             patch("urllib.request.urlopen", side_effect=self._fake_urlopen(online_data)):
-            result = checker.check_updates_allowed()
+        with patch.dict("config.settings", {"licensing": {
+            "enabled": True,
+            "service_url": "https://grex.iliya-code.ru/api",
+            "api_key": "test-key",
+            "timeout_seconds": 5,
+            "cache_file": str(cache_file),
+        }}), patch("urllib.request.urlopen", side_effect=self._fake_urlopen(response)):
+            checker.check_license()
 
-        assert result is True
+        assert cache_file.exists()
+        data = json.loads(cache_file.read_text(encoding="utf-8"))
+        assert data["client_id"] == "uuid-2"
+        assert data["tokens"] == ["tok-a", "tok-b"]
+        assert "fetched_at" in data
 
-    def test_returns_true_when_updates_until_is_today(self, tmp_path):
+    def test_posts_to_config_endpoint(self, tmp_path):
         from licensing import checker
 
-        license_file, key = self._license_file_and_key(tmp_path)
-        today = datetime.date.today().isoformat()
-        online_data = {key: {"status": "active", "updates_until": today}}
+        captured_reqs = []
+        response = {"client_id": "x", "tokens": []}
 
-        with patch.object(checker, "_LICENSE_PATH", license_file), \
-             patch("urllib.request.urlopen", side_effect=self._fake_urlopen(online_data)):
-            result = checker.check_updates_allowed()
+        def fake_urlopen(req, timeout=10):
+            captured_reqs.append(req)
+            resp = MagicMock()
+            resp.read.return_value = json.dumps(response).encode()
+            resp.__enter__ = lambda s: s
+            resp.__exit__ = MagicMock(return_value=False)
+            return resp
 
-        assert result is True
+        with patch.dict("config.settings", {"licensing": {
+            "enabled": True,
+            "service_url": "https://grex.iliya-code.ru/api",
+            "api_key": "test-key",
+            "timeout_seconds": 5,
+            "cache_file": str(tmp_path / "cache.json"),
+        }}), patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            checker.check_license()
 
-    def test_raises_systemexit_when_network_fails(self, tmp_path):
-        """_fetch_license_entry calls _abort on network failure, which raises SystemExit.
-        check_updates_allowed catches Exception but not SystemExit, so it propagates."""
+        assert captured_reqs[0].full_url == "https://grex.iliya-code.ru/api/config"
+
+    def test_sends_api_key_header(self, tmp_path):
         from licensing import checker
 
-        license_file, key = self._license_file_and_key(tmp_path)
+        captured_reqs = []
+        response = {"client_id": "x", "tokens": []}
 
-        with patch.object(checker, "_LICENSE_PATH", license_file), \
-             patch("urllib.request.urlopen", side_effect=OSError("No network")):
-            with pytest.raises(SystemExit):
-                checker.check_updates_allowed()
+        def fake_urlopen(req, timeout=10):
+            captured_reqs.append(req)
+            resp = MagicMock()
+            resp.read.return_value = json.dumps(response).encode()
+            resp.__enter__ = lambda s: s
+            resp.__exit__ = MagicMock(return_value=False)
+            return resp
 
-    def test_raises_systemexit_when_license_file_missing(self, tmp_path):
-        """_read_license_file calls _abort when file is absent, raising SystemExit
-        which propagates out of check_updates_allowed (not caught by bare Exception)."""
+        with patch.dict("config.settings", {"licensing": {
+            "enabled": True,
+            "service_url": "https://grex.iliya-code.ru/api",
+            "api_key": "my-secret-key",
+            "timeout_seconds": 5,
+            "cache_file": str(tmp_path / "cache.json"),
+        }}), patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            checker.check_license()
+
+        assert captured_reqs[0].get_header("X-api-key") == "my-secret-key"
+
+    def test_request_body_contains_mac_address(self, tmp_path):
         from licensing import checker
 
-        non_existent = tmp_path / "no_license.json"
+        captured_reqs = []
+        response = {"client_id": "x", "tokens": []}
 
-        with patch.object(checker, "_LICENSE_PATH", non_existent):
-            with pytest.raises(SystemExit):
-                checker.check_updates_allowed()
+        def fake_urlopen(req, timeout=10):
+            captured_reqs.append(req)
+            resp = MagicMock()
+            resp.read.return_value = json.dumps(response).encode()
+            resp.__enter__ = lambda s: s
+            resp.__exit__ = MagicMock(return_value=False)
+            return resp
+
+        cfg = {"licensing": {
+            "service_url": "https://grex.iliya-code.ru/api",
+            "api_key": "test-key",
+            "timeout_seconds": 5,
+            "cache_file": str(tmp_path / "cache.json"),
+        }}
+        with patch.dict("config.settings", cfg), \
+                patch("urllib.request.urlopen", side_effect=fake_urlopen), \
+                patch.object(checker, "_get_mac_address", return_value="AA:BB:CC:DD:EE:FF"):
+            checker.check_license()
+
+        body = json.loads(captured_reqs[0].data.decode())
+        assert body["mac_address"] == "AA:BB:CC:DD:EE:FF"
 
 
 # ---------------------------------------------------------------------------
-# register.py — generates a correct license.json
+# check_license — HTTP 401
 # ---------------------------------------------------------------------------
 
-class TestRegisterGeneratesLicense:
-    def test_creates_license_json_with_correct_key(self, tmp_path):
-        """register.main() must create license.json whose key matches the current MAC."""
-        import register
+class TestCheckLicense401:
+    def test_raises_systemexit_on_401(self, tmp_path):
+        from licensing import checker
 
-        license_file = tmp_path / "license.json"
+        http_error = urllib.error.HTTPError(
+            url="https://grex.iliya-code.ru/api/config",
+            code=401,
+            msg="Unauthorized",
+            hdrs=MagicMock(),
+            fp=None,
+        )
 
-        with patch.object(register, "_LICENSE_PATH", license_file):
-            register.main()
+        with patch.dict("config.settings", {"licensing": {
+            "enabled": True,
+            "service_url": "https://grex.iliya-code.ru/api",
+            "api_key": "bad-key",
+            "timeout_seconds": 5,
+            "cache_file": str(tmp_path / "cache.json"),
+        }}), patch("urllib.request.urlopen", side_effect=http_error):
+            with pytest.raises(SystemExit):
+                checker.check_license()
 
-        assert license_file.exists(), "license.json must be created"
-        data = json.loads(license_file.read_text(encoding="utf-8"))
-        assert "key" in data
 
-        expected_key = _compute_key(_this_mac())
-        assert data["key"] == expected_key
+# ---------------------------------------------------------------------------
+# check_license — HTTP 403
+# ---------------------------------------------------------------------------
 
-    def test_does_not_overwrite_existing_license_json(self, tmp_path, capsys):
-        """register.main() must print the existing key and NOT overwrite the file."""
-        import register
+class TestCheckLicense403:
+    def _make_http_error(self, code: int, body: dict | None = None):
+        fp = MagicMock()
+        fp.read.return_value = json.dumps(body).encode() if body else b""
+        return urllib.error.HTTPError(
+            url="https://grex.iliya-code.ru/api/config",
+            code=code,
+            msg="Forbidden",
+            hdrs=MagicMock(),
+            fp=fp,
+        )
 
-        original_key = "already-there-key"
-        license_file = tmp_path / "license.json"
-        license_file.write_text(json.dumps({"key": original_key}), encoding="utf-8")
+    def test_raises_systemexit_on_403_generic(self, tmp_path):
+        from licensing import checker
 
-        with patch.object(register, "_LICENSE_PATH", license_file):
-            register.main()
+        with patch.dict("config.settings", {"licensing": {
+            "service_url": "https://grex.iliya-code.ru/api",
+            "api_key": "expired-key",
+            "timeout_seconds": 5,
+            "cache_file": str(tmp_path / "cache.json"),
+        }}), patch("urllib.request.urlopen", side_effect=self._make_http_error(403)):
+            with pytest.raises(SystemExit):
+                checker.check_license()
 
-        data = json.loads(license_file.read_text(encoding="utf-8"))
-        assert data["key"] == original_key, "Existing key must not be overwritten"
+    def test_raises_systemexit_on_403_blocked(self, tmp_path):
+        from licensing import checker
 
-        captured = capsys.readouterr()
-        assert original_key in captured.out
+        with patch.dict("config.settings", {"licensing": {
+            "service_url": "https://grex.iliya-code.ru/api",
+            "api_key": "blocked-key",
+            "timeout_seconds": 5,
+            "cache_file": str(tmp_path / "cache.json"),
+        }}), patch("urllib.request.urlopen", side_effect=self._make_http_error(403, {"error": "Device blocked"})):
+            with pytest.raises(SystemExit):
+                checker.check_license()
+
+    def test_raises_systemexit_on_403_expired(self, tmp_path):
+        from licensing import checker
+
+        with patch.dict("config.settings", {"licensing": {
+            "service_url": "https://grex.iliya-code.ru/api",
+            "api_key": "expired-key",
+            "timeout_seconds": 5,
+            "cache_file": str(tmp_path / "cache.json"),
+        }}), patch("urllib.request.urlopen", side_effect=self._make_http_error(403, {"error": "Subscription expired"})):
+            with pytest.raises(SystemExit):
+                checker.check_license()
+
+    def test_activates_device_on_403_not_activated(self, tmp_path):
+        """First /config returns 'not activated', then /activate succeeds, then /config succeeds."""
+        from licensing import checker
+
+        config_response = {"client_id": "uuid-act", "tokens": ["tok1"]}
+        activate_response = {"activated": True, "message": "Устройство активировано."}
+
+        calls = []
+
+        def fake_urlopen(req, timeout=10):
+            calls.append(req.full_url)
+            if req.full_url.endswith("/config") and len([u for u in calls if u.endswith("/config")]) == 1:
+                # First /config — raise "not activated"
+                fp = MagicMock()
+                fp.read.return_value = json.dumps({"error": "Device not activated"}).encode()
+                raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", MagicMock(), fp)
+            resp = MagicMock()
+            if req.full_url.endswith("/activate"):
+                resp.read.return_value = json.dumps(activate_response).encode()
+            else:
+                resp.read.return_value = json.dumps(config_response).encode()
+            resp.__enter__ = lambda s: s
+            resp.__exit__ = MagicMock(return_value=False)
+            return resp
+
+        cfg = {"licensing": {
+            "service_url": "https://grex.iliya-code.ru/api",
+            "api_key": "new-key",
+            "timeout_seconds": 5,
+            "cache_file": str(tmp_path / "cache.json"),
+        }}
+        with patch.dict("config.settings", cfg), \
+                patch("urllib.request.urlopen", side_effect=fake_urlopen), \
+                patch.object(checker, "_get_mac_address", return_value="AA:BB:CC:DD:EE:FF"):
+            result = checker.check_license()
+
+        assert any("/activate" in u for u in calls), "Expected /activate to be called"
+        assert result["client_id"] == "uuid-act"
+
+    def test_raises_systemexit_when_activate_returns_401(self, tmp_path):
+        from licensing import checker
+
+        def fake_urlopen(req, timeout=10):
+            if req.full_url.endswith("/config"):
+                fp = MagicMock()
+                fp.read.return_value = json.dumps({"error": "Device not activated"}).encode()
+                raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", MagicMock(), fp)
+            # /activate returns 401
+            fp = MagicMock()
+            fp.read.return_value = b""
+            raise urllib.error.HTTPError(req.full_url, 401, "Unauthorized", MagicMock(), fp)
+
+        cfg = {"licensing": {
+            "service_url": "https://grex.iliya-code.ru/api",
+            "api_key": "bad-key",
+            "timeout_seconds": 5,
+            "cache_file": str(tmp_path / "cache.json"),
+        }}
+        with patch.dict("config.settings", cfg), \
+                patch("urllib.request.urlopen", side_effect=fake_urlopen), \
+                patch.object(checker, "_get_mac_address", return_value="AA:BB:CC:DD:EE:FF"):
+            with pytest.raises(SystemExit):
+                checker.check_license()
+
+
+# ---------------------------------------------------------------------------
+# check_license — network error
+# ---------------------------------------------------------------------------
+
+class TestCheckLicenseNetworkError:
+    def test_raises_systemexit_when_no_network_and_no_cache(self, tmp_path):
+        from licensing import checker
+
+        with patch.dict("config.settings", {"licensing": {
+            "enabled": True,
+            "service_url": "https://grex.iliya-code.ru/api",
+            "api_key": "key",
+            "timeout_seconds": 5,
+            "cache_file": str(tmp_path / "no_cache.json"),
+        }}), patch("urllib.request.urlopen", side_effect=OSError("Network unreachable")):
+            with pytest.raises(SystemExit):
+                checker.check_license()
+
+    def test_does_not_raise_when_no_network_but_cache_exists(self, tmp_path):
+        from licensing import checker
+
+        cache_file = tmp_path / "cache.json"
+        cache_file.write_text(
+            json.dumps({"client_id": "uuid-3", "tokens": ["tok1"], "fetched_at": "2026-03-30T10:00:00Z"}),
+            encoding="utf-8",
+        )
+
+        with patch.dict("config.settings", {"licensing": {
+            "enabled": True,
+            "service_url": "https://grex.iliya-code.ru/api",
+            "api_key": "key",
+            "timeout_seconds": 5,
+            "cache_file": str(cache_file),
+        }}), patch("urllib.request.urlopen", side_effect=OSError("Network unreachable")):
+            result = checker.check_license()
+
+        assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# _read_license_file / cache I/O
+# ---------------------------------------------------------------------------
+
+class TestReadLicenseFile:
+    def test_returns_cache_contents(self, tmp_path):
+        from licensing import checker
+
+        cache_file = tmp_path / "cache.json"
+        payload = {"client_id": "uuid-4", "tokens": ["t1"], "fetched_at": "2026-03-30T10:00:00Z"}
+        cache_file.write_text(json.dumps(payload), encoding="utf-8")
+
+        with patch.object(checker, "_cache_file_path", return_value=cache_file):
+            result = checker._read_license_file()
+
+        assert result["client_id"] == "uuid-4"
+
+    def test_returns_empty_dict_when_no_cache(self, tmp_path):
+        from licensing import checker
+
+        non_existent = tmp_path / "no_cache.json"
+        with patch.object(checker, "_cache_file_path", return_value=non_existent):
+            result = checker._read_license_file()
+
+        assert result == {}

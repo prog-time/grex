@@ -2,13 +2,12 @@ loguru==0.7.3
 curl-cffi==0.13.0b1
 PyYAML==6.0.2
 patchright==1.52.5
-lxml==6.0.0
 beautifulsoup4==4.13.4
 uvicorn==0.35.0
 fastapi==0.116.1
 aiofiles==24.1.0
 pydantic
-redis[asyncio]>=5.0.0
+redis>=5.0.0
 starlette-admin>=0.14.0
 sqlalchemy[asyncio]>=2.0.0
 aiosqlite>=0.20.0

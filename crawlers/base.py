@@ -40,6 +40,11 @@ if TYPE_CHECKING:
     from models import ProductCard
 
 
+# Global cap on concurrent browser subprocesses, keyed by event loop so a
+# single process shares one semaphore across every crawler and request.
+_BROWSER_SEMAPHORES: "dict[Any, asyncio.Semaphore]" = {}
+
+
 class BaseCrawler(ABC):
     """Abstract base for all marketplace crawlers.
 
@@ -75,6 +80,15 @@ class BaseCrawler(ABC):
     marketplace_name: ClassVar[str]
     url_pattern: ClassVar[str]
     requires_cookie_lock: ClassVar[bool] = False
+    license_source_name: ClassVar[str] = ""  # override when JWT source name differs from marketplace_name
+
+    # --- URL normalization (override per crawler when needed) ---
+    # Regex whose group(1) is the canonical product-URL prefix. When set,
+    # normalize_url() trims any trailing tab segments (e.g. "/reviews/").
+    canonical_url_pattern: ClassVar[str] = ""
+    # Whether to drop the query string ("?...") during normalization. Leave
+    # False for marketplaces where query params carry the offer/sku id.
+    strip_query_params: ClassVar[bool] = False
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
@@ -101,8 +115,7 @@ class BaseCrawler(ABC):
             from config import settings as live_settings  # noqa: PLC0415
 
         proxy_cfg = live_settings.get("proxy", {})
-        source_active = proxy_cfg.get("sources", {}).get(marketplace, False) if marketplace else False
-        if not source_active:
+        if not proxy_cfg.get("active", False):
             return None
 
         try:
@@ -118,6 +131,13 @@ class BaseCrawler(ABC):
             proxy_type = proxy_cfg.get("type", "http")
             if "://" not in proxy:
                 proxy = f"{proxy_type}://{proxy}"
+
+            # Force remote DNS for SOCKS5 (socks5h): the exit node resolves the
+            # target host instead of curl resolving it locally. Local resolution
+            # can hand the proxy an IP its exit can't reach, surfacing as
+            # curl (97) "cannot complete SOCKS5 connection … (4) Host unreachable".
+            if proxy.startswith("socks5://"):
+                proxy = "socks5h://" + proxy[len("socks5://"):]
 
             masked = re.sub(r"(://[^:]+):([^@]+)@", r"\1:***@", proxy)
             logger.info(f"Using proxy: {masked}" + (f" [{marketplace}]" if marketplace else ""))
@@ -139,6 +159,72 @@ class BaseCrawler(ABC):
         """Return True when *url* belongs to this marketplace."""
 
     # ------------------------------------------------------------------
+    # Shared URL normalization — applied to every source before parse()
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def normalize_url(cls, url: str) -> str:
+        """Return a canonical product URL for *url*.
+
+        Always strips the fragment (``#reviews``) — fragments are never sent to
+        the server, so this is safe for every marketplace. When the crawler sets
+        :attr:`strip_query_params` and/or :attr:`canonical_url_pattern`, the
+        query string and trailing tab segments (``/reviews/``, ``/otzyvy/`` …)
+        are also removed, so variant URLs collapse to one canonical URL and
+        stop producing duplicate results.
+        """
+        import re  # noqa: PLC0415
+
+        normalized = url.strip().split("#", 1)[0]
+        if cls.strip_query_params:
+            normalized = normalized.split("?", 1)[0]
+        if cls.canonical_url_pattern:
+            m = re.match(cls.canonical_url_pattern, normalized)
+            if m:
+                return m.group(1).rstrip("/") + "/"
+        return normalized
+
+    @staticmethod
+    def _playwright_proxy(proxy: str | None) -> dict | None:
+        """Convert a proxy string to a Playwright/Chromium proxy dict, or None.
+
+        Chromium supports HTTP/HTTPS proxy authentication but NOT SOCKS5 auth,
+        so an authenticated socks5 proxy returns None and the browser runs
+        directly (no regression). Add HTTP proxies to the pool to route a
+        crawler's browser fallback through a residential IP.
+        """
+        import re  # noqa: PLC0415
+
+        if not proxy:
+            return None
+        m = re.match(
+            r"^(?P<scheme>\w+)://"
+            r"(?:(?P<user>[^:@/]+):(?P<pwd>[^@/]+)@)?"
+            r"(?P<host>[^:/@]+):(?P<port>\d+)",
+            proxy,
+        )
+        if not m:
+            return None
+        scheme = m.group("scheme").lower()
+        host, port = m.group("host"), m.group("port")
+        user, pwd = m.group("user"), m.group("pwd")
+
+        if scheme in ("http", "https"):
+            server = f"{scheme}://{host}:{port}"
+        elif scheme.startswith("socks"):
+            if user:
+                return None  # Chromium cannot authenticate SOCKS5 → run direct
+            server = f"socks5://{host}:{port}"
+        else:
+            return None
+
+        out: dict = {"server": server}
+        if user:
+            out["username"] = user
+            out["password"] = pwd
+        return out
+
+    # ------------------------------------------------------------------
     # Optional interface — override to support catalog link extraction
     # ------------------------------------------------------------------
 
@@ -157,11 +243,32 @@ class BaseCrawler(ABC):
     # ------------------------------------------------------------------
 
     @staticmethod
+    def _browser_semaphore() -> "asyncio.Semaphore":
+        """Return the global semaphore capping concurrent browser subprocesses.
+
+        Sized from ``browser.max_concurrent`` in settings (default 4). One
+        semaphore per running event loop, so a single process never spawns more
+        than N Chromium instances at once across all crawlers, batch requests
+        and the admin background parser combined.
+        """
+        loop = asyncio.get_event_loop()
+        sem = _BROWSER_SEMAPHORES.get(loop)
+        if sem is None:
+            from config import settings  # noqa: PLC0415
+            try:
+                limit = int(settings.get("browser", {}).get("max_concurrent", 4))
+            except (TypeError, ValueError):
+                limit = 4
+            sem = asyncio.Semaphore(max(1, limit))
+            _BROWSER_SEMAPHORES[loop] = sem
+        return sem
+
+    @staticmethod
     async def _run_in_process(
         target: Callable[..., None],
         args: tuple[Any, ...] = (),
         *,
-        timeout: int = 60,
+        timeout: int | None = None,
     ) -> dict | None:
         """Run *target*(*args, result_queue) in a subprocess and return the result.
 
@@ -172,30 +279,65 @@ class BaseCrawler(ABC):
             {"success": False, "error": str}
 
         Returns the dict on success, or None if the queue is empty or the
-        process exceeds *timeout* seconds.
+        process exceeds *timeout* seconds. When *timeout* is None it defaults to
+        ``browser.timeout_seconds`` from settings (60s), so the browser
+        kill-timeout is configurable without code changes.
+
+        Held under a global semaphore so the number of concurrent browser
+        subprocesses never exceeds ``browser.max_concurrent`` — excess callers
+        wait here rather than spawning unbounded Chromium instances.
         """
-        result_queue: Queue[dict] = Queue()
-        process = Process(target=target, args=(*args, result_queue))
-        process.start()
-        deadline = asyncio.get_event_loop().time() + timeout
-        while process.is_alive():
-            if asyncio.get_event_loop().time() >= deadline:
+        import queue as _queue  # noqa: PLC0415
+
+        if timeout is None:
+            from config import settings  # noqa: PLC0415
+            try:
+                timeout = int(settings.get("browser", {}).get("timeout_seconds", 60))
+            except (TypeError, ValueError):
+                timeout = 60
+
+        async with BaseCrawler._browser_semaphore():
+            result_queue: Queue[dict] = Queue()
+            process = Process(target=target, args=(*args, result_queue))
+            process.start()
+            deadline = asyncio.get_event_loop().time() + timeout
+
+            # Drain the queue WHILE the child is alive. A child that puts a large
+            # payload (e.g. full page HTML) won't exit until the queue's feeder
+            # thread has flushed it to the pipe; if we join() before reading, the
+            # full pipe blocks the child and join() deadlocks. So read first.
+            result: dict | None = None
+            while True:
+                try:
+                    result = result_queue.get_nowait()
+                    break
+                except _queue.Empty:
+                    pass
+                if not process.is_alive():
+                    try:
+                        result = result_queue.get_nowait()
+                    except _queue.Empty:
+                        result = None
+                    break
+                if asyncio.get_event_loop().time() >= deadline:
+                    process.terminate()
+                    process.join(timeout=5)
+                    logger.warning(
+                        f"_run_in_process: {getattr(target, '__name__', target)!r} "
+                        f"killed after {timeout}s timeout"
+                    )
+                    return None
+                await asyncio.sleep(0.2)
+
+            process.join(timeout=5)
+            if process.is_alive():
                 process.terminate()
-                process.join()
+            if result is None:
                 logger.warning(
                     f"_run_in_process: {getattr(target, '__name__', target)!r} "
-                    f"killed after {timeout}s timeout"
+                    f"returned no result (timeout={timeout}s)"
                 )
-                return None
-            await asyncio.sleep(0.2)
-        process.join()
-        if not result_queue.empty():
-            return result_queue.get()
-        logger.warning(
-            f"_run_in_process: {getattr(target, '__name__', target)!r} "
-            f"returned no result (timeout={timeout}s)"
-        )
-        return None
+            return result
 
 
 class CookieCrawler(BaseCrawler, ABC):
