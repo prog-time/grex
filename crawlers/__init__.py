@@ -10,6 +10,7 @@ from .megamarket import MegaMarketCrawler
 from .vseinstrumenti import VseInstrumentiCrawler
 from .bigam import BigamCrawler
 from .mm import MmCrawler
+from .cdek import CdekCrawler
 
 __all__ = [
     "BaseCrawler",
@@ -22,4 +23,5 @@ __all__ = [
     "VseInstrumentiCrawler",
     "BigamCrawler",
     "MmCrawler",
+    "CdekCrawler",
 ]
