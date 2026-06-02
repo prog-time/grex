@@ -81,6 +81,8 @@
           <option value="100">100</option>
         </select>
         <button class="btn btn-sm btn-outline-danger" id="proxyDeleteSelected" onclick="deleteSelectedProxies(this)" disabled>Delete selected</button>
+        <button class="btn btn-sm btn-outline-secondary" id="proxyCheckHealth" onclick="checkProxyHealth(this)">Check health</button>
+        <button class="btn btn-sm btn-outline-warning" id="proxyEvictDead" onclick="evictDeadProxies(this)">Evict dead</button>
       </div>
     </div>
     <div class="table-responsive">
@@ -92,10 +94,11 @@
             </th>
             <th style="width:56px">#</th>
             <th>Proxy</th>
+            <th style="width:120px">Status</th>
           </tr>
         </thead>
         <tbody id="proxyTableBody">
-          <tr><td colspan="3" class="text-center text-muted py-3">
+          <tr><td colspan="4" class="text-center text-muted py-3">
             <span class="spinner-border spinner-border-sm me-2"></span>Loading...
           </td></tr>
         </tbody>
@@ -116,11 +119,11 @@ async function loadProxies() {
   try {
     res = await fetch('/admin/proxies/api');
   } catch (e) {
-    tbody.innerHTML = '<tr><td colspan="3" class="text-danger text-center py-3">Failed to load proxies.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" class="text-danger text-center py-3">Failed to load proxies.</td></tr>';
     return;
   }
   if (!res.ok) {
-    tbody.innerHTML = '<tr><td colspan="3" class="text-danger text-center py-3">Failed to load proxies.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" class="text-danger text-center py-3">Failed to load proxies.</td></tr>';
     return;
   }
   const data = await res.json();
@@ -151,7 +154,7 @@ function renderProxies() {
   document.getElementById('proxyCount').textContent = total + ' proxies';
 
   if (!pageRows.length) {
-    tbody.innerHTML = '<tr><td colspan="3" class="text-muted text-center py-3">Proxy pool is empty.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center py-3">Proxy pool is empty.</td></tr>';
     document.getElementById('proxyPager').innerHTML = '';
     updateProxySelection();
     return;
@@ -162,6 +165,7 @@ function renderProxies() {
       + '<td><input type="checkbox" class="form-check-input proxy-cb" data-index="' + p.index + '" onchange="updateProxySelection()"></td>'
       + '<td class="text-muted">' + p.index + '</td>'
       + '<td><code>' + esc(p.proxy) + '</code></td>'
+      + '<td>' + proxyStatusBadge(p) + '</td>'
       + '</tr>';
   }).join('');
   updateProxySelection();
@@ -240,6 +244,43 @@ function esc(s) {
   return String(s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;')
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function proxyStatusBadge(p) {
+  var s = p.status || 'unknown';
+  var cls = {healthy:'bg-success', benched:'bg-warning', dead:'bg-danger'}[s] || 'bg-secondary';
+  var label = s.charAt(0).toUpperCase() + s.slice(1);
+  var fails = (p.failures || 0) > 0 ? ' (' + p.failures + ')' : '';
+  return '<span class="badge ' + cls + '">' + label + fails + '</span>';
+}
+
+async function checkProxyHealth(btn) {
+  setLoading(btn, true);
+  try {
+    const res = await fetch('/admin/proxies/check', { method: 'POST' });
+    const data = await res.json().catch(function() { return {}; });
+    if (!res.ok) alert(data.error || 'Health check failed (HTTP ' + res.status + ')');
+    else alert('Health check: ' + (data.healthy || 0) + '/' + (data.total || 0) + ' healthy');
+  } catch (e) {
+    alert('Health check failed');
+  }
+  setLoading(btn, false);
+  loadProxies();
+}
+
+async function evictDeadProxies(btn) {
+  if (!confirm('Remove every proxy marked as dead from the pool?')) return;
+  setLoading(btn, true);
+  try {
+    const res = await fetch('/admin/proxies/evict_dead', { method: 'POST' });
+    const data = await res.json().catch(function() { return {}; });
+    if (!res.ok) alert(data.error || 'Eviction failed (HTTP ' + res.status + ')');
+    else alert('Evicted ' + (data.evicted || 0) + ' dead, ' + (data.remaining || 0) + ' remaining');
+  } catch (e) {
+    alert('Eviction failed');
+  }
+  setLoading(btn, false);
+  loadProxies();
 }
 
 (async function initSettings() {

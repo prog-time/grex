@@ -90,8 +90,66 @@ class ProxiesRouter:
             logger.warning(f"Failed to list proxies: {exc}")
             proxies = []
 
-        masked = [{"index": i, "proxy": _mask_proxy(p)} for i, p in enumerate(proxies)]
-        return JSONResponse({"total": len(masked), "proxies": masked})
+        # Best-effort health overlay so the table shows circuit-breaker state.
+        health_by_index: dict[int, dict] = {}
+        try:
+            from services.proxy_health import ProxyHealth  # noqa: PLC0415
+            for row in await ProxyHealth.health_map(proxies):
+                health_by_index[row["index"]] = row
+        except Exception:  # noqa: BLE001
+            pass
+
+        rows = []
+        for i, p in enumerate(proxies):
+            h = health_by_index.get(i, {})
+            rows.append({
+                "index": i,
+                "proxy": _mask_proxy(p),
+                "status": h.get("status", "unknown"),
+                "failures": h.get("failures", 0),
+            })
+        return JSONResponse({"total": len(rows), "proxies": rows})
+
+    @staticmethod
+    async def health(request: Request) -> JSONResponse:
+        """Return the current proxy health map without probing (read-only)."""
+        try:
+            proxies = await _get_proxies()
+            from services.proxy_health import ProxyHealth  # noqa: PLC0415
+            rows = await ProxyHealth.health_map(proxies)
+            return JSONResponse({"total": len(rows), "proxies": rows})
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Failed to read proxy health: {exc}")
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+    @staticmethod
+    async def check_health(request: Request) -> JSONResponse:
+        """Actively probe every proxy and return the refreshed health map."""
+        try:
+            proxies = await _get_proxies()
+            from services.proxy_health import ProxyHealth  # noqa: PLC0415
+            rows = await ProxyHealth.probe_all(proxies)
+            healthy = sum(1 for r in rows if r["status"] == "healthy")
+            logger.info(f"Proxy health check: {healthy}/{len(rows)} healthy")
+            return JSONResponse({"total": len(rows), "healthy": healthy, "proxies": rows})
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"Proxy health check failed: {exc}")
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+    @staticmethod
+    async def evict_dead(request: Request) -> JSONResponse:
+        """Remove proxies whose failure count crossed the dead threshold."""
+        try:
+            proxies = await _get_proxies()
+            from services.proxy_health import ProxyHealth  # noqa: PLC0415
+            survivors, evicted = await ProxyHealth.evict_dead(proxies)
+            if evicted:
+                await _set_proxies(survivors)
+            logger.info(f"Proxy eviction: {len(evicted)} dead removed, {len(survivors)} remaining")
+            return JSONResponse({"evicted": len(evicted), "remaining": len(survivors)})
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"Proxy eviction failed: {exc}")
+            return JSONResponse({"error": str(exc)}, status_code=500)
 
     @staticmethod
     async def add_proxy(request: Request) -> JSONResponse:
@@ -292,6 +350,27 @@ def register_proxies_routes(app) -> None:  # type: ignore[no-untyped-def]
     app.add_api_route(
         "/admin/proxies/reload",
         router.reload_from_file,
+        methods=["POST"],
+        tags=["admin"],
+        dependencies=_auth,
+    )
+    app.add_api_route(
+        "/admin/proxies/health",
+        router.health,
+        methods=["GET"],
+        tags=["admin"],
+        dependencies=_auth,
+    )
+    app.add_api_route(
+        "/admin/proxies/check",
+        router.check_health,
+        methods=["POST"],
+        tags=["admin"],
+        dependencies=_auth,
+    )
+    app.add_api_route(
+        "/admin/proxies/evict_dead",
+        router.evict_dead,
         methods=["POST"],
         tags=["admin"],
         dependencies=_auth,
