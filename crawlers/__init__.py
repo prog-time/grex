@@ -9,6 +9,7 @@ from .yandex_market import YandexMarketCrawler
 from .megamarket import MegaMarketCrawler
 from .vseinstrumenti import VseInstrumentiCrawler
 from .bigam import BigamCrawler
+from .mm import MmCrawler
 
 __all__ = [
     "BaseCrawler",
@@ -20,4 +21,5 @@ __all__ = [
     "MegaMarketCrawler",
     "VseInstrumentiCrawler",
     "BigamCrawler",
+    "MmCrawler",
 ]
