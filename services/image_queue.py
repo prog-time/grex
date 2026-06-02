@@ -77,17 +77,22 @@ async def image_worker() -> None:
             from services.redis_client import get_redis_client  # noqa: PLC0415
 
             client = get_redis_client()
-            # BRPOP blocks up to *timeout* seconds then returns None.
-            result = await client.brpop(QUEUE_KEY, timeout=5)
+            # Non-blocking RPOP + poll. We deliberately avoid BRPOP here: the
+            # shared client is configured with a small socket_timeout (0.3s) so
+            # the rest of the app fails fast, but a blocking BRPOP would exceed
+            # that read timeout on an empty queue and be misreported as
+            # "Redis unavailable". RPOP returns immediately, so a fast poll
+            # gives near-instant processing without the timeout conflict.
+            raw = await client.rpop(QUEUE_KEY)
 
             # Successful Redis contact — reset backoff.
             _retry_delay = 1.0
 
-            if result is None:
-                # Timeout — loop and wait again.
+            if raw is None:
+                # Queue empty — wait briefly, then poll again.
+                await asyncio.sleep(1.0)
                 continue
 
-            _, raw = result
             task: dict = json.loads(raw)
             marketplace: str = task.get("marketplace", "unknown")
             sku: str = task.get("sku", "unknown")
