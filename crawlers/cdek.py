@@ -305,8 +305,8 @@ class CdekCrawler(BaseCrawler):
     # Fetch
     # ------------------------------------------------------------------
 
-    async def _fetch_html(self, url: str) -> str | None:
-        """Fetch the product page HTML. Retries rotate the proxy exit IP.
+    async def _fetch_html_and_url(self, url: str) -> tuple[str | None, str | None]:
+        """Fetch HTML and the final (post-redirect) URL. Retries rotate the proxy.
 
         cdek.shopping returns 503 to non-RU IPs and some residential exits are
         flagged, so retries with a fresh proxy materially improve success.
@@ -321,7 +321,7 @@ class CdekCrawler(BaseCrawler):
                     proxy=proxy,
                 )
                 if response.status_code == 200:
-                    return response.text
+                    return response.text, str(response.url)
                 logger.warning(
                     f"cdek HTTP {response.status_code} for {url} (attempt {attempt + 1})"
                 )
@@ -330,7 +330,64 @@ class CdekCrawler(BaseCrawler):
                     f"cdek HTTP attempt {attempt + 1} failed for {url}: {exc}"
                 )
             await asyncio.sleep(0.5 * (attempt + 1))
-        return None
+        return None, None
+
+    async def _fetch_html(self, url: str) -> str | None:
+        html, _ = await self._fetch_html_and_url(url)
+        return html
+
+    # ------------------------------------------------------------------
+    # Link extraction — category / brand listing pages
+    # ------------------------------------------------------------------
+
+    async def get_product_links(self, url: str, max_pages: int = 10) -> list[str]:
+        """Extract product page links from a cdek listing URL.
+
+        Listing pages (brand ``/m/<id>``, category ``/c/<id>``) link products as
+        ``/p/<id>/<slug>`` and paginate with ``?page=<n>``. Pagination only works
+        on the *slugged* URL (``/m/<id>/<slug>``); ``/m/<id>`` alone ignores
+        ``?page``. So page 1 is resolved via the redirect to obtain the canonical
+        slugged base, and subsequent pages paginate from it. Product links are
+        normalised to ``/p/<id>`` and deduplicated across pages.
+        """
+        m = re.match(r"(https?://[^/]+)", url)
+        host_root = m.group(1) if m else "https://cdek.shopping"
+
+        links: list[str] = []
+        seen: set[str] = set()
+        base_url = url.split("#")[0].split("?")[0].rstrip("/")
+        for page in range(1, max_pages + 1):
+            if page == 1:
+                html, final_url = await self._fetch_html_and_url(base_url)
+                if final_url:  # follow redirect to the canonical slugged URL
+                    base_url = final_url.split("?")[0].rstrip("/")
+            else:
+                html = await self._fetch_html(f"{base_url}?page={page}")
+            if not html:
+                logger.warning(f"cdek: failed to fetch listing page {page} of {base_url}")
+                break
+
+            soup = BeautifulSoup(html, "html.parser")
+            page_links: list[str] = []
+            for a in soup.find_all("a", href=True):
+                href = str(a["href"])
+                if not re.search(r"/p/\d+", href):
+                    continue
+                if not href.startswith("http"):
+                    href = host_root + href
+                href = self.normalize_url(href)
+                if href not in seen:
+                    seen.add(href)
+                    page_links.append(href)
+
+            if not page_links:
+                logger.debug(f"cdek: no new product links on page {page}, stopping")
+                break
+
+            links.extend(page_links)
+            logger.debug(f"cdek: listing page {page} → {len(page_links)} links")
+
+        return links
 
     # ------------------------------------------------------------------
     # Main parse entry point
