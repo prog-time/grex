@@ -29,12 +29,15 @@ class SettingsAuthProvider(AuthProvider):
         request: Request,
         response: Response,
     ) -> Response:
+        import hmac  # noqa: PLC0415
         from config import settings  # noqa: PLC0415
         admin_cfg = settings.get("admin", {})
         expected_user = admin_cfg.get("username", "admin")
         expected_pass = admin_cfg.get("password", "admin")
 
-        if username == expected_user and password == expected_pass:
+        user_ok = hmac.compare_digest(str(username), str(expected_user))
+        pass_ok = hmac.compare_digest(str(password), str(expected_pass))
+        if user_ok and pass_ok:
             request.session.update({"username": username})
             return response
         raise FormValidationError({"password": "Invalid credentials"})

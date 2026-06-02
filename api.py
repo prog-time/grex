@@ -196,7 +196,9 @@ async def verify_api_key(api_key: str = Depends(X_API_KEY)) -> str:
             detail="API key is required. Add 'X-API-Key' header",
         )
 
-    if api_key != settings.get("security", {}).get("api_key"):
+    import hmac  # noqa: PLC0415
+    expected = settings.get("security", {}).get("api_key") or ""
+    if not hmac.compare_digest(str(api_key), str(expected)):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid API key",
