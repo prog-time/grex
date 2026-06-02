@@ -181,116 +181,23 @@ class CdekCrawler(BaseCrawler):
         return images
 
     @staticmethod
-    def _spec_table(soup: BeautifulSoup) -> dict[str, str]:
-        """Structured spec table — ``.sh-product-page__spec`` rows (title/value).
+    def _extract_description(html: str, jsonld: dict) -> str:
+        """Return the full product description.
 
-        Present on electronics (e.g. laptops): Бренд, Процессор, ОЗУ, …
-        Absent on fashion items, which keep their attributes elsewhere.
-        """
-        pairs: dict[str, str] = {}
-        for row in soup.find_all(class_="sh-product-page__spec"):
-            title = row.find(class_="sh-product-page__spec-title")
-            value = row.find(class_="sh-product-page__spec-value")
-            if title and value:
-                name = title.get_text(" ", strip=True)
-                val = value.get_text(" ", strip=True)
-                if name and val:
-                    pairs[name] = val
-        return pairs
-
-    @staticmethod
-    def _strong_pairs(block: Tag) -> dict[str, str]:
-        """``<strong>Label:</strong> value`` pairs inside a prose block.
-
-        Used by accessories (e.g. watches), whose attributes are bold labels in
-        a "Характеристики:" section: ``<strong>Механизм:</strong> Кварцевый …``.
-        A <strong> that ends with ':' but has no following text is a section
-        header (e.g. "Характеристики:") and is skipped.
-        """
-        pairs: dict[str, str] = {}
-        for st in block.find_all("strong"):
-            label = st.get_text(" ", strip=True)
-            if not label.endswith(":"):
-                continue
-            name = label[:-1].strip()
-            value = ""
-            sib = st.next_sibling
-            while sib is not None and getattr(sib, "name", None) not in ("strong", "br"):
-                value += sib.get_text(" ", strip=True) if hasattr(sib, "get_text") else str(sib)
-                sib = sib.next_sibling
-            value = value.strip(" \n\t—-–")
-            if name and value:
-                pairs[name] = value
-        return pairs
-
-    @staticmethod
-    def _kv_lines(block: Tag) -> dict[str, str]:
-        """Short ``Name: Value`` lines (fashion show-more: ``Бренд: …``/``Цвет: …``).
-
-        Guarded against prose: only short name/value lines qualify.
-        """
-        pairs: dict[str, str] = {}
-        for line in block.get_text("\n", strip=True).split("\n"):
-            name, sep, value = line.partition(":")
-            name, value = name.strip(), value.strip()
-            if sep and name and value and len(name) <= 30 and len(value) <= 60:
-                pairs[name] = value
-        return pairs
-
-    @classmethod
-    def _extract_characteristics(cls, html: str, jsonld: dict) -> dict[str, str]:
-        """Extract characteristics across cdek's inconsistent layouts.
-
-        1. Electronics — the structured ``.sh-product-page__spec`` table.
-        2. Accessories — ``<strong>Label:</strong> value`` pairs in the prose
-           ``.ps-document--specs`` block (watches, etc.).
-        3. Fashion — short ``Name: Value`` lines in ``.show-more__text--default``.
-        Falls back to the JSON-LD brand when no attribute block yields a brand.
+        cdek keeps a product's specifications as plain text inside the same
+        ``.ps-document--specs`` block (the spec table on electronics is nested
+        there too), so the description deliberately includes them. Per project
+        decision, cdek characteristics are NOT parsed into a separate field.
         """
         soup = BeautifulSoup(html, "html.parser")
-        characteristics = cls._spec_table(soup)
-
-        if not characteristics:
-            prose = soup.find(class_="ps-document--specs") or soup.find(class_="sh-product-page__desc")
-            if isinstance(prose, Tag):
-                characteristics.update(cls._strong_pairs(prose))
-            show_more = soup.find(class_="show-more__text--default") or soup.find(id="show-more-text")
-            if isinstance(show_more, Tag) and not characteristics:
-                characteristics.update(cls._kv_lines(show_more))
-
-        if "Бренд" not in characteristics:
-            brand = jsonld.get("brand")
-            if isinstance(brand, dict):
-                brand = brand.get("name")
-            if isinstance(brand, str) and brand.strip():
-                characteristics["Бренд"] = brand.strip()
-
-        return characteristics
-
-    @classmethod
-    def _extract_description(cls, html: str, jsonld: dict) -> str:
-        """Extract the product description, excluding the characteristics blocks.
-
-        With a structured spec table (electronics) the prose lives in
-        ``.show-more__text--default``; otherwise it is the ``.ps-document--specs``
-        block — truncated before any explicit "Характеристики:" section so the
-        bold-label attributes don't leak into the description.
-        """
-        soup = BeautifulSoup(html, "html.parser")
-        if soup.find(class_="sh-product-page__spec"):
-            block = (
-                soup.find(class_="show-more__text--default")
-                or soup.find(id="show-more-text")
-            )
-        else:
-            block = (
-                soup.find(class_="ps-document--specs")
-                or soup.find(class_="sh-product-page__desc")
-            )
+        block = (
+            soup.find(class_="ps-document--specs")
+            or soup.find(class_="sh-product-page__desc")
+            or soup.find(class_="show-more__text--default")
+            or soup.find(id="show-more-text")
+        )
         if isinstance(block, Tag):
             text = block.get_text(separator="\n", strip=True)
-            # Drop an explicit "Характеристики" section (attributes, not prose).
-            text = re.split(r"\n\s*Характеристики:?\s*\n", text, maxsplit=1)[0].strip()
             if text:
                 return text
         return (jsonld.get("description") or "").strip()
@@ -411,8 +318,10 @@ class CdekCrawler(BaseCrawler):
         product_current_price: Decimal = self._extract_price(jsonld)
         product_images: list[str] = self._extract_images(html, jsonld)
         product_description: str = self._extract_description(html, jsonld)
-        product_characteristics: dict[str, str] = self._extract_characteristics(html, jsonld)
         product_sku: str = self._extract_sku_from_url(clean_url)
+        # cdek characteristics are intentionally not parsed separately — they
+        # stay as part of the description text.
+        product_characteristics: dict[str, str] = {}
 
         if not product_title:
             raise ProductCardParsingException(
