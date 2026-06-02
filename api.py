@@ -41,6 +41,7 @@ check_license()
 async def lifespan(app: FastAPI):  # type: ignore[type-arg]
     """Initialise shared resources on startup and clean up on shutdown."""
     _image_worker_task = None
+    _monitor_task = None
 
     try:
         from services.redis_client import init_redis  # noqa: PLC0415
@@ -100,6 +101,14 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
     except Exception as exc:
         logger.warning(f"Admin setup failed: {exc}")
 
+    # Start the monitoring scheduler after the DB is initialised (setup_admin
+    # calls init_db). It no-ops until there are due monitored targets.
+    try:
+        from services.monitor_scheduler import monitor_scheduler  # noqa: PLC0415
+        _monitor_task = asyncio.create_task(monitor_scheduler(), name="monitor_scheduler")
+    except Exception as exc:
+        logger.warning(f"Monitor scheduler start failed: {exc}")
+
     try:
         from datetime import datetime, timezone  # noqa: PLC0415
 
@@ -121,12 +130,13 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
 
     yield
 
-    if _image_worker_task is not None and not _image_worker_task.done():
-        _image_worker_task.cancel()
-        try:
-            await _image_worker_task
-        except asyncio.CancelledError:
-            pass
+    for _task in (_image_worker_task, _monitor_task):
+        if _task is not None and not _task.done():
+            _task.cancel()
+            try:
+                await _task
+            except asyncio.CancelledError:
+                pass
 
     try:
         from admin import teardown_admin  # noqa: PLC0415

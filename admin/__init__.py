@@ -14,6 +14,7 @@ from starlette_admin.exceptions import FormValidationError
 
 import models.parse_target  # noqa: F401 — registers ParseTarget in Base.metadata
 import models.parsed_product  # noqa: F401  — registers ParseSession, ParsedProduct in Base.metadata
+import models.price_snapshot  # noqa: F401  — registers PriceSnapshot, PriceAlert in Base.metadata
 
 # ---------------------------------------------------------------------------
 # Auth — credentials from data/settings.yml
@@ -104,6 +105,11 @@ class ProductsView(CustomView):
         return templates.TemplateResponse("products.html", {"request": request})
 
 
+class MonitoringView(CustomView):
+    async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
+        return templates.TemplateResponse("monitors.html", {"request": request})
+
+
 class UsersView(CustomView):
     async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
         return templates.TemplateResponse("users.html", {"request": request})
@@ -154,6 +160,10 @@ async def setup_admin(app: FastAPI) -> None:
         "Products", icon="fa fa-shopping-cart",
         path="/products", template_path="products.html", name="products",
     ))
+    admin.add_view(MonitoringView(
+        "Monitoring", icon="fa fa-bell",
+        path="/monitors", template_path="monitors.html", name="monitors",
+    ))
     admin.add_view(JobsView(
         "Jobs", icon="fa fa-list",
         path="/jobs", template_path="jobs.html", name="jobs",
@@ -177,6 +187,7 @@ async def setup_admin(app: FastAPI) -> None:
     # FastAPI's exact Route entries take priority over the admin Mount prefix.
     from admin.resources.jobs import register_jobs_routes  # noqa: PLC0415
     from admin.resources.links import register_links_routes  # noqa: PLC0415
+    from admin.resources.monitors import register_monitors_routes  # noqa: PLC0415
     from admin.resources.products import register_products_routes  # noqa: PLC0415
     from admin.resources.proxies import register_proxies_routes  # noqa: PLC0415
     from admin.resources.targets import register_targets_routes  # noqa: PLC0415
@@ -188,6 +199,7 @@ async def setup_admin(app: FastAPI) -> None:
     register_links_routes(app)
     register_products_routes(app)
     register_users_routes(app)
+    register_monitors_routes(app)
 
     # Stats reset endpoint
     from fastapi import Depends  # noqa: PLC0415
