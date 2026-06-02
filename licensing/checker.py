@@ -12,12 +12,12 @@ from __future__ import annotations
 
 import base64
 import json
-import urllib.request
 import urllib.error
+import urllib.request
 import uuid
 from pathlib import Path
 
-from config import settings, data_path
+from config import data_path, settings
 
 
 def _licensing_cfg() -> dict:
@@ -119,8 +119,12 @@ def _activate_device(service_url: str, api_key: str, mac: str, timeout: int) -> 
             _abort(f"Активация запрещена: {msg or 'ключ заблокирован или недействителен'}")
         else:
             _abort(f"Ошибка активации: HTTP {exc.code}: {exc.reason}")
-    except Exception as exc:
-        _abort(f"Не удалось активировать устройство: {exc}")
+    except Exception:
+        # Network error (service unreachable, DNS, timeout). Do NOT abort here —
+        # re-raise so check_license() can fall back to the local cache per the
+        # documented contract (step 5). Aborting here would crash startup even
+        # when a valid cached license exists.
+        raise
 
 
 def _request_config(service_url: str, api_key: str, mac: str, timeout: int) -> dict:

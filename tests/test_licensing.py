@@ -10,7 +10,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # check_license — disabled
 # ---------------------------------------------------------------------------
@@ -56,9 +55,14 @@ class TestCheckLicenseMissingConfig:
 
 class TestCheckLicenseSuccess:
     def _fake_urlopen(self, response_body: dict):
+        # Startup flow is two-step: POST /activate then POST /config. /activate
+        # must report {"activated": True}; /config returns the license payload.
         def _open(req, timeout=10):
             resp = MagicMock()
-            resp.read.return_value = json.dumps(response_body).encode()
+            if req.full_url.endswith("/activate"):
+                resp.read.return_value = json.dumps({"activated": True}).encode()
+            else:
+                resp.read.return_value = json.dumps(response_body).encode()
             resp.__enter__ = lambda s: s
             resp.__exit__ = MagicMock(return_value=False)
             return resp
@@ -111,7 +115,10 @@ class TestCheckLicenseSuccess:
         def fake_urlopen(req, timeout=10):
             captured_reqs.append(req)
             resp = MagicMock()
-            resp.read.return_value = json.dumps(response).encode()
+            if req.full_url.endswith("/activate"):
+                resp.read.return_value = json.dumps({"activated": True}).encode()
+            else:
+                resp.read.return_value = json.dumps(response).encode()
             resp.__enter__ = lambda s: s
             resp.__exit__ = MagicMock(return_value=False)
             return resp
@@ -125,7 +132,9 @@ class TestCheckLicenseSuccess:
         }}), patch("urllib.request.urlopen", side_effect=fake_urlopen):
             checker.check_license()
 
-        assert captured_reqs[0].full_url == "https://grex.iliya-code.ru/api/config"
+        assert any(
+            r.full_url == "https://grex.iliya-code.ru/api/config" for r in captured_reqs
+        )
 
     def test_sends_api_key_header(self, tmp_path):
         from licensing import checker
@@ -136,7 +145,10 @@ class TestCheckLicenseSuccess:
         def fake_urlopen(req, timeout=10):
             captured_reqs.append(req)
             resp = MagicMock()
-            resp.read.return_value = json.dumps(response).encode()
+            if req.full_url.endswith("/activate"):
+                resp.read.return_value = json.dumps({"activated": True}).encode()
+            else:
+                resp.read.return_value = json.dumps(response).encode()
             resp.__enter__ = lambda s: s
             resp.__exit__ = MagicMock(return_value=False)
             return resp
@@ -161,7 +173,10 @@ class TestCheckLicenseSuccess:
         def fake_urlopen(req, timeout=10):
             captured_reqs.append(req)
             resp = MagicMock()
-            resp.read.return_value = json.dumps(response).encode()
+            if req.full_url.endswith("/activate"):
+                resp.read.return_value = json.dumps({"activated": True}).encode()
+            else:
+                resp.read.return_value = json.dumps(response).encode()
             resp.__enter__ = lambda s: s
             resp.__exit__ = MagicMock(return_value=False)
             return resp
@@ -260,8 +275,8 @@ class TestCheckLicense403:
             with pytest.raises(SystemExit):
                 checker.check_license()
 
-    def test_activates_device_on_403_not_activated(self, tmp_path):
-        """First /config returns 'not activated', then /activate succeeds, then /config succeeds."""
+    def test_activates_device_before_fetching_config(self, tmp_path):
+        """Startup must POST /activate before POST /config and return the config payload."""
         from licensing import checker
 
         config_response = {"client_id": "uuid-act", "tokens": ["tok1"]}
@@ -271,11 +286,6 @@ class TestCheckLicense403:
 
         def fake_urlopen(req, timeout=10):
             calls.append(req.full_url)
-            if req.full_url.endswith("/config") and len([u for u in calls if u.endswith("/config")]) == 1:
-                # First /config — raise "not activated"
-                fp = MagicMock()
-                fp.read.return_value = json.dumps({"error": "Device not activated"}).encode()
-                raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", MagicMock(), fp)
             resp = MagicMock()
             if req.full_url.endswith("/activate"):
                 resp.read.return_value = json.dumps(activate_response).encode()
@@ -296,7 +306,9 @@ class TestCheckLicense403:
                 patch.object(checker, "_get_mac_address", return_value="AA:BB:CC:DD:EE:FF"):
             result = checker.check_license()
 
-        assert any("/activate" in u for u in calls), "Expected /activate to be called"
+        activate_idx = next(i for i, u in enumerate(calls) if u.endswith("/activate"))
+        config_idx = next(i for i, u in enumerate(calls) if u.endswith("/config"))
+        assert activate_idx < config_idx, "Expected /activate to be called before /config"
         assert result["client_id"] == "uuid-act"
 
     def test_raises_systemexit_when_activate_returns_401(self, tmp_path):
