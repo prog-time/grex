@@ -114,7 +114,7 @@ async function loadMonitors() {
     return '<tr>'
       + '<td><div class="text-truncate" style="max-width:380px">' + esc(r.title || r.name || r.url) + '</div>'
       + '<div class="text-muted small text-truncate" style="max-width:380px"><a href="' + esc(r.url) + '" target="_blank" rel="noopener">' + esc(r.url) + '</a></div></td>'
-      + '<td><span class="badge bg-secondary">' + esc(r.marketplace || '?') + '</span></td>'
+      + '<td><span class="badge bg-azure text-white">' + esc(r.marketplace || '?') + '</span></td>'
       + '<td>' + priceCell(r) + '</td>'
       + '<td><label class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" '
         + (r.monitor_enabled ? 'checked' : '') + ' onchange="toggleMonitor(\'' + r.id + '\', this.checked)"></label></td>'
@@ -153,9 +153,9 @@ function lastNext(r) {
 }
 
 function statusBadge(s) {
-  if (s === 'ok') return '<span class="badge bg-success">ok</span>';
-  if (s === 'failed') return '<span class="badge bg-danger">failed</span>';
-  return '<span class="badge bg-secondary">—</span>';
+  if (s === 'ok') return '<span class="badge bg-success text-white">ok</span>';
+  if (s === 'failed') return '<span class="badge bg-danger text-white">failed</span>';
+  return '<span class="badge bg-secondary text-white">—</span>';
 }
 
 async function toggleMonitor(id, enabled) {
@@ -268,8 +268,8 @@ async function loadAlerts() {
   }
   tbody.innerHTML = rows.map(function(a) {
     var badge = a.kind === 'drop'
-      ? '<span class="badge bg-success">▼ ' + Math.abs(a.change_pct).toFixed(1) + '%</span>'
-      : '<span class="badge bg-danger">▲ ' + Math.abs(a.change_pct).toFixed(1) + '%</span>';
+      ? '<span class="badge bg-success text-white">▼ ' + Math.abs(a.change_pct).toFixed(1) + '%</span>'
+      : '<span class="badge bg-danger text-white">▲ ' + Math.abs(a.change_pct).toFixed(1) + '%</span>';
     return '<tr>'
       + '<td class="text-muted small">' + fmtDate(a.created_at) + '</td>'
       + '<td>' + badge + '</td>'
