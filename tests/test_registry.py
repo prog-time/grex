@@ -10,9 +10,8 @@ import pytest
 
 # Import the package so all concrete crawlers self-register.
 import crawlers  # noqa: F401
-from crawlers.registry import CrawlerRegistry
 from core.exceptions import UnsupportedMarketplaceError
-
+from crawlers.registry import CrawlerRegistry
 
 # ---------------------------------------------------------------------------
 # detect_marketplace — known marketplaces
@@ -101,29 +100,22 @@ class TestDetectMarketplaceUnsupportedURL:
 # CrawlerRegistry.all() — registry completeness
 # ---------------------------------------------------------------------------
 
+_EXPECTED_MARKETPLACES = {
+    "wildberries", "ozon", "yandex_market", "megamarket",
+    "vseinstrumenti", "bigam", "mm", "cdek", "citilink",
+}
+
+
 class TestRegistryAll:
-    """all() must contain exactly the six registered marketplaces."""
+    """all() must contain every registered marketplace crawler."""
 
-    def test_contains_wildberries(self):
-        assert "wildberries" in CrawlerRegistry.all()
+    @pytest.mark.parametrize("name", sorted(_EXPECTED_MARKETPLACES))
+    def test_contains(self, name):
+        assert name in CrawlerRegistry.all()
 
-    def test_contains_ozon(self):
-        assert "ozon" in CrawlerRegistry.all()
-
-    def test_contains_yandex_market(self):
-        assert "yandex_market" in CrawlerRegistry.all()
-
-    def test_contains_megamarket(self):
-        assert "megamarket" in CrawlerRegistry.all()
-
-    def test_contains_vseinstrumenti(self):
-        assert "vseinstrumenti" in CrawlerRegistry.all()
-
-    def test_contains_bigam(self):
-        assert "bigam" in CrawlerRegistry.all()
-
-    def test_returns_six_entries(self):
-        assert len(CrawlerRegistry.all()) == 6
+    def test_contains_all_expected(self):
+        # Superset check — robust to future additions, fails if one disappears.
+        assert _EXPECTED_MARKETPLACES <= set(CrawlerRegistry.all().keys())
 
     def test_returns_shallow_copy(self):
         """Mutating the returned dict must not affect the registry."""
@@ -160,6 +152,26 @@ class TestRegistryGet:
     def test_get_returns_crawler_class_for_bigam(self):
         from crawlers.bigam import BigamCrawler
         assert CrawlerRegistry.get("bigam") is BigamCrawler
+
+    def test_get_returns_crawler_class_for_mm(self):
+        from crawlers.mm import MmCrawler
+        assert CrawlerRegistry.get("mm") is MmCrawler
+
+    def test_get_returns_crawler_class_for_cdek(self):
+        from crawlers.cdek import CdekCrawler
+        assert CrawlerRegistry.get("cdek") is CdekCrawler
+
+    def test_get_returns_crawler_class_for_citilink(self):
+        from crawlers.citilink import CitilinkCrawler
+        assert CrawlerRegistry.get("citilink") is CitilinkCrawler
+
+    @pytest.mark.parametrize("url,expected", [
+        ("https://mm.ru/product/x-3020020?skuId=1", "mm"),
+        ("https://cdek.shopping/p/11076395/krossovki", "cdek"),
+        ("https://www.citilink.ru/product/tv-2024401/", "citilink"),
+    ])
+    def test_detects_new_marketplaces(self, url, expected):
+        assert CrawlerRegistry.detect_marketplace(url) == expected
 
     def test_get_raises_for_unknown_marketplace(self):
         from core.exceptions import CrawlerNotFoundError
