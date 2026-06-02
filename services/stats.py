@@ -6,8 +6,8 @@ the same statistics without conflicts.
 from __future__ import annotations
 
 import time
-from loguru import logger
 
+from loguru import logger
 
 _KEY_TOTAL_PARSED = "stats:total_parsed"
 _KEY_TOTAL_FAILED = "stats:total_failed"

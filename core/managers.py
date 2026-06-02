@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import os
-import re
 import random
-import aiofiles  # type: ignore[import-untyped]
-from loguru import logger
+import re
 from urllib.parse import urlparse
 
-from config import settings, data_path
+import aiofiles  # type: ignore[import-untyped]
+from loguru import logger
+
+from config import data_path, settings
 
 # Redis key that holds the serialised proxy list (JSON array of strings).
 _PROXY_REDIS_KEY = "proxy:pool"

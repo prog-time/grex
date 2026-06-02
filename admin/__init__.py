@@ -15,7 +15,6 @@ from starlette_admin.exceptions import FormValidationError
 import models.parse_target  # noqa: F401 — registers ParseTarget in Base.metadata
 import models.parsed_product  # noqa: F401  — registers ParseSession, ParsedProduct in Base.metadata
 
-
 # ---------------------------------------------------------------------------
 # Auth — credentials from data/settings.yml
 # ---------------------------------------------------------------------------
@@ -60,7 +59,7 @@ class DashboardView(CustomView):
         license_key = ""
         allowed_sources: list[str] = []
         try:
-            from licensing.checker import _read_license_file, _decode_token_source  # noqa: PLC0415
+            from licensing.checker import _decode_token_source, _read_license_file  # noqa: PLC0415
             from services.license import get_allowed_sources  # noqa: PLC0415
             lic = _read_license_file()
             client_id = lic.get("client_id", "")
@@ -115,9 +114,10 @@ class UsersView(CustomView):
 # ---------------------------------------------------------------------------
 
 async def setup_admin(app: FastAPI) -> None:
+    import os  # noqa: PLC0415
+
     from config import settings  # noqa: PLC0415
     from models.job import init_db  # noqa: PLC0415
-    import os  # noqa: PLC0415
 
     db_url: str = settings.get("admin", {}).get("db_url", "sqlite:///data/admin.db")
     secret_key: str = settings.get("admin", {}).get("secret_key", "change-me")
@@ -175,11 +175,11 @@ async def setup_admin(app: FastAPI) -> None:
 
     # Register all auxiliary API routes BEFORE mounting starlette-admin so that
     # FastAPI's exact Route entries take priority over the admin Mount prefix.
-    from admin.resources.proxies import register_proxies_routes  # noqa: PLC0415
     from admin.resources.jobs import register_jobs_routes  # noqa: PLC0415
-    from admin.resources.targets import register_targets_routes  # noqa: PLC0415
     from admin.resources.links import register_links_routes  # noqa: PLC0415
     from admin.resources.products import register_products_routes  # noqa: PLC0415
+    from admin.resources.proxies import register_proxies_routes  # noqa: PLC0415
+    from admin.resources.targets import register_targets_routes  # noqa: PLC0415
     from admin.resources.users import register_users_routes  # noqa: PLC0415
 
     register_proxies_routes(app)
@@ -190,9 +190,9 @@ async def setup_admin(app: FastAPI) -> None:
     register_users_routes(app)
 
     # Stats reset endpoint
+    from fastapi import Depends  # noqa: PLC0415
     from fastapi.responses import JSONResponse  # noqa: PLC0415
 
-    from fastapi import Depends  # noqa: PLC0415
     from admin.resources.auth import require_admin  # noqa: PLC0415
 
     async def stats_reset() -> JSONResponse:

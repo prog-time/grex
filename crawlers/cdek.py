@@ -18,20 +18,21 @@ Product pages:
 """
 from __future__ import annotations
 
-import re
 import asyncio
 import json
-from typing import ClassVar
+import re
 from decimal import Decimal
+from typing import ClassVar
 
 from bs4 import BeautifulSoup, Tag
 from curl_cffi.requests.session import AsyncSession
 from loguru import logger
 
-from .base import BaseCrawler
-from models import ProductCard
 from config import settings
 from core.exceptions import ProductCardParsingException
+from models import ProductCard
+
+from .base import BaseCrawler
 
 
 class CdekCrawler(BaseCrawler):

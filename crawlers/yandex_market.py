@@ -1,20 +1,22 @@
+import asyncio
+import json
 import os
 import re
-import json
 import time
-import asyncio
-from typing import ClassVar
-from loguru import logger
 from decimal import Decimal
 from multiprocessing import Queue
+from typing import ClassVar
+
 from bs4 import BeautifulSoup, Tag
 from curl_cffi.requests.session import AsyncSession
+from loguru import logger
 
-from .base import CookieCrawler
-from models import ProductCard
-from utils.helpers import parse_url
 from config import data_path
 from core.exceptions import ProductCardParsingException
+from models import ProductCard
+from utils.helpers import parse_url
+
+from .base import CookieCrawler
 
 
 class YandexMarketCrawler(CookieCrawler):

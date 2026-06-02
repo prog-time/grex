@@ -1,8 +1,9 @@
-from decimal import Decimal
-from datetime import datetime
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, HttpUrl, Field, field_validator
+from datetime import datetime
+from decimal import Decimal
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 
 @dataclass
@@ -39,8 +40,8 @@ class ParseRequest(BaseModel):
         # Validate against the live crawler registry (single source of truth)
         # instead of a hardcoded domain list, so every registered crawler
         # (mm, bigam, vseinstrumenti, …) is accepted automatically.
-        from crawlers.registry import CrawlerRegistry  # noqa: PLC0415
         from core.exceptions import UnsupportedMarketplaceError  # noqa: PLC0415
+        from crawlers.registry import CrawlerRegistry  # noqa: PLC0415
         try:
             CrawlerRegistry.detect_marketplace(str(v))
         except UnsupportedMarketplaceError:
@@ -71,8 +72,8 @@ class BatchParseRequest(BaseModel):
 
     @field_validator('urls')
     def validate_marketplace_urls(cls, v):
-        from crawlers.registry import CrawlerRegistry  # noqa: PLC0415
         from core.exceptions import UnsupportedMarketplaceError  # noqa: PLC0415
+        from crawlers.registry import CrawlerRegistry  # noqa: PLC0415
         for url in v:
             try:
                 CrawlerRegistry.detect_marketplace(str(url))

@@ -104,7 +104,9 @@ class BaseCrawler(ABC):
     async def get_proxy(marketplace: str | None = None) -> str | None:
         """Return a random proxy string if proxy is active for this marketplace, else None."""
         import re  # noqa: PLC0415
+
         import yaml  # noqa: PLC0415
+
         from config import data_path  # noqa: PLC0415
 
         try:
@@ -120,6 +122,7 @@ class BaseCrawler(ABC):
 
         try:
             import random  # noqa: PLC0415
+
             from admin.resources.proxies import _get_proxies  # noqa: PLC0415
 
             proxies = await _get_proxies()

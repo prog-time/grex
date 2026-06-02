@@ -19,8 +19,7 @@ from typing import Optional
 
 from loguru import logger
 
-from config import settings, data_path
-
+from config import data_path, settings
 
 # ---------------------------------------------------------------------------
 # Token helpers

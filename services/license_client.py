@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from loguru import logger
 from curl_cffi.requests import AsyncSession
+from loguru import logger
 
 
 async def activate_device(

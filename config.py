@@ -1,7 +1,7 @@
 import os
 import sys
-import yaml  # type: ignore[import-untyped]
 
+import yaml  # type: ignore[import-untyped]
 
 base_path = os.path.dirname(sys.argv[0])
 data_path = os.path.join(base_path, "data")

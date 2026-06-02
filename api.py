@@ -1,33 +1,33 @@
 from __future__ import annotations
 
 import asyncio
-import uvicorn
 import traceback
 from contextlib import asynccontextmanager
+from datetime import datetime
+from typing import Dict, List
+
+import uvicorn
+from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.responses import JSONResponse
+from fastapi.security.api_key import APIKeyHeader
+from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from pydantic import HttpUrl
-from datetime import datetime
-from typing import List, Dict
-from fastapi.security.api_key import APIKeyHeader
-from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 
 from config import settings
-from services.license import load_config_from_response, load_config_from_cache, get_allowed_sources
-from services.license_client import activate_device, fetch_license_config
+from crawlers.registry import CrawlerRegistry
+from licensing import check_license
 from models import (
-    ParseRequest,
-    ParseResponse,
-    HealthResponse,
     BatchParseRequest,
     BatchParseResponse,
+    HealthResponse,
+    ParseRequest,
+    ParseResponse,
 )
-from crawlers.registry import CrawlerRegistry
 from services import ParsingService
+from services.license import get_allowed_sources, load_config_from_cache, load_config_from_response
+from services.license_client import activate_device, fetch_license_config
 from utils.logger import setup_logger
-from licensing import check_license
-
 
 setup_logger()
 check_license()
@@ -101,10 +101,12 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
         logger.warning(f"Admin setup failed: {exc}")
 
     try:
+        from datetime import datetime, timezone  # noqa: PLC0415
+
+        from sqlalchemy import update  # noqa: PLC0415
+
         from models.job import async_session  # noqa: PLC0415
         from models.parsed_product import ParseSession  # noqa: PLC0415
-        from sqlalchemy import update  # noqa: PLC0415
-        from datetime import datetime, timezone  # noqa: PLC0415
         if async_session is not None:
             async with async_session() as s:
                 await s.execute(
@@ -149,9 +151,11 @@ app = FastAPI(
 )
 
 from starlette.middleware.sessions import SessionMiddleware as _SessionMiddleware  # noqa: E402
+
 app.add_middleware(_SessionMiddleware, secret_key=settings.get("admin", {}).get("secret_key", "change-me"))
 
 import os as _os  # noqa: E402
+
 _static_dir = _os.path.join(_os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 

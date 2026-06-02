@@ -1,4 +1,4 @@
-from .exceptions import ParsingError, UnsupportedMarketplaceError, CrawlerNotFoundError
+from .exceptions import CrawlerNotFoundError, ParsingError, UnsupportedMarketplaceError
 
 __all__ = [
     'ParsingError',

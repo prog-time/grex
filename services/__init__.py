@@ -1,11 +1,11 @@
-from .parsing import ParsingService
 from .license import (
-    is_source_allowed,
     get_allowed_sources,
-    load_config_from_response,
+    is_source_allowed,
     load_config_from_cache,
+    load_config_from_response,
 )
 from .license_client import activate_device, fetch_license_config
+from .parsing import ParsingService
 
 # redis and stats are optional at import time (require redis[asyncio] installed).
 try:

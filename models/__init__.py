@@ -1,11 +1,11 @@
 from .product import (
-    ProductCard,
+    BatchItemResult,
+    BatchParseRequest,
+    BatchParseResponse,
+    HealthResponse,
     ParseRequest,
     ParseResponse,
-    HealthResponse,
-    BatchParseRequest,
-    BatchItemResult,
-    BatchParseResponse,
+    ProductCard,
 )
 
 # TortoiseORM-dependent models are imported lazily so that the core parsing

@@ -1,19 +1,21 @@
+import asyncio
+import json
 import os
 import re
-import json
 import time
-import asyncio
-from typing import ClassVar
-from loguru import logger
 from decimal import Decimal
 from multiprocessing import Queue
+from typing import ClassVar
+
 from curl_cffi.requests.session import AsyncSession
+from loguru import logger
 
 from config import data_path
-from .base import BaseCrawler
+from core.exceptions import ProductCardParsingException
 from models import ProductCard
 from utils.helpers import parse_url
-from core.exceptions import ProductCardParsingException
+
+from .base import BaseCrawler
 
 
 class WildberriesCrawler(BaseCrawler):
@@ -196,6 +198,7 @@ class WildberriesCrawler(BaseCrawler):
         """Open the WB product page in a browser and read prices from the DOM."""
         try:
             import time as _time
+
             from patchright.sync_api import sync_playwright
 
             with sync_playwright() as p:
@@ -240,6 +243,7 @@ class WildberriesCrawler(BaseCrawler):
         """Browser-based product link extraction for catalog/brand/search pages."""
         try:
             import time as _time
+
             from patchright.sync_api import sync_playwright
 
             with sync_playwright() as p:
