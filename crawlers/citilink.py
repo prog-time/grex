@@ -61,6 +61,14 @@ class CitilinkCrawler(BaseCrawler):
     )
     _GRAPHQL_URL: ClassVar[str] = "https://www.citilink.ru/graphql/"
 
+    # GraphQL query behind a category grid (loaded client-side; the SSR has no
+    # product list). Returns {id, slug} per product plus pageInfo for paging.
+    _CATALOG_QUERY: ClassVar[str] = (
+        "query($filter:CatalogFilter_ProductsFilterInput!)"
+        "{productsFilter(filter:$filter){record{products{id,slug},"
+        "pageInfo{hasNextPage,page,totalPages}}}}"
+    )
+
     def __init__(self) -> None:
         super().__init__()
         self.session = AsyncSession(impersonate="chrome136")
@@ -338,6 +346,32 @@ class CitilinkCrawler(BaseCrawler):
         """Key characteristics from the SSR ``productBase.properties`` (~5 items)."""
         return cls._props_to_dict(base.get("properties") or [])
 
+    async def _graphql_post(self, query: str, variables: dict) -> dict:
+        """POST a GraphQL query and return its ``data`` object (``{}`` on failure)."""
+        headers = {
+            "content-type": "application/json",
+            "accept": "application/json",
+            "accept-language": "ru-RU,ru;q=0.9",
+            "origin": "https://www.citilink.ru",
+            "referer": "https://www.citilink.ru/",
+            "user-agent": self._build_headers("https://www.citilink.ru/")["user-agent"],
+        }
+        body = {"query": query, "variables": variables}
+        max_retries = settings.get("max_retries", 3)
+        for attempt in range(max_retries):
+            proxy = await self.get_proxy(self.marketplace_name)
+            try:
+                resp = await self.session.post(
+                    self._GRAPHQL_URL, json=body, headers=headers, proxy=proxy,
+                )
+                if resp.status_code == 200:
+                    return (resp.json() or {}).get("data") or {}
+                logger.debug(f"citilink GraphQL HTTP {resp.status_code} (attempt {attempt + 1})")
+            except Exception as exc:
+                logger.debug(f"citilink GraphQL attempt {attempt + 1} failed: {exc}")
+            await asyncio.sleep(0.5 * (attempt + 1))
+        return {}
+
     async def _fetch_full_characteristics(self, product_id: str) -> dict[str, str]:
         """Full characteristics via the "Все характеристики" GraphQL query.
 
@@ -347,35 +381,15 @@ class CitilinkCrawler(BaseCrawler):
         """
         if not product_id:
             return {}
-        body = {"query": self._PROPERTIES_QUERY, "variables": {"filter": {"id": str(product_id)}}}
-        headers = {
-            "content-type": "application/json",
-            "accept": "application/json",
-            "accept-language": "ru-RU,ru;q=0.9",
-            "origin": "https://www.citilink.ru",
-            "referer": "https://www.citilink.ru/",
-            "user-agent": self._build_headers("https://www.citilink.ru/")["user-agent"],
-        }
-        max_retries = settings.get("max_retries", 3)
-        for attempt in range(max_retries):
-            proxy = await self.get_proxy(self.marketplace_name)
-            try:
-                resp = await self.session.post(
-                    self._GRAPHQL_URL, json=body, headers=headers, proxy=proxy,
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    groups = (data.get("data") or {}).get("product", {}).get("propertiesGroup") or []
-                    chars: dict[str, str] = {}
-                    for group in groups:
-                        if isinstance(group, dict):
-                            chars.update(self._props_to_dict(group.get("properties") or []))
-                    return chars
-                logger.debug(f"citilink GraphQL HTTP {resp.status_code} (attempt {attempt + 1})")
-            except Exception as exc:
-                logger.debug(f"citilink GraphQL attempt {attempt + 1} failed: {exc}")
-            await asyncio.sleep(0.5 * (attempt + 1))
-        return {}
+        data = await self._graphql_post(
+            self._PROPERTIES_QUERY, {"filter": {"id": str(product_id)}}
+        )
+        groups = (data.get("product") or {}).get("propertiesGroup") or []
+        chars: dict[str, str] = {}
+        for group in groups:
+            if isinstance(group, dict):
+                chars.update(self._props_to_dict(group.get("properties") or []))
+        return chars
 
     @staticmethod
     def _extract_sku_from_url(url: str) -> str:
@@ -383,6 +397,63 @@ class CitilinkCrawler(BaseCrawler):
         path = url.split("?")[0].rstrip("/")
         m = re.search(r"-(\d+)$", path)
         return m.group(1) if m else ""
+
+    # ------------------------------------------------------------------
+    # Link extraction — category listing pages
+    # ------------------------------------------------------------------
+
+    async def get_product_links(self, url: str, max_pages: int = 10) -> list[str]:
+        """Extract product links from a citilink category (``/catalog/<slug>/``).
+
+        The product grid is loaded client-side, so links are fetched via the
+        catalog GraphQL query (36 products/page) rather than scraped from the
+        SSR HTML. Product URLs are built as ``/product/<slug>-<id>/`` and
+        deduplicated; paging stops at ``max_pages`` or when ``hasNextPage`` is
+        false.
+        """
+        m = re.search(r"/catalog/([a-z0-9_\-]+)", url.lower())
+        category_slug = m.group(1) if m else ""
+        if not category_slug:
+            logger.warning(f"citilink: not a category URL, cannot extract links: {url}")
+            return []
+
+        links: list[str] = []
+        seen: set[str] = set()
+        for page in range(1, max_pages + 1):
+            variables = {
+                "filter": {
+                    "categorySlug": category_slug,
+                    "compilationPath": [],
+                    "pagination": {"page": page, "perPage": 36},
+                    "partialPagination": {"limit": 36, "offset": 0},
+                    "conditions": [],
+                    "sorting": {"id": "", "direction": "SORT_DIRECTION_DESC"},
+                    "popularitySegmentId": "THREE",
+                }
+            }
+            data = await self._graphql_post(self._CATALOG_QUERY, variables)
+            record = (data.get("productsFilter") or {}).get("record") or {}
+            products = record.get("products") or []
+            if not products:
+                break
+
+            for p in products:
+                if not isinstance(p, dict):
+                    continue
+                pid = str(p.get("id") or "").strip()
+                pslug = str(p.get("slug") or "").strip()
+                if not pid or not pslug:
+                    continue
+                link = self.normalize_url(f"https://www.citilink.ru/product/{pslug}-{pid}/")
+                if link not in seen:
+                    seen.add(link)
+                    links.append(link)
+
+            logger.debug(f"citilink: category page {page} → {len(products)} products")
+            if not (record.get("pageInfo") or {}).get("hasNextPage"):
+                break
+
+        return links
 
     # ------------------------------------------------------------------
     # Image-CDN cookies (Qrator) — captured via browser, cached on disk
