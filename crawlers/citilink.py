@@ -49,6 +49,18 @@ class CitilinkCrawler(BaseCrawler):
     cookies_file_path: ClassVar[str] = os.path.join(data_path, "citilink_cookies.json")
     cookie_ttl_seconds: ClassVar[int] = 1800  # 30 minutes
 
+    # GraphQL query behind the "Все характеристики" tab — returns the full
+    # specification list grouped (propertiesGroup), unlike the ~5 key specs in
+    # the SSR state. Variables: {"filter": {"id": "<productId>"}}.
+    _PROPERTIES_QUERY: ClassVar[str] = (
+        "query GetProductTabProperties($filter:Catalog_ProductFilterInput!)"
+        "{product(filter:$filter){...ProductTabProperties}}"
+        "fragment ProductTabProperties on Catalog_Product{propertiesGroup{...PropertyGroup}}"
+        "fragment PropertyGroup on Catalog_PropertyGroup{id,name,properties{...Property}}"
+        "fragment Property on Catalog_Property{id,name,description,value,measure}"
+    )
+    _GRAPHQL_URL: ClassVar[str] = "https://www.citilink.ru/graphql/"
+
     def __init__(self) -> None:
         super().__init__()
         self.session = AsyncSession(impersonate="chrome136")
@@ -306,10 +318,10 @@ class CitilinkCrawler(BaseCrawler):
         return images
 
     @staticmethod
-    def _extract_characteristics(base: dict) -> dict[str, str]:
-        """Characteristics from ``productBase.properties`` ({name, value, measure})."""
-        characteristics: dict[str, str] = {}
-        for p in base.get("properties") or []:
+    def _props_to_dict(properties: list) -> dict[str, str]:
+        """Flatten a list of ``{name, value, measure}`` objects into a dict."""
+        out: dict[str, str] = {}
+        for p in properties or []:
             if not isinstance(p, dict):
                 continue
             name = str(p.get("name") or "").strip().rstrip(":")
@@ -317,9 +329,53 @@ class CitilinkCrawler(BaseCrawler):
             measure = str(p.get("measure") or "").strip()
             if measure and value:
                 value = f"{value} {measure}".strip()
-            if name and value and name not in characteristics:
-                characteristics[name] = value
-        return characteristics
+            if name and value and name not in out:
+                out[name] = value
+        return out
+
+    @classmethod
+    def _extract_characteristics(cls, base: dict) -> dict[str, str]:
+        """Key characteristics from the SSR ``productBase.properties`` (~5 items)."""
+        return cls._props_to_dict(base.get("properties") or [])
+
+    async def _fetch_full_characteristics(self, product_id: str) -> dict[str, str]:
+        """Full characteristics via the "Все характеристики" GraphQL query.
+
+        Returns the complete, grouped specification list (often 20-40 items),
+        flattened to a name → "value measure" mapping. Returns ``{}`` on failure
+        so the caller can fall back to the SSR key specs.
+        """
+        if not product_id:
+            return {}
+        body = {"query": self._PROPERTIES_QUERY, "variables": {"filter": {"id": str(product_id)}}}
+        headers = {
+            "content-type": "application/json",
+            "accept": "application/json",
+            "accept-language": "ru-RU,ru;q=0.9",
+            "origin": "https://www.citilink.ru",
+            "referer": "https://www.citilink.ru/",
+            "user-agent": self._build_headers("https://www.citilink.ru/")["user-agent"],
+        }
+        max_retries = settings.get("max_retries", 3)
+        for attempt in range(max_retries):
+            proxy = await self.get_proxy(self.marketplace_name)
+            try:
+                resp = await self.session.post(
+                    self._GRAPHQL_URL, json=body, headers=headers, proxy=proxy,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    groups = (data.get("data") or {}).get("product", {}).get("propertiesGroup") or []
+                    chars: dict[str, str] = {}
+                    for group in groups:
+                        if isinstance(group, dict):
+                            chars.update(self._props_to_dict(group.get("properties") or []))
+                    return chars
+                logger.debug(f"citilink GraphQL HTTP {resp.status_code} (attempt {attempt + 1})")
+            except Exception as exc:
+                logger.debug(f"citilink GraphQL attempt {attempt + 1} failed: {exc}")
+            await asyncio.sleep(0.5 * (attempt + 1))
+        return {}
 
     @staticmethod
     def _extract_sku_from_url(url: str) -> str:
@@ -443,14 +499,17 @@ class CitilinkCrawler(BaseCrawler):
         product_description = _html.unescape(product_description)
         product_description = re.sub(r"\s+", " ", product_description).strip()
 
-        # Characteristics from the spec block (Характеристики tab data).
-        product_characteristics: dict[str, str] = self._extract_characteristics(base)
-
         # SKU: prefer productBase id / JSON-LD sku, fall back to the URL id.
         product_sku: str = (
             str(base.get("id") or jsonld.get("sku") or "").strip()
             or self._extract_sku_from_url(clean_url)
         )
+
+        # Characteristics — full list from the "Все характеристики" GraphQL tab,
+        # falling back to the ~5 key specs in the SSR state.
+        product_characteristics: dict[str, str] = await self._fetch_full_characteristics(product_sku)
+        if not product_characteristics:
+            product_characteristics = self._extract_characteristics(base)
 
         # Brand as a characteristic when present.
         brand = base.get("brand") or jsonld.get("brand")
