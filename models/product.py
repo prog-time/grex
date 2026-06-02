@@ -36,16 +36,16 @@ class ParseRequest(BaseModel):
 
     @field_validator('url')
     def validate_marketplace_url(cls, v):
-        url_str = str(v).lower()
-        supported_domains = [
-            'wildberries.ru', 'wildberries.by', 'wildberries.kz',
-            'ozon.ru', 'ozon.by', 'ozon.kz',
-            'market.yandex.ru', 'market.yandex.by',
-            'megamarket.ru'
-        ]
-
-        if not any(domain in url_str for domain in supported_domains):
-            raise ValueError(f"Unsupported marketplace. Supported: {', '.join(supported_domains)}")
+        # Validate against the live crawler registry (single source of truth)
+        # instead of a hardcoded domain list, so every registered crawler
+        # (mm, bigam, vseinstrumenti, …) is accepted automatically.
+        from crawlers.registry import CrawlerRegistry  # noqa: PLC0415
+        from core.exceptions import UnsupportedMarketplaceError  # noqa: PLC0415
+        try:
+            CrawlerRegistry.detect_marketplace(str(v))
+        except UnsupportedMarketplaceError:
+            supported = ', '.join(sorted(CrawlerRegistry.all().keys()))
+            raise ValueError(f"Unsupported marketplace. Supported: {supported}")
         return v
 
 
@@ -65,20 +65,22 @@ class HealthResponse(BaseModel):
 
 class BatchParseRequest(BaseModel):
     urls: List[HttpUrl] = Field(..., min_length=1, max_length=100)
-    concurrency: int = Field(default=10, ge=1, le=50)
+    # None → use batch.concurrency from settings. Capped to batch.max_concurrency
+    # by the service, so the effective limit is configurable, not hardcoded.
+    concurrency: Optional[int] = Field(default=None, ge=1, le=200)
 
     @field_validator('urls')
     def validate_marketplace_urls(cls, v):
-        supported_domains = [
-            'wildberries.ru', 'wildberries.by', 'wildberries.kz',
-            'ozon.ru', 'ozon.by', 'ozon.kz',
-            'market.yandex.ru', 'market.yandex.by',
-            'megamarket.ru'
-        ]
+        from crawlers.registry import CrawlerRegistry  # noqa: PLC0415
+        from core.exceptions import UnsupportedMarketplaceError  # noqa: PLC0415
         for url in v:
-            url_str = str(url).lower()
-            if not any(domain in url_str for domain in supported_domains):
-                raise ValueError(f"Unsupported marketplace URL: {url}. Supported: {', '.join(supported_domains)}")
+            try:
+                CrawlerRegistry.detect_marketplace(str(url))
+            except UnsupportedMarketplaceError:
+                supported = ', '.join(sorted(CrawlerRegistry.all().keys()))
+                raise ValueError(
+                    f"Unsupported marketplace URL: {url}. Supported: {supported}"
+                )
         return v
 
 
