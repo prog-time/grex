@@ -4,8 +4,6 @@
 <div class="d-flex justify-content-between align-items-center">
   <h1>Proxies</h1>
   <div class="d-flex align-items-center gap-3">
-    <input id="proxyFileInput" type="file" accept=".txt,text/plain" style="display:none" onchange="onProxyFileSelected(this)">
-    <button class="btn btn-outline-secondary" onclick="document.getElementById('proxyFileInput').click()">Reload from file</button>
     <ol class="breadcrumb mb-0">
       <li class="breadcrumb-item"><a href="{{ url_for(__name__ ~ ':index') }}">Admin</a></li>
       <li class="breadcrumb-item active">Proxies</li>
@@ -20,7 +18,7 @@
   <div class="card mb-3">
     <div class="card-header"><h3 class="card-title">Proxy usage</h3></div>
     <div class="card-body">
-      <div class="d-flex align-items-center justify-content-between mb-3 pb-3 border-bottom">
+      <div class="d-flex align-items-center justify-content-between">
         <span class="text-body fw-medium">Use proxy</span>
         <div class="form-check form-switch mb-0">
           <input class="form-check-input" type="checkbox" id="proxyActive"
@@ -28,43 +26,41 @@
                  onchange="setProxyActive(this.checked)">
         </div>
       </div>
-      <div class="d-flex align-items-center gap-4">
-        <span class="text-body fw-medium">Protocol</span>
-        <div class="d-flex gap-3">
-          <label class="form-check mb-0">
-            <input class="form-check-input" type="radio" name="proxyType" value="http" onchange="setProxyType('http')">
-            <span class="form-check-label">HTTP</span>
-          </label>
-          <label class="form-check mb-0">
-            <input class="form-check-input" type="radio" name="proxyType" value="socks5" onchange="setProxyType('socks5')">
-            <span class="form-check-label">SOCKS5</span>
-          </label>
-        </div>
+      <div class="text-secondary small mt-2">
+        The protocol is taken from each proxy's scheme (<code>http://</code>, <code>socks5://</code>).
       </div>
     </div>
   </div>
 
   <div class="card mb-3">
-    <div class="card-header"><h3 class="card-title">Add proxy</h3></div>
-    <div class="card-body">
-      <div class="row g-2">
-        <div class="col-12 col-sm-5">
-          <input id="proxyHost" type="text" class="form-control" placeholder="Host">
-        </div>
-        <div class="col-6 col-sm-2">
-          <input id="proxyPort" type="text" class="form-control" placeholder="Port">
-        </div>
-        <div class="col-6 col-sm-2">
-          <input id="proxyLogin" type="text" class="form-control" placeholder="Login (optional)">
-        </div>
-        <div class="col-10 col-sm-2">
-          <input id="proxyPassword" type="password" class="form-control" placeholder="Password (optional)">
-        </div>
-        <div class="col-2 col-sm-1 d-flex">
-          <button id="addBtn" class="btn btn-primary w-100" onclick="addProxy()">Add</button>
-        </div>
-      </div>
-      <div id="proxyError" class="text-danger mt-1" style="display:none;"></div>
+    <div class="card-header">
+      <ul class="nav nav-tabs card-header-tabs" id="proxyAddTabs">
+        <li class="nav-item">
+          <a class="nav-link active" id="ptab-text-lnk" href="#" onclick="switchProxyTab('text');return false;">Add proxies</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" id="ptab-file-lnk" href="#" onclick="switchProxyTab('file');return false;">Upload file</a>
+        </li>
+      </ul>
+    </div>
+
+    <!-- Tab 1: textarea -->
+    <div id="ptab-text" class="card-body">
+      <label class="form-label">Proxies <span class="text-muted">(one per line)</span></label>
+      <textarea id="proxyText" class="form-control" rows="5"
+                placeholder="http://login:password@host:port&#10;socks5://host:port&#10;host:port"></textarea>
+      <div class="form-hint">Format: <code>[scheme://][login:password@]host:port</code>. Duplicates are skipped.</div>
+      <div id="proxyTextError" class="alert alert-danger mt-2 mb-0" style="display:none;"></div>
+      <button class="btn btn-primary mt-3" id="addTextBtn" onclick="addProxiesFromText(this)">Add proxies</button>
+    </div>
+
+    <!-- Tab 2: upload file -->
+    <div id="ptab-file" class="card-body" style="display:none;">
+      <label class="form-label">File with proxies <span class="text-muted">(.txt, one per line)</span></label>
+      <input id="proxyFileInput" type="file" class="form-control" accept=".txt,text/plain">
+      <div class="form-hint">A plain-text file with one proxy per line.</div>
+      <div id="proxyFileError" class="alert alert-danger mt-2 mb-0" style="display:none;"></div>
+      <button class="btn btn-primary mt-3" id="addFileBtn" onclick="addProxiesFromFile(this)">Add from file</button>
     </div>
   </div>
 
@@ -247,23 +243,11 @@ function esc(s) {
   if (!res.ok) { loadProxies(); return; }
   const data = await res.json();
 
-  const type = data.type || 'http';
-  const radio = document.querySelector(`input[name="proxyType"][value="${type}"]`);
-  if (radio) radio.checked = true;
-
   const activeEl = document.getElementById('proxyActive');
   if (activeEl) activeEl.checked = !!data.active;
 
   loadProxies();
 })();
-
-async function setProxyType(type) {
-  await fetch('/admin/proxies/settings', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({type})
-  });
-}
 
 async function setProxyActive(value) {
   await fetch('/admin/proxies/settings', {
@@ -284,71 +268,68 @@ function setLoading(btn, loading) {
   }
 }
 
-async function addProxy() {
-  const host = document.getElementById('proxyHost').value.trim();
-  const port = document.getElementById('proxyPort').value.trim();
-  const login = document.getElementById('proxyLogin').value.trim();
-  const password = document.getElementById('proxyPassword').value.trim();
-  const errEl = document.getElementById('proxyError');
-  const btn = document.getElementById('addBtn');
-  errEl.style.display = 'none';
+function switchProxyTab(name) {
+  ['text', 'file'].forEach(function(t) {
+    document.getElementById('ptab-' + t).style.display = t === name ? '' : 'none';
+    document.getElementById('ptab-' + t + '-lnk').classList.toggle('active', t === name);
+  });
+}
 
-  if (!host || !port) {
-    errEl.textContent = 'Host and port are required';
+async function _submitProxies(text, btn, errEl) {
+  errEl.style.display = 'none';
+  if (!text.trim()) {
+    errEl.textContent = 'Enter at least one proxy (one per line).';
     errEl.style.display = '';
     return;
   }
-
-  let proxy = login && password
-    ? `${login}:${password}@${host}:${port}`
-    : `${host}:${port}`;
-
   setLoading(btn, true);
   try {
-    const res = await fetch('/admin/proxies/add', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({proxy})
-    });
-    const data = await res.json().catch(function() { return {}; });
-    if (!res.ok) {
-      errEl.textContent = data.error || 'Error ' + res.status;
-      errEl.style.display = '';
-      setLoading(btn, false);
-    } else {
-      document.getElementById('proxyHost').value = '';
-      document.getElementById('proxyPort').value = '';
-      document.getElementById('proxyLogin').value = '';
-      document.getElementById('proxyPassword').value = '';
-      setLoading(btn, false);
-      loadProxies();
-    }
-  } catch(e) {
-    errEl.textContent = 'Request failed: ' + e;
-    errEl.style.display = '';
-    setLoading(btn, false);
-  }
-}
-
-async function onProxyFileSelected(input) {
-  const file = input.files && input.files[0];
-  if (!file) return;
-  try {
-    const text = await file.text();
-    const res = await fetch('/admin/proxies/reload', {
+    const res = await fetch('/admin/proxies/add_many', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({proxies: text})
     });
-    const data = await res.json().catch(() => ({}));
+    const data = await res.json().catch(function() { return {}; });
     if (!res.ok) {
-      alert(data.error || `Upload failed (HTTP ${res.status})`);
+      errEl.textContent = data.error || ('Error ' + res.status);
+      errEl.style.display = '';
       return;
     }
-    await loadProxies();
-    alert(`Loaded ${data.reloaded} proxies from ${file.name}`);
+    return data;
+  } catch (e) {
+    errEl.textContent = 'Request failed: ' + e;
+    errEl.style.display = '';
   } finally {
-    input.value = '';  // reset so selecting the same file again re-fires change
+    setLoading(btn, false);
+  }
+}
+
+async function addProxiesFromText(btn) {
+  const ta = document.getElementById('proxyText');
+  const data = await _submitProxies(ta.value, btn, document.getElementById('proxyTextError'));
+  if (data) {
+    ta.value = '';
+    await loadProxies();
+    alert('Added ' + data.added + ' proxies' + (data.skipped ? ' (' + data.skipped + ' duplicates skipped)' : ''));
+  }
+}
+
+async function addProxiesFromFile(btn) {
+  const input = document.getElementById('proxyFileInput');
+  const errEl = document.getElementById('proxyFileError');
+  const file = input.files && input.files[0];
+  if (!file) {
+    errEl.textContent = 'Choose a .txt file first.';
+    errEl.style.display = '';
+    return;
+  }
+  const text = await file.text();
+  const data = await _submitProxies(text, btn, errEl);
+  if (data) {
+    input.value = '';
+    await loadProxies();
+    alert('Added ' + data.added + ' proxies from ' + file.name
+      + (data.skipped ? ' (' + data.skipped + ' duplicates skipped)' : ''));
   }
 }
 </script>

@@ -119,6 +119,54 @@ class ProxiesRouter:
             return JSONResponse({"error": str(exc)}, status_code=500)
 
     @staticmethod
+    async def add_many(request: Request) -> JSONResponse:
+        """Append multiple proxies (one per line / list item) to the pool.
+
+        Body: ``{"proxies": "<raw text>"}`` (newline-separated) or
+        ``{"proxies": [..]}``. Validates every entry, deduplicates against the
+        existing pool, and persists.
+        """
+        from core.managers import ProxyManager  # noqa: PLC0415
+
+        body = await request.json()
+        raw = body.get("proxies")
+        if isinstance(raw, str):
+            lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+        elif isinstance(raw, list):
+            lines = [str(x).strip() for x in raw if str(x).strip()]
+        else:
+            return JSONResponse({"error": "No proxies provided"}, status_code=422)
+
+        if not lines:
+            return JSONResponse(
+                {"error": "No proxies provided (one per line expected)"}, status_code=422
+            )
+
+        invalid = [p for p in lines if not ProxyManager.is_valid_proxy(p)]
+        if invalid:
+            return JSONResponse(
+                {"error": f"Invalid proxy: {_mask_proxy(invalid[0])}"}, status_code=422
+            )
+
+        try:
+            proxies = await _get_proxies()
+            existing = set(proxies)
+            added = 0
+            for p in lines:
+                if p not in existing:
+                    proxies.append(p)
+                    existing.add(p)
+                    added += 1
+            await _set_proxies(proxies)
+            logger.info(f"Proxies added: {added} (of {len(lines)}), total={len(proxies)}")
+            return JSONResponse(
+                {"added": added, "skipped": len(lines) - added, "total": len(proxies)}
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"Failed to add proxies: {exc}")
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+    @staticmethod
     async def remove_proxy(request: Request) -> JSONResponse:
         body = await request.json()
         index = body.get("index")
@@ -170,10 +218,7 @@ class ProxiesRouter:
     @staticmethod
     async def get_proxy_settings(request: Request) -> JSONResponse:
         proxy_cfg = settings.get("proxy", {})
-        return JSONResponse({
-            "active": bool(proxy_cfg.get("active", False)),
-            "type": proxy_cfg.get("type", "http"),
-        })
+        return JSONResponse({"active": bool(proxy_cfg.get("active", False))})
 
     @staticmethod
     async def update_proxy_settings(request: Request) -> JSONResponse:
@@ -188,15 +233,6 @@ class ProxiesRouter:
                     yaml.dump(raw, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
             except Exception as exc:  # noqa: BLE001
                 logger.warning(f"Failed to persist proxy settings: {exc}")
-
-        # Protocol type
-        if "type" in body:
-            proxy_type = body["type"]
-            if proxy_type not in ("http", "socks5"):
-                return JSONResponse({"error": "type must be http or socks5"}, status_code=422)
-            settings.setdefault("proxy", {})["type"] = proxy_type
-            _persist(lambda raw: raw.setdefault("proxy", {}).__setitem__("type", proxy_type))
-            logger.info(f"Proxy type set to {proxy_type}")
 
         # Global on/off toggle
         if "active" in body:
@@ -271,6 +307,13 @@ def register_proxies_routes(app) -> None:  # type: ignore[no-untyped-def]
     app.add_api_route(
         "/admin/proxies/add",
         router.add_proxy,
+        methods=["POST"],
+        tags=["admin"],
+        dependencies=_auth,
+    )
+    app.add_api_route(
+        "/admin/proxies/add_many",
+        router.add_many,
         methods=["POST"],
         tags=["admin"],
         dependencies=_auth,
