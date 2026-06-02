@@ -1,0 +1,33 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+exclude = [
+    ".venv",
+    "venv",
+    "data",
+    "logs",
+]
+
+[tool.ruff.lint]
+# Pragmatic default set; the codebase is not yet lint-clean, so keep this
+# focused on real correctness issues rather than style churn.
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E501",  # line length handled by formatter / not enforced here
+]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+follow_imports = "silent"
+warn_unused_ignores = false
+no_implicit_optional = false
+exclude = "(^|/)(\\.venv|venv|data|logs)/"
