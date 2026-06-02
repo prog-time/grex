@@ -284,24 +284,49 @@ class MegaMarketCrawler(CookieCrawler):
                     self.delete_cookies_file()
                     continue
 
-                try:
-                    if result["goods"]["images"]:
-                        product_images += result["goods"]["images"]
-                except Exception as e:
-                    logger.warning(f"Error parsing MegaMarket images for {url}: {e}")
+                goods = result.get("goods") or {}
+
+                if not goods:
+                    logger.warning(f"MegaMarket: empty goods in response for {url}")
+                else:
+                    logger.debug(f"MegaMarket: goods keys = {list(goods.keys())}")
 
                 try:
-                    product_title = result["goods"]["title"]
+                    product_title = goods.get("title") or goods.get("name") or ""
                 except Exception as e:
                     logger.warning(f"Error parsing MegaMarket title for {url}: {e}")
 
                 try:
-                    product_description = result["goods"].get("description") or ""
+                    raw_images = goods.get("images") or goods.get("photos") or goods.get("gallery") or []
+                    for img in raw_images:
+                        if isinstance(img, str) and img.startswith("http"):
+                            product_images.append(img)
+                        elif isinstance(img, dict):
+                            src = (
+                                img.get("url") or img.get("src")
+                                or img.get("original") or img.get("full")
+                                or img.get("zoom") or ""
+                            )
+                            if src and src.startswith("http"):
+                                product_images.append(src)
+                except Exception as e:
+                    logger.warning(f"Error parsing MegaMarket images for {url}: {e}")
+
+                try:
+                    desc = (
+                        goods.get("description")
+                        or goods.get("fullDescription")
+                        or goods.get("shortDescription")
+                        or ""
+                    )
+                    if isinstance(desc, dict):
+                        desc = desc.get("text") or desc.get("content") or desc.get("html") or ""
+                    product_description = str(desc)
                 except Exception as e:
                     logger.warning(f"Error parsing MegaMarket description for {url}: {e}")
 
                 try:
-                    for attr in result["goods"].get("attributes", []):
+                    for attr in goods.get("attributes") or goods.get("characteristics") or []:
                         name = attr.get("title") or attr.get("name")
                         value = attr.get("value") or attr.get("values")
                         if isinstance(value, list):
@@ -315,9 +340,25 @@ class MegaMarketCrawler(CookieCrawler):
                     offers = await self._fetch_product_offers(url, product_sku)
                     if offers:
                         best_offer = offers[0]
-                        product_current_price = Decimal(best_offer.get("finalPrice"))
-                        if base_price := best_offer.get("basePrice"):
-                            product_original_price = Decimal(base_price)
+                        logger.debug(f"MegaMarket: offer keys = {list(best_offer.keys())}")
+                        cur = (
+                            best_offer.get("finalPrice")
+                            or best_offer.get("price")
+                            or best_offer.get("salePrice")
+                            or best_offer.get("discountPrice")
+                            or 0
+                        )
+                        if cur:
+                            product_current_price = Decimal(str(cur))
+                        base = (
+                            best_offer.get("basePrice")
+                            or best_offer.get("originalPrice")
+                            or best_offer.get("regularPrice")
+                            or best_offer.get("listPrice")
+                            or 0
+                        )
+                        if base and Decimal(str(base)) > product_current_price:
+                            product_original_price = Decimal(str(base))
                 except Exception as e:
                     logger.warning(f"Error parsing MegaMarket price for {url}: {e}")
 
