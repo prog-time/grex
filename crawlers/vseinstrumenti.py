@@ -229,7 +229,7 @@ class VseInstrumentiCrawler(BaseCrawler):
     async def _fetch_html_via_browser(self, url: str) -> str | None:
         """Browser fallback: renders the page and returns its HTML."""
         result = await self._run_in_process(
-            self._process_parse_via_browser, (url,), timeout=50,
+            self._process_parse_via_browser, (url,),
         )
         if result and result.get("success"):
             logger.debug("VseInstrumenti: browser extraction complete")
