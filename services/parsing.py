@@ -182,8 +182,8 @@ class ParsingService:
         try:
             from services.stats import StatsCollector  # noqa: PLC0415
             await StatsCollector.record_parse(marketplace, success=success, processing_time=elapsed)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"_record_stat failed for {marketplace}: {exc}")
 
     @staticmethod
     async def _save_job(

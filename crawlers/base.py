@@ -111,7 +111,8 @@ class BaseCrawler(ABC):
             settings_file = __import__("os").path.join(data_path, "settings.yml")
             with open(settings_file, encoding="utf-8") as f:
                 live_settings = yaml.safe_load(f) or {}
-        except Exception:
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"get_proxy: could not read live settings.yml ({exc}); using cached settings")
             from config import settings as live_settings  # noqa: PLC0415
 
         proxy_cfg = live_settings.get("proxy", {})
