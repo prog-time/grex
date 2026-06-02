@@ -52,6 +52,9 @@ class ParsingService:
 
             crawler_cls = CrawlerRegistry.get(marketplace)
             crawler = crawler_cls()
+            # Normalize the URL (strip fragment/query/tab segments per crawler)
+            # so variant links collapse to one canonical URL and don't dupe.
+            url = crawler.normalize_url(url)
             product_card = await crawler.parse(url)
 
             finished_at = datetime.now(timezone.utc)
@@ -116,9 +119,17 @@ class ParsingService:
             )
 
     async def parse_products_batch(
-        self, urls: list[str], concurrency: int = 10
+        self, urls: list[str], concurrency: int | None = None
     ) -> list[BatchItemResult]:
-        semaphore = asyncio.Semaphore(concurrency)
+        # Resolve effective concurrency: request value, else batch.concurrency
+        # from settings; clamped to batch.max_concurrency.
+        batch_cfg = settings.get("batch", {})
+        default_conc = int(batch_cfg.get("concurrency", 10))
+        max_conc = int(batch_cfg.get("max_concurrency", 50))
+        effective = concurrency if concurrency else default_conc
+        effective = max(1, min(effective, max_conc))
+        logger.debug(f"Batch parse: concurrency={effective} (cap {max_conc})")
+        semaphore = asyncio.Semaphore(effective)
 
         async def parse_one(url: str) -> BatchItemResult:
             async with semaphore:
