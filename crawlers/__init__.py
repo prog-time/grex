@@ -11,6 +11,7 @@ from .vseinstrumenti import VseInstrumentiCrawler
 from .bigam import BigamCrawler
 from .mm import MmCrawler
 from .cdek import CdekCrawler
+from .citilink import CitilinkCrawler
 
 __all__ = [
     "BaseCrawler",
@@ -24,4 +25,5 @@ __all__ = [
     "BigamCrawler",
     "MmCrawler",
     "CdekCrawler",
+    "CitilinkCrawler",
 ]
