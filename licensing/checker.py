@@ -60,10 +60,38 @@ def _save_cache(response_data: dict) -> None:
         print(f"  Предупреждение: не удалось сохранить кеш лицензии: {exc}")
 
 
+def _device_id_path() -> Path:
+    """Path of the persisted device identifier."""
+    return Path(data_path) / "device_id"
+
+
 def _get_mac_address() -> str:
-    """Return this machine's MAC address in AA:BB:CC:DD:EE:FF format."""
+    """Return a STABLE device identifier in AA:BB:CC:DD:EE:FF format.
+
+    ``uuid.getnode()`` is unreliable: on containers/VMs and when the real MAC
+    can't be read it returns a *random* multicast address that changes between
+    runs, which makes the license server see a new device on every restart and
+    repeatedly invalidate the key. To avoid that, the first computed value is
+    persisted to ``data/device_id`` and reused on every subsequent run, so the
+    identity stays constant for the lifetime of the installation.
+    """
+    path = _device_id_path()
+    try:
+        if path.exists():
+            cached = path.read_text(encoding="utf-8").strip()
+            if cached:
+                return cached
+    except Exception:
+        pass
+
     mac_int = uuid.getnode()
-    return ":".join(f"{(mac_int >> i) & 0xff:02x}" for i in range(40, -1, -8)).upper()
+    mac = ":".join(f"{(mac_int >> i) & 0xff:02x}" for i in range(40, -1, -8)).upper()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(mac, encoding="utf-8")
+    except Exception as exc:
+        print(f"  Предупреждение: не удалось сохранить device_id: {exc}")
+    return mac
 
 
 def _post_json(url: str, api_key: str, body: dict, timeout: int) -> dict:
