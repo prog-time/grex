@@ -213,8 +213,16 @@ async function showChart(id) {
     return;
   }
   const pts = (d.points || []).filter(function(p){ return p.current_price !== null && p.current_price !== undefined; });
-  if (pts.length < 2) {
-    document.getElementById('chartBox').innerHTML = '<span class="text-muted">Not enough data yet — at least two checks are needed to draw a chart.</span>';
+  if (pts.length === 0) {
+    document.getElementById('chartBox').innerHTML = '<span class="text-muted">No price data collected yet — it appears after the first scheduled check.</span>';
+    return;
+  }
+  if (pts.length === 1) {
+    var p = pts[0];
+    document.getElementById('chartBox').innerHTML =
+      '<div class="text-muted">Only one check so far — the chart appears once there are at least two.</div>'
+      + '<div class="mt-2"><span class="fw-bold fs-3">' + fmtPrice(p.current_price) + '</span>'
+      + '<span class="text-muted small ms-2">at ' + fmtDateFull(p.t) + '</span></div>';
     return;
   }
   document.getElementById('chartBox').innerHTML = buildChart(pts);
