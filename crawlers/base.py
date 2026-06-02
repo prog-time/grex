@@ -130,6 +130,12 @@ class BaseCrawler(ABC):
                 logger.warning("Proxy is enabled but proxy pool is empty")
                 return None
 
+            # Circuit breaker: skip proxies currently benched for repeated
+            # failures. Best-effort — returns the pool unchanged if Redis is
+            # down, and never strands the crawler if every proxy is benched.
+            from services.proxy_health import ProxyHealth  # noqa: PLC0415
+            proxies = await ProxyHealth.filter_healthy(proxies)
+
             proxy = random.choice(proxies)
             proxy_type = proxy_cfg.get("type", "http")
             if "://" not in proxy:
