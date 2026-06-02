@@ -8,7 +8,7 @@ from typing import Dict, List
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
@@ -186,11 +186,112 @@ async def root() -> Dict[str, str]:
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
+    """Liveness probe — confirms the process is up and serving.
+
+    Intentionally does NOT touch Redis/DB so that an orchestrator does not kill
+    a pod for a transient dependency blip. Use /health/ready for readiness.
+    """
     return HealthResponse(
         status="healthy",
         uptime=parsing_service.get_uptime(),
         supported_marketplaces=list(CrawlerRegistry.all().keys()),
     )
+
+
+async def _check_database() -> bool:
+    """Return True when a trivial query against the DB succeeds."""
+    try:
+        from sqlalchemy import text  # noqa: PLC0415
+
+        from models.job import async_session  # noqa: PLC0415
+        if async_session is None:
+            return False
+        async with async_session() as session:
+            await session.execute(text("SELECT 1"))
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"Readiness DB check failed: {exc}")
+        return False
+
+
+async def _check_redis() -> bool:
+    """Return True when Redis responds to PING."""
+    try:
+        from services.redis_client import ping  # noqa: PLC0415
+        return await ping()
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"Readiness Redis check failed: {exc}")
+        return False
+
+
+@app.get("/health/ready")
+async def readiness_check() -> JSONResponse:
+    """Readiness probe — verifies external dependencies (DB + Redis).
+
+    Returns HTTP 200 when every dependency is reachable, HTTP 503 otherwise,
+    with a per-component breakdown so failures are diagnosable.
+    """
+    db_ok = await _check_database()
+    redis_ok = await _check_redis()
+    ready = db_ok and redis_ok
+    return JSONResponse(
+        status_code=status.HTTP_200_OK if ready else status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={
+            "status": "ready" if ready else "not_ready",
+            "uptime": parsing_service.get_uptime(),
+            "checks": {
+                "database": "up" if db_ok else "down",
+                "redis": "up" if redis_ok else "down",
+            },
+        },
+    )
+
+
+def _prometheus_line(name: str, value: float, help_text: str, metric_type: str, labels: str = "") -> str:
+    return (
+        f"# HELP {name} {help_text}\n"
+        f"# TYPE {name} {metric_type}\n"
+        f"{name}{labels} {value}\n"
+    )
+
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics() -> PlainTextResponse:
+    """Prometheus text-exposition metrics, sourced from StatsCollector.
+
+    Hand-formatted (no prometheus_client dependency). Degrades to zeros when
+    Redis is unavailable, so scraping never fails.
+    """
+    from services.stats import StatsCollector  # noqa: PLC0415
+
+    summary = await StatsCollector.get_summary()
+    uptime = await StatsCollector.get_uptime()
+
+    body = (
+        _prometheus_line("grex_uptime_seconds", uptime, "Service uptime in seconds.", "gauge")
+        + _prometheus_line("grex_parsed_total", summary.get("total_parsed", 0), "Total successful parses.", "counter")
+        + _prometheus_line("grex_failed_total", summary.get("total_failed", 0), "Total failed parses.", "counter")
+        + _prometheus_line(
+            "grex_avg_processing_seconds",
+            summary.get("avg_processing_time", 0.0),
+            "Average parse processing time in seconds.",
+            "gauge",
+        )
+    )
+
+    by_marketplace = summary.get("by_marketplace", {}) or {}
+    if by_marketplace:
+        header = (
+            "# HELP grex_parsed_by_marketplace_total Successful parses per marketplace.\n"
+            "# TYPE grex_parsed_by_marketplace_total counter\n"
+        )
+        rows = "".join(
+            f'grex_parsed_by_marketplace_total{{marketplace="{name}"}} {count}\n'
+            for name, count in sorted(by_marketplace.items())
+        )
+        body += header + rows
+
+    return PlainTextResponse(body, media_type="text/plain; version=0.0.4; charset=utf-8")
 
 
 async def verify_api_key(api_key: str = Depends(X_API_KEY)) -> str:
