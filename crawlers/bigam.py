@@ -46,6 +46,10 @@ class BigamCrawler(BaseCrawler):
 
     marketplace_name: ClassVar[str] = "bigam"
     url_pattern: ClassVar[str] = r"bigam\.ru"
+    # Product pages live at /product/<slug>-<id>/; trim query and tab segments
+    # (e.g. /reviews/) so all variants collapse to the canonical product URL.
+    canonical_url_pattern: ClassVar[str] = r"(https?://[^/]+/product/[^/]+)"
+    strip_query_params: ClassVar[bool] = True
 
     def __init__(self) -> None:
         super().__init__()
@@ -91,8 +95,51 @@ class BigamCrawler(BaseCrawler):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _parse_jsonld(html: str) -> dict:
-        """Return the first JSON-LD block with ``@type == "Product"``, or ``{}``."""
+    def _is_product_node(node: object) -> bool:
+        """True when *node* is a JSON-LD object whose ``@type`` is ``Product``.
+
+        ``@type`` may be a plain string (``"Product"``) or a list
+        (``["Product", "IndividualProduct"]``).
+        """
+        if not isinstance(node, dict):
+            return False
+        node_type = node.get("@type")
+        if isinstance(node_type, str):
+            return node_type == "Product"
+        if isinstance(node_type, list):
+            return "Product" in node_type
+        return False
+
+    @classmethod
+    def _find_product_node(cls, data: object) -> dict:
+        """Recursively search a parsed JSON-LD value for the ``Product`` node.
+
+        bigam.ru serves a single ``application/ld+json`` block containing a
+        *list* of typed objects (Organization, WebSite, Product, …) — and may
+        also wrap them under ``@graph``. We scan all of these shapes.
+        """
+        if cls._is_product_node(data):
+            return data  # type: ignore[return-value]
+        if isinstance(data, dict):
+            graph = data.get("@graph")
+            if isinstance(graph, list):
+                found = cls._find_product_node(graph)
+                if found:
+                    return found
+        if isinstance(data, list):
+            for item in data:
+                found = cls._find_product_node(item)
+                if found:
+                    return found
+        return {}
+
+    @classmethod
+    def _parse_jsonld(cls, html: str) -> dict:
+        """Return the JSON-LD ``Product`` node, or ``{}``.
+
+        Handles both a top-level Product object and a list/``@graph`` of mixed
+        typed nodes (the shape bigam.ru currently serves).
+        """
         soup = BeautifulSoup(html, "html.parser")
         for script in soup.find_all("script", {"type": "application/ld+json"}):
             if not isinstance(script, Tag):
@@ -104,8 +151,9 @@ class BigamCrawler(BaseCrawler):
                 data = json.loads(raw)
             except Exception:
                 continue
-            if isinstance(data, dict) and data.get("@type") == "Product":
-                return data
+            product = cls._find_product_node(data)
+            if product:
+                return product
         return {}
 
     # ------------------------------------------------------------------
@@ -340,7 +388,7 @@ class BigamCrawler(BaseCrawler):
     async def _fetch_html_via_browser(self, url: str) -> str | None:
         """Browser fallback: renders the page and returns its HTML."""
         result = await self._run_in_process(
-            self._process_parse_via_browser, (url,), timeout=50,
+            self._process_parse_via_browser, (url,),
         )
         if result and result.get("success"):
             logger.debug("Bigam: browser extraction complete")
@@ -415,7 +463,7 @@ class BigamCrawler(BaseCrawler):
     # ------------------------------------------------------------------
 
     async def parse(self, url: str) -> ProductCard:
-        clean_url = url.split("?")[0].rstrip("/") + "/"
+        clean_url = self.normalize_url(url)
 
         # --- Fetch HTML ---
         html = await self._fetch_html(clean_url)
@@ -493,7 +541,7 @@ class BigamCrawler(BaseCrawler):
             original_price=product_original_price,
             current_price=product_current_price,
             images=product_images,
-            source_url=url,
+            source_url=clean_url,
             description=product_description,
             characteristics=product_characteristics,
         )
