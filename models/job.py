@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from enum import Enum
 
-from sqlalchemy import Column, DateTime, Float, String, Text
+from sqlalchemy import Column, DateTime, Float, String, Text, event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -57,6 +57,21 @@ async def init_db(db_url: str) -> None:
         db_url = db_url.replace("sqlite:///", "sqlite+aiosqlite:///")
 
     engine = create_async_engine(db_url, echo=False)
+
+    # SQLite serialises writers; under concurrent batch parsing (up to
+    # batch.max_concurrency simultaneous _save_job commits) the default rollback
+    # journal raises "database is locked". Enable WAL (concurrent readers +
+    # single writer) and a generous busy_timeout so writers wait instead of
+    # failing. synchronous=NORMAL is safe and fast under WAL.
+    if db_url.startswith("sqlite"):
+        @event.listens_for(engine.sync_engine, "connect")
+        def _set_sqlite_pragmas(dbapi_conn, _record):  # noqa: ANN001
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=30000")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.close()
+
     async_session = async_sessionmaker(engine, expire_on_commit=False)
 
     async with engine.begin() as conn:
