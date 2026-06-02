@@ -4,7 +4,8 @@
 <div class="d-flex justify-content-between align-items-center">
   <h1>Proxies</h1>
   <div class="d-flex align-items-center gap-3">
-    <button class="btn btn-outline-secondary" onclick="reload()">Reload from file</button>
+    <input id="proxyFileInput" type="file" accept=".txt,text/plain" style="display:none" onchange="onProxyFileSelected(this)">
+    <button class="btn btn-outline-secondary" onclick="document.getElementById('proxyFileInput').click()">Reload from file</button>
     <ol class="breadcrumb mb-0">
       <li class="breadcrumb-item"><a href="{{ url_for(__name__ ~ ':index') }}">Admin</a></li>
       <li class="breadcrumb-item active">Proxies</li>
@@ -19,7 +20,15 @@
   <div class="card mb-3">
     <div class="card-header"><h3 class="card-title">Proxy usage</h3></div>
     <div class="card-body">
-      <div class="d-flex align-items-center gap-4 mb-3 pb-3 border-bottom">
+      <div class="d-flex align-items-center justify-content-between mb-3 pb-3 border-bottom">
+        <span class="text-body fw-medium">Use proxy</span>
+        <div class="form-check form-switch mb-0">
+          <input class="form-check-input" type="checkbox" id="proxyActive"
+                 style="width:2.5em;height:1.4em;cursor:pointer;"
+                 onchange="setProxyActive(this.checked)">
+        </div>
+      </div>
+      <div class="d-flex align-items-center gap-4">
         <span class="text-body fw-medium">Protocol</span>
         <div class="d-flex gap-3">
           <label class="form-check mb-0">
@@ -32,7 +41,6 @@
           </label>
         </div>
       </div>
-      <div id="sourceSwitches"></div>
     </div>
   </div>
 
@@ -61,77 +69,192 @@
   </div>
 
   <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">Proxy pool</h3>
+      <div class="card-options d-flex align-items-center gap-2">
+        <span class="text-muted small" id="proxyCount"></span>
+        <span id="proxySelectionCount" class="text-muted small"></span>
+        <select class="form-select form-select-sm w-auto" id="proxyPerPage" onchange="setProxyPerPage(this.value)">
+          <option value="10">10</option>
+          <option value="25" selected>25</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+        <button class="btn btn-sm btn-outline-danger" id="proxyDeleteSelected" onclick="deleteSelectedProxies(this)" disabled>Delete selected</button>
+      </div>
+    </div>
     <div class="table-responsive">
       <table class="table table-vcenter card-table">
-        <thead><tr><th>#</th><th>Proxy</th><th></th></tr></thead>
+        <thead>
+          <tr>
+            <th style="width:36px">
+              <input type="checkbox" class="form-check-input" id="proxySelectAll" onchange="toggleSelectAllProxies(this)">
+            </th>
+            <th style="width:56px">#</th>
+            <th>Proxy</th>
+          </tr>
+        </thead>
         <tbody id="proxyTableBody">
-          <tr><td colspan="3" class="text-center text-muted">
+          <tr><td colspan="3" class="text-center text-muted py-3">
             <span class="spinner-border spinner-border-sm me-2"></span>Loading...
           </td></tr>
         </tbody>
       </table>
     </div>
+    <div class="card-footer d-flex align-items-center" id="proxyPager"></div>
   </div>
 </div>
 
 <script>
-const SOURCE_LABELS = {
-  ozon: 'Ozon',
-  wildberries: 'Wildberries',
-  yandex_market: 'Yandex Market',
-  megamarket: 'Megamarket',
-};
+var _allProxies = [];
+var _proxyPage = 1;
+var _proxyPerPage = 25;
 
 async function loadProxies() {
   const tbody = document.getElementById('proxyTableBody');
-  const res = await fetch('/admin/proxies/api');
+  let res;
+  try {
+    res = await fetch('/admin/proxies/api');
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="3" class="text-danger text-center py-3">Failed to load proxies.</td></tr>';
+    return;
+  }
   if (!res.ok) {
-    tbody.innerHTML = '<tr><td colspan="3" class="text-danger">Failed to load proxies.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="3" class="text-danger text-center py-3">Failed to load proxies.</td></tr>';
     return;
   }
   const data = await res.json();
-  const proxies = data.proxies || [];
-  if (!proxies.length) {
-    tbody.innerHTML = '<tr><td colspan="3" class="text-muted">Proxy pool is empty.</td></tr>';
+  _allProxies = data.proxies || [];
+  _proxyPage = 1;
+  renderProxies();
+}
+
+function setProxyPerPage(val) {
+  _proxyPerPage = parseInt(val) || 25;
+  _proxyPage = 1;
+  renderProxies();
+}
+
+function goToProxyPage(p) {
+  const totalPages = Math.max(1, Math.ceil(_allProxies.length / _proxyPerPage));
+  _proxyPage = Math.max(1, Math.min(p, totalPages));
+  renderProxies();
+}
+
+function renderProxies() {
+  const total = _allProxies.length;
+  const totalPages = Math.max(1, Math.ceil(total / _proxyPerPage));
+  const start = (_proxyPage - 1) * _proxyPerPage;
+  const pageRows = _allProxies.slice(start, start + _proxyPerPage);
+  const tbody = document.getElementById('proxyTableBody');
+
+  document.getElementById('proxyCount').textContent = total + ' proxies';
+
+  if (!pageRows.length) {
+    tbody.innerHTML = '<tr><td colspan="3" class="text-muted text-center py-3">Proxy pool is empty.</td></tr>';
+    document.getElementById('proxyPager').innerHTML = '';
+    updateProxySelection();
     return;
   }
-  tbody.innerHTML = proxies.map(p => `
-    <tr>
-      <td>${p.index}</td>
-      <td><code>${p.proxy}</code></td>
-      <td>
-        <button class="btn btn-sm btn-outline-danger" onclick="removeProxy(${p.index}, this)">Remove</button>
-      </td>
-    </tr>`).join('');
+
+  tbody.innerHTML = pageRows.map(function(p) {
+    return '<tr>'
+      + '<td><input type="checkbox" class="form-check-input proxy-cb" data-index="' + p.index + '" onchange="updateProxySelection()"></td>'
+      + '<td class="text-muted">' + p.index + '</td>'
+      + '<td><code>' + esc(p.proxy) + '</code></td>'
+      + '</tr>';
+  }).join('');
+  updateProxySelection();
+
+  const from = total ? start + 1 : 0;
+  const to = Math.min(start + _proxyPerPage, total);
+  document.getElementById('proxyPager').innerHTML =
+    '<p class="m-0 text-secondary">Showing ' + from + '–' + to + ' of ' + total + '</p>'
+    + buildPagination(_proxyPage, totalPages, 'goToProxyPage');
+}
+
+function getSelectedProxyIndexes() {
+  return Array.from(document.querySelectorAll('.proxy-cb:checked'))
+    .map(function(c) { return parseInt(c.dataset.index); });
+}
+
+function toggleSelectAllProxies(cb) {
+  document.querySelectorAll('.proxy-cb').forEach(function(c) { c.checked = cb.checked; });
+  updateProxySelection();
+}
+
+function updateProxySelection() {
+  const checked = document.querySelectorAll('.proxy-cb:checked').length;
+  const total = document.querySelectorAll('.proxy-cb').length;
+  const countEl = document.getElementById('proxySelectionCount');
+  const saEl = document.getElementById('proxySelectAll');
+  const delBtn = document.getElementById('proxyDeleteSelected');
+  countEl.textContent = checked ? checked + ' selected' : '';
+  if (saEl) saEl.checked = total > 0 && checked === total;
+  if (delBtn) delBtn.disabled = checked === 0;
+}
+
+async function deleteSelectedProxies(btn) {
+  const indexes = getSelectedProxyIndexes();
+  if (!indexes.length) return;
+  if (!confirm('Delete ' + indexes.length + ' selected ' + (indexes.length === 1 ? 'proxy' : 'proxies') + '?')) return;
+  setLoading(btn, true);
+  try {
+    const res = await fetch('/admin/proxies/remove_many', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({indexes: indexes})
+    });
+    const data = await res.json().catch(function() { return {}; });
+    if (!res.ok) { alert(data.error || 'Delete failed (HTTP ' + res.status + ')'); return; }
+    await loadProxies();
+  } finally {
+    setLoading(btn, false);
+  }
+}
+
+function buildPagination(current, totalPages, goFn) {
+  if (totalPages <= 1) return '';
+  var items = [];
+  var s = Math.max(1, current - 2), e = Math.min(totalPages, current + 2);
+  if (s > 1) { items.push(1); if (s > 2) items.push('…'); }
+  for (var i = s; i <= e; i++) items.push(i);
+  if (e < totalPages) { if (e < totalPages - 1) items.push('…'); items.push(totalPages); }
+  var html = '<ul class="pagination m-0 ms-auto">';
+  html += '<li class="page-item' + (current === 1 ? ' disabled' : '') + '">'
+    + '<a class="page-link" href="#" onclick="' + goFn + '(' + (current - 1) + ');return false;">‹</a></li>';
+  items.forEach(function(p) {
+    if (p === '…') {
+      html += '<li class="page-item disabled"><span class="page-link">…</span></li>';
+    } else {
+      html += '<li class="page-item' + (p === current ? ' active' : '') + '">'
+        + '<a class="page-link" href="#" onclick="' + goFn + '(' + p + ');return false;">' + p + '</a></li>';
+    }
+  });
+  html += '<li class="page-item' + (current === totalPages ? ' disabled' : '') + '">'
+    + '<a class="page-link" href="#" onclick="' + goFn + '(' + (current + 1) + ');return false;">›</a></li>';
+  return html + '</ul>';
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 (async function initSettings() {
   const res = await fetch('/admin/proxies/settings');
-  if (!res.ok) return;
+  if (!res.ok) { loadProxies(); return; }
   const data = await res.json();
 
   const type = data.type || 'http';
   const radio = document.querySelector(`input[name="proxyType"][value="${type}"]`);
   if (radio) radio.checked = true;
 
-  loadProxies();
+  const activeEl = document.getElementById('proxyActive');
+  if (activeEl) activeEl.checked = !!data.active;
 
-  const container = document.getElementById('sourceSwitches');
-  for (const [src, active] of Object.entries(data.sources || {})) {
-    const label = SOURCE_LABELS[src] || src;
-    const id = `src_${src}`;
-    const row = document.createElement('div');
-    row.className = 'd-flex align-items-center justify-content-between py-2';
-    row.innerHTML = `
-      <span class="text-body">${label}</span>
-      <div class="form-check form-switch ms-3">
-        <input class="form-check-input" type="checkbox" id="${id}"
-               style="width:2em;height:1.2em;cursor:pointer;"
-               ${active ? 'checked' : ''}
-               onchange="setSourceProxy('${src}', this.checked)">
-      </div>`;
-    container.appendChild(row);
-  }
+  loadProxies();
 })();
 
 async function setProxyType(type) {
@@ -142,11 +265,11 @@ async function setProxyType(type) {
   });
 }
 
-async function setSourceProxy(source, value) {
+async function setProxyActive(value) {
   await fetch('/admin/proxies/settings', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({source, source_active: value})
+    body: JSON.stringify({active: value})
   });
 }
 
@@ -207,19 +330,26 @@ async function addProxy() {
   }
 }
 
-async function removeProxy(index, btn) {
-  setLoading(btn, true);
-  await fetch('/admin/proxies/remove', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({index})
-  });
-  loadProxies();
-}
-
-async function reload() {
-  await fetch('/admin/proxies/reload', {method: 'POST'});
-  loadProxies();
+async function onProxyFileSelected(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const res = await fetch('/admin/proxies/reload', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({proxies: text})
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.error || `Upload failed (HTTP ${res.status})`);
+      return;
+    }
+    await loadProxies();
+    alert(`Loaded ${data.reloaded} proxies from ${file.name}`);
+  } finally {
+    input.value = '';  // reset so selecting the same file again re-fires change
+  }
 }
 </script>
 {% endblock %}
