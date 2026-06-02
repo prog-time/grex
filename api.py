@@ -29,8 +29,63 @@ from services.license import get_allowed_sources, load_config_from_cache, load_c
 from services.license_client import activate_device, fetch_license_config
 from utils.logger import setup_logger
 
+_UNSAFE_DEFAULTS = {
+    "security.api_key": "4353456dfvbdfg34",
+    "admin.password": "admin",
+    "admin.secret_key": "change-me-in-production-secret-key",
+}
+
+
+def _is_production() -> bool:
+    """True when the app is explicitly running in production.
+
+    Resolved from the ``GREX_ENV`` env var (takes precedence) or the
+    ``app.environment`` setting. Anything other than ``production`` (the default)
+    is treated as non-production, so local/dev runs are never blocked.
+    """
+    import os  # noqa: PLC0415
+    env = os.environ.get("GREX_ENV") or settings.get("app", {}).get("environment", "")
+    return str(env).strip().lower() == "production"
+
+
+def _enforce_secure_config() -> None:
+    """Refuse to start in production with known-insecure default secrets.
+
+    In non-production environments this only warns, so the dev setup keeps
+    working with the shipped defaults. In production any default secret aborts
+    startup with a clear message naming the offending keys.
+    """
+    offenders = [
+        key
+        for key, bad in _UNSAFE_DEFAULTS.items()
+        if _read_setting(key) == bad
+    ]
+    if not offenders:
+        return
+
+    if _is_production():
+        logger.error(
+            "Refusing to start in production with insecure default secrets: "
+            f"{', '.join(offenders)}. Set them in data/settings.yml (or via env)."
+        )
+        raise SystemExit(1)
+
+    for key in offenders:
+        logger.warning(
+            f"SECURITY: '{key}' is an insecure default value — change it in "
+            "data/settings.yml before going to production "
+            "(set app.environment: production to make this fatal)."
+        )
+
+
+def _read_setting(dotted: str) -> str:
+    section, _, leaf = dotted.partition(".")
+    return settings.get(section, {}).get(leaf, "")
+
+
 setup_logger()
 check_license()
+_enforce_secure_config()
 
 
 # ---------------------------------------------------------------------------
@@ -55,9 +110,8 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
     licensing_cfg = settings.get("licensing", {})
     if licensing_cfg.get("enabled", False):
         try:
-            import uuid as _uuid  # noqa: PLC0415
-            _mac_int = _uuid.getnode()
-            _mac_address = ":".join(f"{(_mac_int >> i) & 0xff:02x}" for i in range(40, -1, -8)).upper()
+            from licensing.checker import _get_mac_address  # noqa: PLC0415
+            _mac_address = _get_mac_address()  # stable, persisted device id
             await activate_device(
                 service_url=licensing_cfg.get("service_url", ""),
                 api_key=licensing_cfg.get("api_key", ""),
@@ -81,18 +135,6 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
                     logger.error("No license config available, all sources disabled")
         except Exception as exc:
             logger.warning(f"License init failed: {exc}")
-
-    _UNSAFE_DEFAULTS = {
-        "security.api_key": ("4353456dfvbdfg34", settings.get("security", {}).get("api_key", "")),
-        "admin.password": ("admin", settings.get("admin", {}).get("password", "")),
-        "admin.secret_key": ("change-me-in-production-secret-key", settings.get("admin", {}).get("secret_key", "")),
-    }
-    for key, (bad, current) in _UNSAFE_DEFAULTS.items():
-        if current == bad:
-            logger.warning(
-                f"SECURITY: '{key}' is set to an insecure default value"
-                " — change it in data/settings.yml before going to production!"
-            )
 
     try:
         from admin import setup_admin  # noqa: PLC0415
