@@ -96,13 +96,12 @@
      style="display:none; z-index:1030;">
   <div class="container-xl d-flex align-items-center gap-2 flex-wrap">
     <span class="fw-medium me-1" id="bulkCount"></span>
-    <select id="bulkAction" class="form-select form-select-sm w-auto" onchange="onBulkActionChange()">
-      <option value="">Action for selected…</option>
+    <select id="bulkEnable" class="form-select form-select-sm w-auto">
+      <option value="">Activation: no change</option>
       <option value="enable">Enable monitoring</option>
       <option value="disable">Disable monitoring</option>
-      <option value="interval">Set interval…</option>
     </select>
-    <select id="bulkInterval" class="form-select form-select-sm w-auto" style="display:none;"></select>
+    <select id="bulkInterval" class="form-select form-select-sm w-auto"></select>
     <button class="btn btn-sm btn-primary" id="bulkApplyBtn" onclick="applyBulk(this)" disabled>Apply</button>
     <button class="btn btn-sm btn-link ms-auto text-muted" onclick="clearMonSelection()">Clear selection</button>
   </div>
@@ -138,6 +137,7 @@ async function loadMonitors() {
     return;
   }
   _defaultInterval = data.default_interval_seconds || 3600;
+  populateBulkInterval();
   _allMonitors = data.monitors || [];
   _monitorsById = {};
   _allMonitors.forEach(function(r){ _monitorsById[r.id] = r; });
@@ -230,35 +230,41 @@ function updateMonSelection() {
 function clearMonSelection() {
   document.querySelectorAll('.mon-cb').forEach(function(c){ c.checked = false; });
   var sa = document.getElementById('monSelectAll'); if (sa) sa.checked = false;
-  document.getElementById('bulkAction').value = '';
-  onBulkActionChange();
+  document.getElementById('bulkEnable').value = '';
+  document.getElementById('bulkInterval').value = '__keep__';
   updateMonSelection();
 }
 
-function onBulkActionChange() {
-  var action = document.getElementById('bulkAction').value;
+// Fill the bulk interval dropdown: "no change" + Default + presets.
+// Preserves the current choice across table refreshes.
+function populateBulkInterval() {
   var sel = document.getElementById('bulkInterval');
-  if (action === 'interval') {
-    sel.innerHTML = _intervalPresets.map(function(p) {
-      var lbl = p.value === '' ? 'Default (' + Math.round(_defaultInterval/3600*10)/10 + 'h)' : p.label;
-      return '<option value="' + p.value + '">' + lbl + '</option>';
-    }).join('');
-    sel.style.display = '';
-  } else {
-    sel.style.display = 'none';
-  }
+  if (!sel) return;
+  var keep = sel.value;
+  var opts = '<option value="__keep__">Interval: no change</option>';
+  opts += _intervalPresets.map(function(p) {
+    var lbl = p.value === '' ? 'Default (' + Math.round(_defaultInterval/3600*10)/10 + 'h)' : p.label;
+    return '<option value="' + p.value + '">' + lbl + '</option>';
+  }).join('');
+  sel.innerHTML = opts;
+  sel.value = keep || '__keep__';
+  if (!sel.value) sel.value = '__keep__';
 }
 
 async function applyBulk(btn) {
   var ids = getSelectedMonIds();
   if (!ids.length) return;
-  var action = document.getElementById('bulkAction').value;
-  if (!action) { alert('Choose an action for the selected items.'); return; }
+  var en = document.getElementById('bulkEnable').value;
+  var iv = document.getElementById('bulkInterval').value;
 
-  var body = {ids: ids, action: action};
-  if (action === 'interval') {
-    var v = document.getElementById('bulkInterval').value;
-    body.interval_seconds = v === '' ? null : parseInt(v);
+  var body = {ids: ids};
+  if (en === 'enable') body.monitor_enabled = true;
+  else if (en === 'disable') body.monitor_enabled = false;
+  if (iv !== '__keep__') body.interval_seconds = (iv === '' ? null : parseInt(iv));
+
+  if (!('monitor_enabled' in body) && !('interval_seconds' in body)) {
+    alert('Choose an activation and/or an interval to apply.');
+    return;
   }
 
   setBtnLoading(btn, true);
@@ -270,8 +276,8 @@ async function applyBulk(btn) {
     if (!res.ok) alert(d.error || 'Bulk action failed (HTTP ' + res.status + ')');
   } catch (e) { alert('Bulk action failed'); }
   setBtnLoading(btn, false);
-  document.getElementById('bulkAction').value = '';
-  onBulkActionChange();
+  document.getElementById('bulkEnable').value = '';
+  document.getElementById('bulkInterval').value = '__keep__';
   await loadMonitors();
 }
 

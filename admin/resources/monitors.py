@@ -118,10 +118,12 @@ class MonitorsRouter:
 
     @staticmethod
     async def bulk(request: Request) -> JSONResponse:
-        """Apply a bulk action to several targets at once.
+        """Apply activation and/or interval changes to several targets at once.
 
-        Body: {"ids": [str], "action": "enable"|"disable"|"interval",
-               "interval_seconds": int|null?}.
+        Body: {"ids": [str], "monitor_enabled"?: bool, "interval_seconds"?: int|null}.
+        Either or both of ``monitor_enabled`` / ``interval_seconds`` may be present;
+        only the provided fields are changed. ``interval_seconds: null`` resets a
+        target to the global default interval.
         """
         from sqlalchemy import select  # noqa: PLC0415
 
@@ -131,24 +133,31 @@ class MonitorsRouter:
 
         body = await request.json()
         ids = body.get("ids")
-        action = body.get("action")
         if not isinstance(ids, list) or not ids:
             return JSONResponse({"error": "ids (non-empty list) is required"}, status_code=422)
-        if action not in ("enable", "disable", "interval"):
-            return JSONResponse({"error": "action must be enable, disable or interval"}, status_code=422)
         ids = [str(i) for i in ids]
 
-        interval = None
-        if action == "interval":
-            raw = body.get("interval_seconds", None)
+        set_enabled = "monitor_enabled" in body
+        enabled_val = bool(body.get("monitor_enabled")) if set_enabled else None
+
+        set_interval = "interval_seconds" in body
+        interval_val = None
+        if set_interval:
+            raw = body.get("interval_seconds")
             if raw is not None:
                 try:
-                    interval = int(raw)
+                    interval_val = int(raw)
                 except (TypeError, ValueError):
                     return JSONResponse({"error": "interval_seconds must be an integer or null"}, status_code=422)
                 min_interval = int(cfg()["min_interval_seconds"])
-                if interval < min_interval:
+                if interval_val < min_interval:
                     return JSONResponse({"error": f"interval_seconds must be >= {min_interval}"}, status_code=422)
+
+        if not set_enabled and not set_interval:
+            return JSONResponse(
+                {"error": "nothing to update — provide monitor_enabled and/or interval_seconds"},
+                status_code=422,
+            )
 
         if async_session is None:
             return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -159,18 +168,16 @@ class MonitorsRouter:
                 select(ParseTarget).where(ParseTarget.id.in_(ids))
             )).scalars().all()
             for t in targets:
-                if action == "enable":
-                    t.monitor_enabled = True
-                    if t.next_run_at is None:
+                if set_enabled:
+                    t.monitor_enabled = enabled_val
+                    if enabled_val and t.next_run_at is None:
                         t.next_run_at = now
-                elif action == "disable":
-                    t.monitor_enabled = False
-                else:  # interval
-                    t.interval_seconds = interval
+                if set_interval:
+                    t.interval_seconds = interval_val
             await session.commit()
             updated = len(targets)
 
-        return JSONResponse({"ok": True, "updated": updated, "action": action})
+        return JSONResponse({"ok": True, "updated": updated})
 
     @staticmethod
     async def history(request: Request) -> JSONResponse:
