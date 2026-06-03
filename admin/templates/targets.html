@@ -96,6 +96,7 @@
       <h3 class="card-title">Saved targets</h3>
       <div class="card-options d-flex align-items-center gap-2">
         <span class="text-muted small" id="targetsCount"></span>
+        <span class="text-muted small" id="targetsSelectionCount"></span>
         <select class="form-select form-select-sm w-auto" id="targetsPerPage" onchange="setPerPage(this.value)">
           <option value="10">10</option>
           <option value="25" selected>25</option>
@@ -118,6 +119,9 @@
       <table class="table table-vcenter card-table">
         <thead>
           <tr>
+            <th style="width:36px">
+              <input type="checkbox" class="form-check-input" id="targetsSelectAll" onchange="toggleSelectAllTargets(this)">
+            </th>
             <th>Name / URL</th>
             <th>Marketplace</th>
             <th>Status</th>
@@ -125,11 +129,31 @@
           </tr>
         </thead>
         <tbody id="targetsBody">
-          <tr><td colspan="4" class="text-muted text-center py-3">Loading…</td></tr>
+          <tr><td colspan="5" class="text-muted text-center py-3">Loading…</td></tr>
         </tbody>
       </table>
     </div>
     <div class="card-footer d-flex align-items-center" id="targetsPager"></div>
+  </div>
+
+  <!-- spacer so the sticky action bar never hides the last rows -->
+  <div id="targetsBulkSpacer" style="height:0"></div>
+</div>
+
+<!-- Sticky bulk-action bar — shown when one or more targets are selected -->
+<div id="targetsBulkBar" class="position-fixed bottom-0 start-0 end-0 border-top bg-white shadow-sm py-2"
+     style="display:none; z-index:1030;">
+  <div class="container-xl d-flex align-items-center gap-2 flex-wrap">
+    <span class="fw-medium me-1" id="targetsBulkCount"></span>
+    <select id="targetsBulkAction" class="form-select form-select-sm w-auto">
+      <option value="">Action for selected…</option>
+      <option value="activate">Activate</option>
+      <option value="deactivate">Deactivate</option>
+      <option value="run">Run extraction</option>
+    </select>
+    <button class="btn btn-sm btn-primary" id="targetsApplyBtn" onclick="applyTargetBulk(this)" disabled>Apply</button>
+    <button class="btn btn-sm btn-outline-danger" onclick="deleteSelectedTargets(this)">Delete</button>
+    <button class="btn btn-sm btn-link ms-auto text-muted" onclick="clearTargetSelection()">Clear selection</button>
   </div>
 </div>
 
@@ -380,8 +404,9 @@ function renderTargets() {
   var tbody = document.getElementById('targetsBody');
 
   if (!page.length) {
-    tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center py-3">No targets yet.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="text-muted text-center py-3">No targets yet.</td></tr>';
     document.getElementById('targetsPager').innerHTML = '';
+    updateTargetSelection();
     return;
   }
 
@@ -395,6 +420,7 @@ function renderTargets() {
       : '';
 
     return '<tr id="trow-' + t.id + '">'
+      + '<td><input type="checkbox" class="form-check-input target-cb" data-id="' + esc(t.id) + '" onchange="updateTargetSelection()"></td>'
       + '<td>' + nameRow
       + '<a href="' + esc(t.url) + '" target="_blank" class="text-truncate d-block" style="max-width:340px"'
       + ' title="' + esc(t.url) + '">' + esc(t.url) + '</a></td>'
@@ -415,6 +441,94 @@ function renderTargets() {
   document.getElementById('targetsPager').innerHTML =
     '<p class="m-0 text-secondary">Showing ' + from + '–' + to + ' of ' + total + '</p>'
     + buildPagination(_currentPage, totalPages, 'goToTargetPage');
+  updateTargetSelection();
+}
+
+// --- selection + bulk actions ---
+function getSelectedTargetIds() {
+  return Array.from(document.querySelectorAll('.target-cb:checked')).map(function(c){ return c.dataset.id; });
+}
+
+function toggleSelectAllTargets(cb) {
+  document.querySelectorAll('.target-cb').forEach(function(c){ c.checked = cb.checked; });
+  updateTargetSelection();
+}
+
+function updateTargetSelection() {
+  var checked = document.querySelectorAll('.target-cb:checked').length;
+  var total = document.querySelectorAll('.target-cb').length;
+  var sa = document.getElementById('targetsSelectAll');
+  if (sa) sa.checked = total > 0 && checked === total;
+  document.getElementById('targetsSelectionCount').textContent = checked ? checked + ' selected' : '';
+
+  var bar = document.getElementById('targetsBulkBar');
+  document.getElementById('targetsBulkCount').textContent = checked + ' selected';
+  document.getElementById('targetsApplyBtn').disabled = checked === 0;
+  if (checked > 0) {
+    bar.style.display = '';
+    document.getElementById('targetsBulkSpacer').style.height = '64px';
+  } else {
+    bar.style.display = 'none';
+    document.getElementById('targetsBulkSpacer').style.height = '0';
+  }
+}
+
+function clearTargetSelection() {
+  document.querySelectorAll('.target-cb').forEach(function(c){ c.checked = false; });
+  var sa = document.getElementById('targetsSelectAll'); if (sa) sa.checked = false;
+  document.getElementById('targetsBulkAction').value = '';
+  updateTargetSelection();
+}
+
+async function applyTargetBulk(btn) {
+  var ids = getSelectedTargetIds();
+  if (!ids.length) return;
+  var action = document.getElementById('targetsBulkAction').value;
+  if (!action) { alert('Choose an action for the selected targets.'); return; }
+
+  setTargetBtnLoading(btn, true);
+  try {
+    if (action === 'activate' || action === 'deactivate') {
+      var res = await fetch('/admin/targets/bulk-toggle', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ids: ids, enabled: action === 'activate'}),
+      });
+      var d = await res.json().catch(function(){ return {}; });
+      if (!res.ok) alert(d.error || 'Action failed (HTTP ' + res.status + ')');
+    } else if (action === 'run') {
+      var res2 = await fetch('/admin/targets/run-selected', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ids: ids}),
+      });
+      var d2 = await res2.json().catch(function(){ return {}; });
+      if (res2.ok) alert('Extraction started for ' + (d2.total || ids.length) + ' target(s). Watch the Run-all progress / Products page.');
+      else alert(d2.error || 'Run failed (HTTP ' + res2.status + ')');
+    }
+  } catch (e) { alert('Action failed'); }
+  setTargetBtnLoading(btn, false);
+  document.getElementById('targetsBulkAction').value = '';
+  await loadTargets();
+}
+
+async function deleteSelectedTargets(btn) {
+  var ids = getSelectedTargetIds();
+  if (!ids.length) return;
+  if (!confirm('Delete ' + ids.length + ' selected target(s)?')) return;
+  setTargetBtnLoading(btn, true);
+  try {
+    var res = await fetch('/admin/targets/delete-many', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids: ids}),
+    });
+    var d = await res.json().catch(function(){ return {}; });
+    if (!res.ok) alert(d.error || 'Delete failed (HTTP ' + res.status + ')');
+  } catch (e) { alert('Delete failed'); }
+  setTargetBtnLoading(btn, false);
+  await loadTargets();
+}
+
+function setTargetBtnLoading(btn, loading) {
+  if (loading) { btn.disabled = true; btn.dataset.orig = btn.innerHTML; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+  else { btn.disabled = false; btn.innerHTML = btn.dataset.orig || btn.innerHTML; }
 }
 
 function esc(s) {
