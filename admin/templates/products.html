@@ -86,6 +86,20 @@
     </div>
     <div class="card-footer d-flex align-items-center" id="productsPager"></div>
   </div>
+
+  <!-- spacer so the sticky action bar never hides the last rows -->
+  <div id="prodBulkSpacer" style="height:0"></div>
+</div>
+
+<!-- Sticky bulk-action bar — shown when one or more products are selected -->
+<div id="prodBulkBar" class="position-fixed bottom-0 start-0 end-0 border-top bg-white shadow-sm py-2"
+     style="display:none; z-index:1030;">
+  <div class="container-xl d-flex align-items-center gap-2 flex-wrap">
+    <span class="fw-medium me-1" id="prodBulkCount"></span>
+    <button class="btn btn-sm btn-outline-primary" onclick="bulkRefetchProducts(this)">Re-fetch selected</button>
+    <button class="btn btn-sm btn-outline-danger" onclick="bulkDeleteProducts(this)">Delete selected</button>
+    <button class="btn btn-sm btn-link ms-auto text-muted" onclick="clearProductSelection()">Clear selection</button>
+  </div>
 </div>
 
 <script>
@@ -227,6 +241,58 @@ function updateSelectionCount() {
   var saEl    = document.getElementById('selectAll');
   countEl.textContent = checked ? checked + ' selected' : '';
   if (saEl) saEl.checked = total > 0 && checked === total;
+
+  var bar = document.getElementById('prodBulkBar');
+  document.getElementById('prodBulkCount').textContent = checked + ' selected';
+  if (checked > 0) {
+    bar.style.display = '';
+    document.getElementById('prodBulkSpacer').style.height = '64px';
+  } else {
+    bar.style.display = 'none';
+    document.getElementById('prodBulkSpacer').style.height = '0';
+  }
+}
+
+function clearProductSelection() {
+  document.querySelectorAll('.product-cb').forEach(function(c){ c.checked = false; });
+  var sa = document.getElementById('selectAll'); if (sa) sa.checked = false;
+  updateSelectionCount();
+}
+
+async function bulkDeleteProducts(btn) {
+  var ids = getSelectedIds();
+  if (!ids.length) return;
+  if (!confirm('Delete ' + ids.length + ' selected product(s)?')) return;
+  setBtnLoading(btn, true);
+  try {
+    var res = await fetch('/admin/products/delete_many', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids: ids}),
+    });
+    var d = await res.json().catch(function(){ return {}; });
+    if (!res.ok) alert(d.error || 'Delete failed (HTTP ' + res.status + ')');
+  } catch (e) { alert('Delete failed'); }
+  setBtnLoading(btn, false);
+  await loadProducts();
+}
+
+async function bulkRefetchProducts(btn) {
+  var ids = getSelectedIds();
+  if (!ids.length) return;
+  setBtnLoading(btn, true);
+  try {
+    var res = await fetch('/admin/products/refetch', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids: ids}),
+    });
+    var d = await res.json().catch(function(){ return {}; });
+    if (res.ok) alert('Re-fetch started for ' + (d.queued || ids.length) + ' product(s). Refresh the page in a moment to see updated data.');
+    else alert(d.error || 'Re-fetch failed (HTTP ' + res.status + ')');
+  } catch (e) { alert('Re-fetch failed'); }
+  setBtnLoading(btn, false);
+}
+
+function setBtnLoading(btn, loading) {
+  if (loading) { btn.disabled = true; btn.dataset.orig = btn.innerHTML; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+  else { btn.disabled = false; btn.innerHTML = btn.dataset.orig || btn.innerHTML; }
 }
 
 async function exportProducts(fmt) {
