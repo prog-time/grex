@@ -13,7 +13,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from loguru import logger
 
-_TYPES = ("telegram", "mail")
+_TYPES = ("telegram",)
 
 # Fixed frequency list (enum key → human label).
 _FREQUENCIES = {
@@ -24,7 +24,6 @@ _FREQUENCIES = {
     "weekly": "Раз в неделю",
 }
 
-_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _TG_USERNAME_RE = re.compile(r"^@?[A-Za-z0-9_]{4,32}$")
 
 
@@ -33,13 +32,9 @@ def _validate_recipient(type_: str, recipient: str) -> str | None:
     recipient = (recipient or "").strip()
     if not recipient:
         return "Укажите получателя"
-    if type_ == "mail":
-        if not _EMAIL_RE.match(recipient):
-            return "Некорректный email"
-    elif type_ == "telegram":
-        # Telegram: a numeric chat id, or @username / username (4–32 chars).
-        if not (recipient.lstrip("-").isdigit() or _TG_USERNAME_RE.match(recipient)):
-            return "Некорректный Telegram id или username"
+    # Telegram: a numeric chat id, or @username / username (4–32 chars).
+    if not (recipient.lstrip("-").isdigit() or _TG_USERNAME_RE.match(recipient)):
+        return "Некорректный Telegram id или username"
     return None
 
 
@@ -89,7 +84,7 @@ class AlertSourcesRouter:
         frequency = (body.get("frequency") or "").strip()
 
         if type_ not in _TYPES:
-            return JSONResponse({"error": "type must be 'telegram' or 'mail'"}, status_code=422)
+            return JSONResponse({"error": "type must be 'telegram'"}, status_code=422)
         if frequency not in _FREQUENCIES:
             return JSONResponse({"error": "Некорректная частота оповещений"}, status_code=422)
         err = _validate_recipient(type_, recipient)
@@ -272,69 +267,6 @@ class AlertSourcesRouter:
         logger.info(f"Telegram bot token {'cleared' if clear else 'updated'} (encrypted at rest)")
         return JSONResponse({"ok": True, "has_token": bool(enc)})
 
-    @staticmethod
-    async def get_smtp_settings(request: Request) -> JSONResponse:
-        """Return the SMTP config without the password (only whether one is set)."""
-        from config import settings  # noqa: PLC0415
-
-        smtp = settings.get("notifications", {}).get("smtp", {}) or {}
-        return JSONResponse({
-            "host": smtp.get("host", "") or "",
-            "port": int(smtp.get("port", 587) or 587),
-            "username": smtp.get("username", "") or "",
-            "from": smtp.get("from", "") or "",
-            "use_tls": bool(smtp.get("use_tls", True)),
-            "use_ssl": bool(smtp.get("use_ssl", False)),
-            "has_password": bool(smtp.get("password_enc") or smtp.get("password")),
-        })
-
-    @staticmethod
-    async def save_smtp_settings(request: Request) -> JSONResponse:
-        """Persist SMTP config (password encrypted). Body: host, port, username,
-        password (blank = keep current), from, use_tls, use_ssl."""
-        import os  # noqa: PLC0415
-
-        import yaml  # noqa: PLC0415
-
-        from config import data_path, settings  # noqa: PLC0415
-        from services.secrets import encrypt_secret  # noqa: PLC0415
-
-        body = await request.json()
-        host = (body.get("host") or "").strip()
-        username = (body.get("username") or "").strip()
-        from_addr = (body.get("from") or "").strip()
-        use_tls = bool(body.get("use_tls", True))
-        use_ssl = bool(body.get("use_ssl", False))
-        try:
-            port = int(body.get("port") or 587)
-        except (TypeError, ValueError):
-            return JSONResponse({"error": "Некорректный порт"}, status_code=422)
-        new_password = body.get("password")  # None/"" → keep existing
-
-        settings_file = os.path.join(data_path, "settings.yml")
-        try:
-            with open(settings_file, encoding="utf-8") as f:
-                raw = yaml.safe_load(f) or {}
-            smtp = raw.setdefault("notifications", {}).setdefault("smtp", {})
-            smtp["host"] = host
-            smtp["port"] = port
-            smtp["username"] = username
-            smtp["from"] = from_addr
-            smtp["use_tls"] = use_tls
-            smtp["use_ssl"] = use_ssl
-            if new_password:
-                smtp["password_enc"] = encrypt_secret(new_password)
-                smtp.pop("password", None)  # never keep plaintext
-            with open(settings_file, "w", encoding="utf-8") as f:
-                yaml.dump(raw, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
-            settings.setdefault("notifications", {})["smtp"] = dict(smtp)
-        except Exception as exc:  # noqa: BLE001
-            logger.error(f"Failed to save SMTP settings: {exc}")
-            return JSONResponse({"error": "Не удалось сохранить настройки SMTP"}, status_code=500)
-
-        logger.info("SMTP settings updated")
-        return JSONResponse({"ok": True, "has_password": bool(smtp.get("password_enc"))})
-
 
 def register_alert_sources_routes(app) -> None:  # type: ignore[no-untyped-def]
     """Attach alert-source endpoints to *app*."""
@@ -361,10 +293,4 @@ def register_alert_sources_routes(app) -> None:  # type: ignore[no-untyped-def]
     )
     app.add_api_route(
         "/admin/alert-sources/settings", router.save_settings, methods=["POST"], tags=["admin"], dependencies=_auth,
-    )
-    app.add_api_route(
-        "/admin/alert-sources/smtp", router.get_smtp_settings, methods=["GET"], tags=["admin"], dependencies=_auth,
-    )
-    app.add_api_route(
-        "/admin/alert-sources/smtp", router.save_smtp_settings, methods=["POST"], tags=["admin"], dependencies=_auth,
     )

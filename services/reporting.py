@@ -131,14 +131,6 @@ async def _send_one(source: dict, path: str) -> bool:
             logger.warning(f"Telegram report failed for {source['recipient']}: {err}")
         return ok
 
-    if source["type"] == "mail":
-        from services.mailer import send_report_email  # noqa: PLC0415
-
-        ok, err = await send_report_email(source["recipient"], "Отчёт мониторинга цен", caption, path)
-        if not ok:
-            logger.warning(f"Email report failed for {source['recipient']}: {err}")
-        return ok
-
     return False
 
 
