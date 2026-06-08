@@ -77,17 +77,25 @@ async def send_document(token: str, chat_id: int | str, file_path: str, caption:
     """Send a file to *chat_id* via sendDocument. Returns (True, None) or (False, error)."""
     import os  # noqa: PLC0415
 
+    from curl_cffi import CurlMime  # noqa: PLC0415
     from curl_cffi.requests import AsyncSession  # noqa: PLC0415
+
+    mp = None
     try:
-        with open(file_path, "rb") as fh:
-            content = fh.read()
-        data = {"chat_id": str(chat_id)}
+        # curl_cffi needs a CurlMime for multipart uploads (it has no requests-style files=).
+        mp = CurlMime()
+        mp.addpart(
+            name="document",
+            filename=os.path.basename(file_path),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            local_path=file_path,
+        )
+        params = {"chat_id": str(chat_id)}
         if caption:
-            data["caption"] = caption
-        files = {"document": (os.path.basename(file_path), content)}
+            params["caption"] = caption
         async with AsyncSession() as session:
             resp = await session.post(
-                _API.format(token=token, method="sendDocument"), data=data, files=files, timeout=60,
+                _API.format(token=token, method="sendDocument"), params=params, multipart=mp, timeout=60,
             )
         res = resp.json()
         if res.get("ok"):
@@ -96,3 +104,9 @@ async def send_document(token: str, chat_id: int | str, file_path: str, caption:
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"Telegram sendDocument failed: {exc}")
         return False, f"ошибка: {exc}"
+    finally:
+        if mp is not None:
+            try:
+                mp.close()
+            except Exception:  # noqa: BLE001
+                pass
