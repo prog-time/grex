@@ -74,7 +74,7 @@ async def db(tmp_path):
 
 class TestEndpoints:
     async def test_create_then_list(self, db):
-        with patch.dict("config.settings", {"notifications": {"telegram_bot_token": "T"}}, clear=False):
+        with patch("admin.resources.alert_sources.get_telegram_token", return_value="T"):
             status, body = _payload(await AlertSourcesRouter.create_source(
                 FakeRequest({"type": "telegram", "recipient": "@buyer", "frequency": "daily"})
             ))
@@ -96,18 +96,49 @@ class TestEndpoints:
 
     async def test_telegram_requires_token(self, db):
         # No bot token configured → a Telegram source cannot be created.
-        with patch.dict("config.settings", {"notifications": {"telegram_bot_token": ""}}, clear=False):
+        with patch("admin.resources.alert_sources.get_telegram_token", return_value=""):
             status, body = _payload(await AlertSourcesRouter.create_source(
                 FakeRequest({"type": "telegram", "recipient": "@buyer", "frequency": "daily"})
             ))
         assert status == 422 and "error" in body
 
     async def test_mail_does_not_require_token(self, db):
-        with patch.dict("config.settings", {"notifications": {"telegram_bot_token": ""}}, clear=False):
+        with patch("admin.resources.alert_sources.get_telegram_token", return_value=""):
             status, _ = _payload(await AlertSourcesRouter.create_source(
                 FakeRequest({"type": "mail", "recipient": "a@b.co", "frequency": "daily"})
             ))
         assert status == 200
+
+
+# ---------------------------------------------------------------------------
+# Telegram token: encryption at rest + masked settings response
+# ---------------------------------------------------------------------------
+
+def test_secret_encrypt_decrypt_round_trip():
+    from services.secrets import decrypt_secret, encrypt_secret
+
+    enc = encrypt_secret("123456:ABCdef")
+    assert enc and enc != "123456:ABCdef"      # stored value is not plaintext
+    assert decrypt_secret(enc) == "123456:ABCdef"
+    assert encrypt_secret("") == ""
+    assert decrypt_secret("") == ""
+    assert decrypt_secret("not-a-valid-token") == ""
+
+
+class TestSettingsEndpoint:
+    async def test_get_settings_masks_token(self):
+        with patch("admin.resources.alert_sources.get_telegram_token", return_value="123456:ABCDEF"):
+            status, body = _payload(await AlertSourcesRouter.get_settings(FakeRequest()))
+        assert status == 200
+        assert body["has_token"] is True
+        assert body["hint"] == "••••CDEF"          # only the last 4 chars, masked
+        assert "123456" not in body["hint"]
+        assert "telegram_bot_token" not in body    # the raw token is never returned
+
+    async def test_get_settings_no_token(self):
+        with patch("admin.resources.alert_sources.get_telegram_token", return_value=""):
+            status, body = _payload(await AlertSourcesRouter.get_settings(FakeRequest()))
+        assert status == 200 and body["has_token"] is False and body["hint"] == ""
 
     async def test_rejects_bad_email(self, db):
         status, body = _payload(await AlertSourcesRouter.create_source(

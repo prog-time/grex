@@ -42,6 +42,15 @@ def _validate_recipient(type_: str, recipient: str) -> str | None:
     return None
 
 
+def get_telegram_token() -> str:
+    """Return the decrypted Telegram bot token, or "" when not configured."""
+    from config import settings  # noqa: PLC0415
+    from services.secrets import decrypt_secret  # noqa: PLC0415
+
+    enc = settings.get("notifications", {}).get("telegram_bot_token_enc", "") or ""
+    return decrypt_secret(enc)
+
+
 class AlertSourcesRouter:
     """FastAPI router for /admin/alert-sources endpoints."""
 
@@ -87,13 +96,11 @@ class AlertSourcesRouter:
             return JSONResponse({"error": err}, status_code=422)
 
         # A Telegram source needs the bot token configured first.
-        if type_ == "telegram":
-            from config import settings  # noqa: PLC0415
-            if not (settings.get("notifications", {}).get("telegram_bot_token") or "").strip():
-                return JSONResponse(
-                    {"error": "Сначала укажите токен Telegram-бота в настройках выше"},
-                    status_code=422,
-                )
+        if type_ == "telegram" and not get_telegram_token():
+            return JSONResponse(
+                {"error": "Сначала укажите токен Telegram-бота в настройках выше"},
+                status_code=422,
+            )
 
         if async_session is None:
             return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -134,38 +141,54 @@ class AlertSourcesRouter:
 
     @staticmethod
     async def get_settings(request: Request) -> JSONResponse:
-        """Return the stored notification settings (Telegram bot token)."""
-        from config import settings  # noqa: PLC0415
-
-        token = settings.get("notifications", {}).get("telegram_bot_token", "") or ""
-        return JSONResponse({"telegram_bot_token": token})
+        """Return whether a Telegram token is set and a masked hint — never the raw token."""
+        token = get_telegram_token()
+        if token:
+            hint = "••••" + token[-4:] if len(token) >= 4 else "••••"
+        else:
+            hint = ""
+        return JSONResponse({"has_token": bool(token), "hint": hint})
 
     @staticmethod
     async def save_settings(request: Request) -> JSONResponse:
-        """Persist the Telegram bot token to settings.yml. Body: {telegram_bot_token}."""
+        """Set/clear the Telegram bot token (stored ENCRYPTED in settings.yml).
+
+        Body: {"telegram_bot_token": "..."} to set, or {"clear": true} to remove.
+        An empty token with no clear flag is a no-op (keeps the current value).
+        """
         import os  # noqa: PLC0415
 
         import yaml  # noqa: PLC0415
 
         from config import data_path, settings  # noqa: PLC0415
+        from services.secrets import encrypt_secret  # noqa: PLC0415
 
         body = await request.json()
+        clear = bool(body.get("clear"))
         token = (body.get("telegram_bot_token") or "").strip()
 
+        if not clear and not token:
+            return JSONResponse({"ok": True, "has_token": bool(get_telegram_token())})
+
+        enc = "" if clear else encrypt_secret(token)
         settings_file = os.path.join(data_path, "settings.yml")
         try:
             with open(settings_file, encoding="utf-8") as f:
                 raw = yaml.safe_load(f) or {}
-            raw.setdefault("notifications", {})["telegram_bot_token"] = token
+            notif = raw.setdefault("notifications", {})
+            notif["telegram_bot_token_enc"] = enc
+            notif.pop("telegram_bot_token", None)  # drop any legacy plaintext key
             with open(settings_file, "w", encoding="utf-8") as f:
                 yaml.dump(raw, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
         except Exception as exc:  # noqa: BLE001
             logger.error(f"Failed to save Telegram bot token: {exc}")
             return JSONResponse({"error": "Не удалось сохранить токен"}, status_code=500)
 
-        settings.setdefault("notifications", {})["telegram_bot_token"] = token
-        logger.info("Telegram bot token updated")
-        return JSONResponse({"ok": True})
+        notif_mem = settings.setdefault("notifications", {})
+        notif_mem["telegram_bot_token_enc"] = enc
+        notif_mem.pop("telegram_bot_token", None)
+        logger.info(f"Telegram bot token {'cleared' if clear else 'updated'} (encrypted at rest)")
+        return JSONResponse({"ok": True, "has_token": bool(enc)})
 
 
 def register_alert_sources_routes(app) -> None:  # type: ignore[no-untyped-def]
