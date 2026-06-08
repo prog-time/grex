@@ -95,25 +95,41 @@ class AlertSourcesRouter:
         if err:
             return JSONResponse({"error": err}, status_code=422)
 
-        # A Telegram source needs the bot token configured first.
-        if type_ == "telegram" and not get_telegram_token():
-            return JSONResponse(
-                {"error": "Сначала укажите токен Telegram-бота в настройках выше"},
-                status_code=422,
-            )
+        chat_id: str | None = None
+        # Telegram: the bot can only message a numeric chat id, so resolve the
+        # recipient to one and verify the bot can actually deliver to it.
+        if type_ == "telegram":
+            token = get_telegram_token()
+            if not token:
+                return JSONResponse(
+                    {"error": "Сначала укажите токен Telegram-бота в настройках выше"},
+                    status_code=422,
+                )
+            from services.telegram import can_send, resolve_chat_id  # noqa: PLC0415
+            resolved, err = await resolve_chat_id(token, recipient)
+            if err:
+                return JSONResponse({"error": err}, status_code=422)
+            ok, send_err = await can_send(token, resolved)
+            if not ok:
+                return JSONResponse(
+                    {"error": f"Бот не может отправлять сообщения этому получателю: {send_err}"},
+                    status_code=422,
+                )
+            chat_id = str(resolved)
 
         if async_session is None:
             return JSONResponse({"error": "DB not initialised"}, status_code=503)
 
         async with async_session() as session:
             source = AlertSource(
-                id=str(_uuid.uuid4()), type=type_, recipient=recipient, frequency=frequency,
+                id=str(_uuid.uuid4()), type=type_, recipient=recipient,
+                chat_id=chat_id, frequency=frequency,
             )
             session.add(source)
             await session.commit()
             data = source.to_dict()
 
-        logger.info(f"Alert source created: {type_} -> {recipient} [{frequency}]")
+        logger.info(f"Alert source created: {type_} -> {recipient} (chat_id={chat_id}) [{frequency}]")
         return JSONResponse({"ok": True, "source": data})
 
     @staticmethod

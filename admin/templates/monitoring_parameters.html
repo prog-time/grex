@@ -139,7 +139,8 @@ async function showList() {
   tbody.innerHTML = rows.map(function(s) {
     return '<tr>'
       + '<td>' + typeBadge(s.type) + '</td>'
-      + '<td><code>' + esc(s.recipient) + '</code></td>'
+      + '<td><code>' + esc(s.recipient) + '</code>'
+        + (s.chat_id ? '<div class="text-muted small">chat_id: ' + esc(s.chat_id) + '</div>' : '') + '</td>'
       + '<td>' + esc(_frequencies[s.frequency] || s.frequency) + '</td>'
       + '<td class="text-muted small">' + fmtDate(s.created_at) + '</td>'
       + '<td class="text-muted small">' + (s.last_sent_at ? fmtDate(s.last_sent_at) : '—') + '</td>'
@@ -212,7 +213,8 @@ async function showForm(type) {
   const input = document.getElementById('recipientInput');
   input.placeholder = isTg ? '@username или числовой id' : 'name@example.com';
   document.getElementById('recipientHint').textContent = isTg
-    ? 'Telegram username (@name) или числовой chat id.'
+    ? 'Укажите @username (пользователь должен был написать боту /start) или числовой chat_id. '
+      + 'При сохранении бот проверит доступность и сохранит chat_id.'
     : 'Email-адрес получателя.';
 
   try { await fetchData(); } catch (e) { /* keep defaults */ }

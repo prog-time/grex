@@ -8,12 +8,21 @@ can't leak into other test modules.
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
 
 from admin.resources.alert_sources import AlertSourcesRouter, _validate_recipient
+
+
+def _tg_ok(chat_id=12345):
+    """Patch context: token set, recipient resolves, bot can send."""
+    return (
+        patch("admin.resources.alert_sources.get_telegram_token", return_value="T"),
+        patch("services.telegram.resolve_chat_id", new=AsyncMock(return_value=(chat_id, None))),
+        patch("services.telegram.can_send", new=AsyncMock(return_value=(True, None))),
+    )
 
 
 class FakeRequest:
@@ -74,12 +83,14 @@ async def db(tmp_path):
 
 class TestEndpoints:
     async def test_create_then_list(self, db):
-        with patch("admin.resources.alert_sources.get_telegram_token", return_value="T"):
+        p1, p2, p3 = _tg_ok(chat_id=12345)
+        with p1, p2, p3:
             status, body = _payload(await AlertSourcesRouter.create_source(
                 FakeRequest({"type": "telegram", "recipient": "@buyer", "frequency": "daily"})
             ))
         assert status == 200 and body["ok"] is True
         assert body["source"]["type"] == "telegram"
+        assert body["source"]["chat_id"] == "12345"   # resolved chat id is stored
 
         status, body = _payload(await AlertSourcesRouter.list_sources(FakeRequest()))
         assert status == 200
@@ -87,6 +98,23 @@ class TestEndpoints:
         assert body["sources"][0]["recipient"] == "@buyer"
         # the fixed frequency list is exposed for the UI dropdown
         assert "daily" in body["frequencies"]
+
+    async def test_telegram_unresolvable_recipient(self, db):
+        with patch("admin.resources.alert_sources.get_telegram_token", return_value="T"), \
+                patch("services.telegram.resolve_chat_id", new=AsyncMock(return_value=(None, "не найден"))):
+            status, body = _payload(await AlertSourcesRouter.create_source(
+                FakeRequest({"type": "telegram", "recipient": "@ghost", "frequency": "daily"})
+            ))
+        assert status == 422 and "error" in body
+
+    async def test_telegram_cannot_send(self, db):
+        with patch("admin.resources.alert_sources.get_telegram_token", return_value="T"), \
+                patch("services.telegram.resolve_chat_id", new=AsyncMock(return_value=(777, None))), \
+                patch("services.telegram.can_send", new=AsyncMock(return_value=(False, "bot was blocked"))):
+            status, body = _payload(await AlertSourcesRouter.create_source(
+                FakeRequest({"type": "telegram", "recipient": "@blocked", "frequency": "daily"})
+            ))
+        assert status == 422 and "error" in body
 
     async def test_create_mail(self, db):
         status, body = _payload(await AlertSourcesRouter.create_source(
@@ -173,3 +201,61 @@ class TestSettingsEndpoint:
     async def test_delete_missing_returns_404(self, db):
         status, _ = _payload(await AlertSourcesRouter.delete_source(FakeRequest({"id": "nope"})))
         assert status == 404
+
+
+# ---------------------------------------------------------------------------
+# Telegram chat-id resolution + deliverability (services/telegram.py)
+# ---------------------------------------------------------------------------
+
+class TestTelegramResolve:
+    async def test_numeric_id_passthrough(self):
+        from services.telegram import resolve_chat_id
+
+        assert await resolve_chat_id("T", "123456") == (123456, None)
+        assert await resolve_chat_id("T", "-1001234") == (-1001234, None)
+
+    async def test_public_username_via_getchat(self):
+        from services import telegram
+
+        def fake_call(token, method, params, timeout=10):
+            return {"ok": True, "result": {"id": -100999}} if method == "getChat" else {"ok": False}
+
+        with patch("services.telegram._call", new=AsyncMock(side_effect=fake_call)):
+            assert await telegram.resolve_chat_id("T", "@mychannel") == (-100999, None)
+
+    async def test_private_user_via_getupdates(self):
+        from services import telegram
+
+        def fake_call(token, method, params, timeout=10):
+            if method == "getChat":
+                return {"ok": False, "description": "chat not found"}
+            if method == "getUpdates":
+                return {"ok": True, "result": [{"message": {"from": {"username": "Buyer"}, "chat": {"id": 555}}}]}
+            return {"ok": False}
+
+        with patch("services.telegram._call", new=AsyncMock(side_effect=fake_call)):
+            cid, err = await telegram.resolve_chat_id("T", "@buyer")  # case-insensitive
+        assert cid == 555 and err is None
+
+    async def test_unresolvable_returns_error(self):
+        from services import telegram
+
+        def fake_call(token, method, params, timeout=10):
+            if method == "getChat":
+                return {"ok": False, "description": "chat not found"}
+            if method == "getUpdates":
+                return {"ok": True, "result": []}
+            return {"ok": False}
+
+        with patch("services.telegram._call", new=AsyncMock(side_effect=fake_call)):
+            cid, err = await telegram.resolve_chat_id("T", "@ghost")
+        assert cid is None and err
+
+    async def test_can_send_ok_and_fail(self):
+        from services import telegram
+
+        with patch("services.telegram._call", new=AsyncMock(return_value={"ok": True})):
+            assert await telegram.can_send("T", 555) == (True, None)
+        with patch("services.telegram._call", new=AsyncMock(return_value={"ok": False, "description": "blocked"})):
+            ok, err = await telegram.can_send("T", 555)
+        assert ok is False and "blocked" in err
