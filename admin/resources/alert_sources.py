@@ -17,6 +17,7 @@ _TYPES = ("telegram", "mail")
 
 # Fixed frequency list (enum key → human label).
 _FREQUENCIES = {
+    "every_10m": "Раз в 10 минут",
     "hourly": "Раз в час",
     "every_3h": "Раз в 3 часа",
     "daily": "Раз в день",
