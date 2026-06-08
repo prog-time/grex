@@ -1,0 +1,206 @@
+{% extends "layout.html" %}
+
+{% block header %}
+<div class="d-flex justify-content-between align-items-center">
+  <h1>Параметры мониторинга</h1>
+  <ol class="breadcrumb mb-0">
+    <li class="breadcrumb-item"><a href="{{ url_for(__name__ ~ ':index') }}">Admin</a></li>
+    <li class="breadcrumb-item active">Параметры мониторинга</li>
+  </ol>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="container-xl">
+
+  <!-- ── Список источников ─────────────────────────────────────────── -->
+  <div id="listView" style="display:none;">
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">Источники оповещений</h3>
+        <div class="card-options">
+          <div class="dropdown">
+            <button class="btn btn-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
+              Добавить
+            </button>
+            <div class="dropdown-menu dropdown-menu-end">
+              <h6 class="dropdown-header">Тип оповещения</h6>
+              <a class="dropdown-item" href="?view=new&type=telegram">Telegram</a>
+              <a class="dropdown-item" href="?view=new&type=mail">Mail</a>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-vcenter card-table">
+          <thead>
+            <tr>
+              <th style="width:120px">Тип</th>
+              <th>Кому отправить</th>
+              <th style="width:170px">Частота</th>
+              <th style="width:160px">Создан</th>
+              <th style="width:70px"></th>
+            </tr>
+          </thead>
+          <tbody id="srcBody">
+            <tr><td colspan="5" class="text-center text-muted py-3">
+              <span class="spinner-border spinner-border-sm me-2"></span>Загрузка…
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="text-muted small mt-2">
+      Оповещение — периодическая отправка одного Excel-документа со всеми активными товарами раздела
+      «Monitoring» выбранному получателю с заданной частотой. Сама доставка подключается отдельно.
+    </p>
+  </div>
+
+  <!-- ── Форма создания источника ──────────────────────────────────── -->
+  <div id="formView" style="display:none;">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title" id="formTitle">Новый источник</h3></div>
+      <div class="card-body" style="max-width:560px;">
+        <div class="mb-3">
+          <label class="form-label" id="recipientLabel">Кому отправить</label>
+          <input id="recipientInput" type="text" class="form-control" placeholder="">
+          <div class="form-hint" id="recipientHint"></div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Частота оповещений</label>
+          <select id="frequencySelect" class="form-select"></select>
+        </div>
+        <div id="formError" class="text-danger mb-2" style="display:none;"></div>
+      </div>
+      <div class="card-footer d-flex gap-2">
+        <button class="btn btn-primary" id="saveBtn" onclick="saveSource(this)">Создать</button>
+        <a class="btn btn-link text-muted" href="?">Отмена</a>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+var _frequencies = {};
+var _formType = '';
+var _params = new URLSearchParams(window.location.search);
+
+function typeLabel(t) { return t === 'telegram' ? 'Telegram' : (t === 'mail' ? 'Mail' : t); }
+function typeBadge(t) {
+  var cls = t === 'telegram' ? 'bg-azure' : (t === 'mail' ? 'bg-green' : 'bg-secondary');
+  return '<span class="badge ' + cls + ' text-white">' + esc(typeLabel(t)) + '</span>';
+}
+
+async function fetchData() {
+  const res = await fetch('/admin/alert-sources/api');
+  if (!res.ok) throw new Error('http ' + res.status);
+  const d = await res.json();
+  _frequencies = d.frequencies || {};
+  return d;
+}
+
+async function showList() {
+  document.getElementById('listView').style.display = '';
+  document.getElementById('formView').style.display = 'none';
+  const tbody = document.getElementById('srcBody');
+  let d;
+  try {
+    d = await fetchData();
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-danger text-center py-3">Не удалось загрузить источники.</td></tr>';
+    return;
+  }
+  const rows = d.sources || [];
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-muted text-center py-3">Источников пока нет. Нажмите «Добавить».</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(function(s) {
+    return '<tr>'
+      + '<td>' + typeBadge(s.type) + '</td>'
+      + '<td><code>' + esc(s.recipient) + '</code></td>'
+      + '<td>' + esc(_frequencies[s.frequency] || s.frequency) + '</td>'
+      + '<td class="text-muted small">' + fmtDate(s.created_at) + '</td>'
+      + '<td class="text-end"><button class="btn btn-sm btn-outline-danger" onclick="deleteSource(\'' + s.id + '\')">✕</button></td>'
+      + '</tr>';
+  }).join('');
+}
+
+async function showForm(type) {
+  _formType = type;
+  document.getElementById('listView').style.display = 'none';
+  document.getElementById('formView').style.display = '';
+  document.getElementById('formTitle').textContent = 'Новый источник — ' + typeLabel(type);
+
+  const isTg = type === 'telegram';
+  document.getElementById('recipientLabel').textContent = isTg ? 'Telegram id или username' : 'Email';
+  const input = document.getElementById('recipientInput');
+  input.placeholder = isTg ? '@username или числовой id' : 'name@example.com';
+  document.getElementById('recipientHint').textContent = isTg
+    ? 'Telegram username (@name) или числовой chat id.'
+    : 'Email-адрес получателя.';
+
+  try { await fetchData(); } catch (e) { /* keep defaults */ }
+  const sel = document.getElementById('frequencySelect');
+  sel.innerHTML = Object.keys(_frequencies).map(function(k) {
+    return '<option value="' + k + '">' + esc(_frequencies[k]) + '</option>';
+  }).join('') || '<option value="">—</option>';
+}
+
+async function saveSource(btn) {
+  const recipient = document.getElementById('recipientInput').value.trim();
+  const frequency = document.getElementById('frequencySelect').value;
+  const errEl = document.getElementById('formError');
+  errEl.style.display = 'none';
+
+  btn.disabled = true;
+  try {
+    const res = await fetch('/admin/alert-sources', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({type: _formType, recipient: recipient, frequency: frequency}),
+    });
+    const d = await res.json().catch(function(){ return {}; });
+    if (res.ok) {
+      window.location.href = '?';   // back to the list
+      return;
+    }
+    errEl.textContent = d.error || ('Ошибка сохранения (HTTP ' + res.status + ')');
+    errEl.style.display = '';
+  } catch (e) {
+    errEl.textContent = 'Ошибка сохранения';
+    errEl.style.display = '';
+  }
+  btn.disabled = false;
+}
+
+async function deleteSource(id) {
+  if (!confirm('Удалить источник оповещений?')) return;
+  try {
+    await fetch('/admin/alert-sources/delete', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: id}),
+    });
+  } catch (e) { /* ignore */ }
+  showList();
+}
+
+function fmtDate(s) {
+  if (!s) return '—';
+  if (s && !/[zZ]$|[+\-]\d{2}:?\d{2}$/.test(s)) s += 'Z';
+  var d = new Date(s);
+  return isNaN(d) ? '—' : d.toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
+}
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Route between the list and the creation form based on the URL.
+if (_params.get('view') === 'new' && (_params.get('type') === 'telegram' || _params.get('type') === 'mail')) {
+  showForm(_params.get('type'));
+} else {
+  showList();
+}
+</script>
+{% endblock %}
