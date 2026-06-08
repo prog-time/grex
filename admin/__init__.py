@@ -149,33 +149,33 @@ async def setup_admin(app: FastAPI) -> None:
         templates_dir=templates_dir,
         middlewares=[Middleware(SessionMiddleware, secret_key=secret_key)],
         index_view=DashboardView(
-            "Home", icon="fa fa-home",
+            "Главная", icon="fa fa-home",
             path="/", template_path="dashboard.html", name="index",
         ),
     )
 
     admin.add_view(TargetsView(
-        "Targets", icon="fa fa-crosshairs",
+        "Цели", icon="fa fa-crosshairs",
         path="/targets", template_path="targets.html", name="targets",
     ))
     admin.add_view(LinksView(
-        "Link Extractor", icon="fa fa-link",
+        "Извлечение ссылок", icon="fa fa-link",
         path="/links", template_path="links.html", name="links",
     ))
     admin.add_view(ProductsView(
-        "Products", icon="fa fa-shopping-cart",
+        "Товары", icon="fa fa-shopping-cart",
         path="/products", template_path="products.html", name="products",
     ))
     admin.add_view(MonitoringView(
-        "Monitoring", icon="fa fa-bell",
+        "Мониторинг", icon="fa fa-bell",
         path="/monitors", template_path="monitors.html", name="monitors",
     ))
     admin.add_view(JobsView(
-        "Jobs", icon="fa fa-list",
+        "История задач", icon="fa fa-list",
         path="/jobs", template_path="jobs.html", name="jobs",
     ))
     admin.add_view(DropDown(
-        "Settings",
+        "Настройки",
         icon="fa fa-sliders",
         views=[
             MonitoringParametersView(
@@ -184,11 +184,11 @@ async def setup_admin(app: FastAPI) -> None:
                 name="monitoring_parameters",
             ),
             ProxiesView(
-                "Proxies", icon="fa fa-shield",
+                "Прокси", icon="fa fa-shield",
                 path="/proxies", template_path="proxies.html", name="proxies",
             ),
             UsersView(
-                "Users", icon="fa fa-users",
+                "Пользователи", icon="fa fa-users",
                 path="/users", template_path="users.html", name="users",
             ),
         ],
