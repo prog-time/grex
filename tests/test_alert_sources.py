@@ -44,14 +44,6 @@ def _payload(resp):
 # ---------------------------------------------------------------------------
 
 class TestValidateRecipient:
-    @pytest.mark.parametrize("value", ["a@b.co", "user.name@example.com", "x@y.io"])
-    def test_valid_email(self, value):
-        assert _validate_recipient("mail", value) is None
-
-    @pytest.mark.parametrize("value", ["", "notanemail", "a@b", "a@@b.co", "no spaces@x.co"])
-    def test_invalid_email(self, value):
-        assert _validate_recipient("mail", value) is not None
-
     @pytest.mark.parametrize("value", ["@username", "username", "123456789", "-1001234567", "user_name_1"])
     def test_valid_telegram(self, value):
         assert _validate_recipient("telegram", value) is None
@@ -116,19 +108,22 @@ class TestEndpoints:
             ))
         assert status == 422 and "error" in body
 
-    async def test_update_mail_frequency(self, db):
-        _, created = _payload(await AlertSourcesRouter.create_source(
-            FakeRequest({"type": "mail", "recipient": "a@b.co", "frequency": "daily"})
-        ))
+    async def test_update_frequency_only(self, db):
+        # Recipient unchanged → no Telegram re-resolution needed.
+        p1, p2, p3 = _tg_ok(chat_id=111)
+        with p1, p2, p3:
+            _, created = _payload(await AlertSourcesRouter.create_source(
+                FakeRequest({"type": "telegram", "recipient": "@buyer", "frequency": "daily"})
+            ))
         sid = created["source"]["id"]
         status, body = _payload(await AlertSourcesRouter.update_source(
-            FakeRequest({"id": sid, "recipient": "a@b.co", "frequency": "weekly"})
+            FakeRequest({"id": sid, "recipient": "@buyer", "frequency": "weekly"})
         ))
         assert status == 200 and body["source"]["frequency"] == "weekly"
 
     async def test_update_missing_returns_404(self, db):
         status, _ = _payload(await AlertSourcesRouter.update_source(
-            FakeRequest({"id": "nope", "recipient": "a@b.co", "frequency": "daily"})
+            FakeRequest({"id": "nope", "recipient": "@buyer", "frequency": "daily"})
         ))
         assert status == 404
 
@@ -150,11 +145,6 @@ class TestEndpoints:
         assert status == 200
         assert body["source"]["recipient"] == "@newname" and body["source"]["chat_id"] == "222"
 
-    async def test_create_mail(self, db):
-        status, body = _payload(await AlertSourcesRouter.create_source(
-            FakeRequest({"type": "mail", "recipient": "boss@example.com", "frequency": "weekly"})
-        ))
-        assert status == 200 and body["source"]["type"] == "mail"
 
     async def test_telegram_requires_token(self, db):
         # No bot token configured → a Telegram source cannot be created.
@@ -163,13 +153,6 @@ class TestEndpoints:
                 FakeRequest({"type": "telegram", "recipient": "@buyer", "frequency": "daily"})
             ))
         assert status == 422 and "error" in body
-
-    async def test_mail_does_not_require_token(self, db):
-        with patch("admin.resources.alert_sources.get_telegram_token", return_value=""):
-            status, _ = _payload(await AlertSourcesRouter.create_source(
-                FakeRequest({"type": "mail", "recipient": "a@b.co", "frequency": "daily"})
-            ))
-        assert status == 200
 
 
 # ---------------------------------------------------------------------------
@@ -202,12 +185,6 @@ class TestSettingsEndpoint:
             status, body = _payload(await AlertSourcesRouter.get_settings(FakeRequest()))
         assert status == 200 and body["has_token"] is False and body["hint"] == ""
 
-    async def test_rejects_bad_email(self, db):
-        status, body = _payload(await AlertSourcesRouter.create_source(
-            FakeRequest({"type": "mail", "recipient": "not-an-email", "frequency": "daily"})
-        ))
-        assert status == 422 and "error" in body
-
     async def test_rejects_bad_frequency(self, db):
         status, body = _payload(await AlertSourcesRouter.create_source(
             FakeRequest({"type": "telegram", "recipient": "@buyer", "frequency": "every_minute"})
@@ -221,9 +198,11 @@ class TestSettingsEndpoint:
         assert status == 422
 
     async def test_delete(self, db):
-        _, created = _payload(await AlertSourcesRouter.create_source(
-            FakeRequest({"type": "mail", "recipient": "a@b.co", "frequency": "hourly"})
-        ))
+        p1, p2, p3 = _tg_ok(chat_id=999)
+        with p1, p2, p3:
+            _, created = _payload(await AlertSourcesRouter.create_source(
+                FakeRequest({"type": "telegram", "recipient": "@buyer", "frequency": "hourly"})
+            ))
         sid = created["source"]["id"]
 
         status, body = _payload(await AlertSourcesRouter.delete_source(FakeRequest({"id": sid})))
@@ -293,52 +272,3 @@ class TestTelegramResolve:
         with patch("services.telegram._call", new=AsyncMock(return_value={"ok": False, "description": "blocked"})):
             ok, err = await telegram.can_send("T", 555)
         assert ok is False and "blocked" in err
-
-
-# ---------------------------------------------------------------------------
-# SMTP settings: masking, encryption at rest, persistence, mailer decryption
-# ---------------------------------------------------------------------------
-
-class TestSmtpSettings:
-    async def test_get_smtp_masks_password(self):
-        cfg = {"notifications": {"smtp": {"host": "h", "username": "u", "password_enc": "ENC"}}}
-        with patch.dict("config.settings", cfg, clear=False):
-            status, body = _payload(await AlertSourcesRouter.get_smtp_settings(FakeRequest()))
-        assert status == 200 and body["has_password"] is True
-        assert body["host"] == "h" and body["username"] == "u"
-        assert "password" not in body and "password_enc" not in body
-
-    async def test_save_smtp_persists_and_encrypts(self, tmp_path):
-        import yaml
-
-        (tmp_path / "settings.yml").write_text("admin:\n  secret_key: testkey\n", encoding="utf-8")
-        with patch("config.data_path", str(tmp_path)), \
-                patch.dict("config.settings", {"admin": {"secret_key": "testkey"}}, clear=False):
-            status, body = _payload(await AlertSourcesRouter.save_smtp_settings(FakeRequest({
-                "host": "smtp.example.com", "port": 465, "username": "u@x.co",
-                "password": "secretpw", "from": "Grex <u@x.co>", "use_tls": False, "use_ssl": True,
-            })))
-        assert status == 200 and body["has_password"] is True
-
-        smtp = yaml.safe_load((tmp_path / "settings.yml").read_text())["notifications"]["smtp"]
-        assert smtp["host"] == "smtp.example.com" and smtp["port"] == 465 and smtp["use_ssl"] is True
-        assert "password" not in smtp                       # no plaintext password
-        assert smtp["password_enc"] and smtp["password_enc"] != "secretpw"
-
-    def test_mailer_decrypts_password(self):
-        from services import mailer
-        from services.secrets import encrypt_secret
-
-        enc = encrypt_secret("mypw")
-        with patch.dict("config.settings", {"notifications": {"smtp": {"host": "h", "password_enc": enc}}}, clear=False):
-            cfg = mailer._smtp_cfg()
-        assert cfg["host"] == "h" and cfg["password"] == "mypw"
-
-    async def test_send_report_email_skips_when_unconfigured(self, tmp_path):
-        from services import mailer
-
-        report = tmp_path / "r.xlsx"
-        report.write_text("x")
-        with patch.dict("config.settings", {"notifications": {"smtp": {}}}, clear=False):
-            ok, err = await mailer.send_report_email("a@b.co", "subj", "body", str(report))
-        assert ok is False and "SMTP" in err

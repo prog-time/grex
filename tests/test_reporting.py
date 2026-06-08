@@ -117,7 +117,7 @@ class TestDeliver:
         report = tmp_path / "r.xlsx"
         report.write_text("x")
         async with db() as s:
-            s.add(AlertSource(id="a1", type="mail", recipient="a@b.co", frequency="hourly", last_sent_at=None))
+            s.add(AlertSource(id="a1", type="telegram", recipient="@u", chat_id="1", frequency="hourly", last_sent_at=None))
             await s.commit()
 
         with patch.object(reporting, "_LATEST", str(report)), \
