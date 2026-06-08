@@ -427,12 +427,12 @@ function renderTargets() {
       + '<td><span class="badge bg-azure text-white">' + esc(t.marketplace) + '</span></td>'
       + '<td>' + statusBadge + '</td>'
       + '<td class="text-end">'
-      + '<button type="button" class="btn btn-sm btn-outline-primary me-1"'
-      + ' id="parse-btn-' + t.id + '" onclick="parseTarget(\'' + t.id + '\')">Спарсить</button>'
-      + '<button type="button" class="btn btn-sm btn-outline-secondary me-1"'
-      + ' onclick="toggleTarget(\'' + t.id + '\')">Переключить</button>'
-      + '<button type="button" class="btn btn-sm btn-outline-danger"'
-      + ' onclick="deleteTarget(\'' + t.id + '\')">Удалить</button>'
+      + '<button type="button" class="btn btn-sm btn-icon btn-outline-primary me-1"'
+      + ' id="parse-btn-' + t.id + '" title="Спарсить" onclick="parseTarget(\'' + t.id + '\')"><i class="fa fa-play"></i></button>'
+      + '<button type="button" class="btn btn-sm btn-icon btn-outline-secondary me-1"'
+      + ' title="Включить / выключить" onclick="toggleTarget(\'' + t.id + '\')"><i class="fa fa-power-off"></i></button>'
+      + '<button type="button" class="btn btn-sm btn-icon btn-outline-danger"'
+      + ' title="Удалить" onclick="deleteTarget(\'' + t.id + '\')"><i class="fa fa-trash"></i></button>'
       + '</td></tr>';
   }).join('');
 
@@ -541,7 +541,7 @@ function esc(s) {
 
 async function parseTarget(id) {
   var btn = document.getElementById('parse-btn-' + id);
-  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
 
   try {
     var res = await fetch('/admin/targets/run', {
@@ -554,7 +554,7 @@ async function parseTarget(id) {
   } catch(e) {
     showResultModal({success: false, error: String(e)});
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Спарсить'; }
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa fa-play"></i>'; }
   }
 }
 
