@@ -86,6 +86,15 @@ class AlertSourcesRouter:
         if err:
             return JSONResponse({"error": err}, status_code=422)
 
+        # A Telegram source needs the bot token configured first.
+        if type_ == "telegram":
+            from config import settings  # noqa: PLC0415
+            if not (settings.get("notifications", {}).get("telegram_bot_token") or "").strip():
+                return JSONResponse(
+                    {"error": "Сначала укажите токен Telegram-бота в настройках выше"},
+                    status_code=422,
+                )
+
         if async_session is None:
             return JSONResponse({"error": "DB not initialised"}, status_code=503)
 

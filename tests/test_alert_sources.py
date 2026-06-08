@@ -8,6 +8,7 @@ can't leak into other test modules.
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
@@ -73,9 +74,10 @@ async def db(tmp_path):
 
 class TestEndpoints:
     async def test_create_then_list(self, db):
-        status, body = _payload(await AlertSourcesRouter.create_source(
-            FakeRequest({"type": "telegram", "recipient": "@buyer", "frequency": "daily"})
-        ))
+        with patch.dict("config.settings", {"notifications": {"telegram_bot_token": "T"}}, clear=False):
+            status, body = _payload(await AlertSourcesRouter.create_source(
+                FakeRequest({"type": "telegram", "recipient": "@buyer", "frequency": "daily"})
+            ))
         assert status == 200 and body["ok"] is True
         assert body["source"]["type"] == "telegram"
 
@@ -91,6 +93,21 @@ class TestEndpoints:
             FakeRequest({"type": "mail", "recipient": "boss@example.com", "frequency": "weekly"})
         ))
         assert status == 200 and body["source"]["type"] == "mail"
+
+    async def test_telegram_requires_token(self, db):
+        # No bot token configured → a Telegram source cannot be created.
+        with patch.dict("config.settings", {"notifications": {"telegram_bot_token": ""}}, clear=False):
+            status, body = _payload(await AlertSourcesRouter.create_source(
+                FakeRequest({"type": "telegram", "recipient": "@buyer", "frequency": "daily"})
+            ))
+        assert status == 422 and "error" in body
+
+    async def test_mail_does_not_require_token(self, db):
+        with patch.dict("config.settings", {"notifications": {"telegram_bot_token": ""}}, clear=False):
+            status, _ = _payload(await AlertSourcesRouter.create_source(
+                FakeRequest({"type": "mail", "recipient": "a@b.co", "frequency": "daily"})
+            ))
+        assert status == 200
 
     async def test_rejects_bad_email(self, db):
         status, body = _payload(await AlertSourcesRouter.create_source(

@@ -198,6 +198,24 @@ async function showForm(type) {
   sel.innerHTML = Object.keys(_frequencies).map(function(k) {
     return '<option value="' + k + '">' + esc(_frequencies[k]) + '</option>';
   }).join('') || '<option value="">—</option>';
+
+  // A Telegram source requires the bot token to be configured first.
+  const saveBtn = document.getElementById('saveBtn');
+  const errEl = document.getElementById('formError');
+  saveBtn.disabled = false;
+  errEl.style.display = 'none';
+  if (isTg) {
+    let token = '';
+    try {
+      const res = await fetch('/admin/alert-sources/settings');
+      if (res.ok) token = ((await res.json()).telegram_bot_token || '').trim();
+    } catch (e) { /* ignore */ }
+    if (!token) {
+      errEl.textContent = 'Сначала укажите токен Telegram-бота на странице «Параметры мониторинга».';
+      errEl.style.display = '';
+      saveBtn.disabled = true;
+    }
+  }
 }
 
 async function saveSource(btn) {
