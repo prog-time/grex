@@ -23,6 +23,9 @@ class AlertSource(Base):
     recipient = Column(Text, nullable=False)        # telegram id/username or email
     frequency = Column(String(16), nullable=False)  # hourly | every_3h | daily | weekly
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    # When a digest was last sent to this source. Set by the delivery phase;
+    # NULL until the first send.
+    last_sent_at = Column(DateTime, nullable=True)
 
     def to_dict(self) -> dict:
         return {
@@ -31,4 +34,5 @@ class AlertSource(Base):
             "recipient": self.recipient,
             "frequency": self.frequency,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+            "last_sent_at": self.last_sent_at.isoformat() if self.last_sent_at else None,
         }

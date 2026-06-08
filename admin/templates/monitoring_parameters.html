@@ -39,11 +39,12 @@
               <th>Кому отправить</th>
               <th style="width:170px">Частота</th>
               <th style="width:160px">Создан</th>
+              <th style="width:160px">Посл. отправка</th>
               <th style="width:70px"></th>
             </tr>
           </thead>
           <tbody id="srcBody">
-            <tr><td colspan="5" class="text-center text-muted py-3">
+            <tr><td colspan="6" class="text-center text-muted py-3">
               <span class="spinner-border spinner-border-sm me-2"></span>Загрузка…
             </td></tr>
           </tbody>
@@ -108,12 +109,12 @@ async function showList() {
   try {
     d = await fetchData();
   } catch (e) {
-    tbody.innerHTML = '<tr><td colspan="5" class="text-danger text-center py-3">Не удалось загрузить источники.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="text-danger text-center py-3">Не удалось загрузить источники.</td></tr>';
     return;
   }
   const rows = d.sources || [];
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="text-muted text-center py-3">Источников пока нет. Нажмите «Добавить».</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center py-3">Источников пока нет. Нажмите «Добавить».</td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(function(s) {
@@ -122,6 +123,7 @@ async function showList() {
       + '<td><code>' + esc(s.recipient) + '</code></td>'
       + '<td>' + esc(_frequencies[s.frequency] || s.frequency) + '</td>'
       + '<td class="text-muted small">' + fmtDate(s.created_at) + '</td>'
+      + '<td class="text-muted small">' + (s.last_sent_at ? fmtDate(s.last_sent_at) : '—') + '</td>'
       + '<td class="text-end"><button class="btn btn-sm btn-outline-danger" onclick="deleteSource(\'' + s.id + '\')">✕</button></td>'
       + '</tr>';
   }).join('');
