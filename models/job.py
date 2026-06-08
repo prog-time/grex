@@ -78,6 +78,7 @@ _ADDED_COLUMNS: dict[str, dict[str, str]] = {
     },
     "alert_sources": {
         "last_sent_at": "DATETIME",
+        "chat_id": "VARCHAR(32)",
     },
 }
 
