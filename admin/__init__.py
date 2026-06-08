@@ -12,6 +12,7 @@ from starlette_admin.auth import AdminUser, AuthProvider
 from starlette_admin.contrib.sqla import Admin
 from starlette_admin.exceptions import FormValidationError
 
+import models.alert_source  # noqa: F401  — registers AlertSource in Base.metadata
 import models.parse_target  # noqa: F401 — registers ParseTarget in Base.metadata
 import models.parsed_product  # noqa: F401  — registers ParseSession, ParsedProduct in Base.metadata
 import models.price_snapshot  # noqa: F401  — registers PriceSnapshot, PriceAlert in Base.metadata
@@ -110,6 +111,11 @@ class MonitoringView(CustomView):
         return templates.TemplateResponse("monitors.html", {"request": request})
 
 
+class MonitoringParametersView(CustomView):
+    async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
+        return templates.TemplateResponse("monitoring_parameters.html", {"request": request})
+
+
 class UsersView(CustomView):
     async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
         return templates.TemplateResponse("users.html", {"request": request})
@@ -172,6 +178,11 @@ async def setup_admin(app: FastAPI) -> None:
         "Settings",
         icon="fa fa-sliders",
         views=[
+            MonitoringParametersView(
+                "Параметры мониторинга", icon="fa fa-paper-plane",
+                path="/monitoring-parameters", template_path="monitoring_parameters.html",
+                name="monitoring_parameters",
+            ),
             ProxiesView(
                 "Proxies", icon="fa fa-shield",
                 path="/proxies", template_path="proxies.html", name="proxies",
@@ -185,6 +196,7 @@ async def setup_admin(app: FastAPI) -> None:
 
     # Register all auxiliary API routes BEFORE mounting starlette-admin so that
     # FastAPI's exact Route entries take priority over the admin Mount prefix.
+    from admin.resources.alert_sources import register_alert_sources_routes  # noqa: PLC0415
     from admin.resources.jobs import register_jobs_routes  # noqa: PLC0415
     from admin.resources.links import register_links_routes  # noqa: PLC0415
     from admin.resources.monitors import register_monitors_routes  # noqa: PLC0415
@@ -200,6 +212,7 @@ async def setup_admin(app: FastAPI) -> None:
     register_products_routes(app)
     register_users_routes(app)
     register_monitors_routes(app)
+    register_alert_sources_routes(app)
 
     # Stats reset endpoint
     from fastapi import Depends  # noqa: PLC0415
