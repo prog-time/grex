@@ -2,12 +2,12 @@
 
 {% block header %}
 <div class="d-flex justify-content-between align-items-center">
-  <h1>Monitoring</h1>
+  <h1>Мониторинг</h1>
   <div class="d-flex align-items-center gap-3">
-    <button class="btn btn-outline-primary" id="runNowBtn" onclick="runNow(this)">Run due now</button>
+    <button class="btn btn-outline-primary" id="runNowBtn" onclick="runNow(this)">Запустить сейчас</button>
     <ol class="breadcrumb mb-0">
       <li class="breadcrumb-item"><a href="{{ url_for(__name__ ~ ':index') }}">Admin</a></li>
-      <li class="breadcrumb-item active">Monitoring</li>
+      <li class="breadcrumb-item active">Мониторинг</li>
     </ol>
   </div>
 </div>
@@ -19,17 +19,17 @@
   <!-- Price history chart (shown when a row's Chart button is clicked) -->
   <div class="card mb-3" id="chartCard" style="display:none;">
     <div class="card-header d-flex justify-content-between align-items-center">
-      <h3 class="card-title mb-0" id="chartTitle">Price history</h3>
-      <button class="btn btn-sm btn-outline-secondary" onclick="hideChart()">Close</button>
+      <h3 class="card-title mb-0" id="chartTitle">История цены</h3>
+      <button class="btn btn-sm btn-outline-secondary" onclick="hideChart()">Закрыть</button>
     </div>
     <div class="card-body">
-      <div id="chartBox" class="text-muted">Loading…</div>
+      <div id="chartBox" class="text-muted">Загрузка…</div>
     </div>
   </div>
 
   <div class="card mb-3">
     <div class="card-header">
-      <h3 class="card-title">Monitored products</h3>
+      <h3 class="card-title">Отслеживаемые товары</h3>
       <div class="card-options d-flex align-items-center gap-2">
         <span class="text-muted small" id="monCount"></span>
         <span id="monSelectionCount" class="text-muted small"></span>
@@ -48,19 +48,19 @@
             <th style="width:36px">
               <input type="checkbox" class="form-check-input" id="monSelectAll" onchange="toggleSelectAllMon(this)">
             </th>
-            <th>Product</th>
-            <th style="width:90px">Market</th>
-            <th style="width:130px">Price</th>
-            <th style="width:90px">Monitor</th>
-            <th style="width:130px">Interval</th>
-            <th style="width:185px">Last / Next</th>
-            <th style="width:90px">Status</th>
+            <th>Товар</th>
+            <th style="width:90px">Маркет</th>
+            <th style="width:130px">Цена</th>
+            <th style="width:90px">Мониторинг</th>
+            <th style="width:130px">Интервал</th>
+            <th style="width:185px">Посл. / След.</th>
+            <th style="width:90px">Статус</th>
             <th style="width:80px"></th>
           </tr>
         </thead>
         <tbody id="monBody">
           <tr><td colspan="9" class="text-center text-muted py-3">
-            <span class="spinner-border spinner-border-sm me-2"></span>Loading…
+            <span class="spinner-border spinner-border-sm me-2"></span>Загрузка…
           </td></tr>
         </tbody>
       </table>
@@ -69,15 +69,15 @@
   </div>
 
   <div class="card">
-    <div class="card-header"><h3 class="card-title">Recent price changes</h3></div>
+    <div class="card-header"><h3 class="card-title">Изменения цены</h3></div>
     <div class="table-responsive">
       <table class="table table-vcenter card-table">
         <thead>
           <tr>
-            <th style="width:160px">When</th>
-            <th style="width:80px">Change</th>
-            <th>Product</th>
-            <th style="width:160px">Price</th>
+            <th style="width:160px">Когда</th>
+            <th style="width:80px">Изменение</th>
+            <th>Товар</th>
+            <th style="width:160px">Цена</th>
           </tr>
         </thead>
         <tbody id="alertBody">
@@ -97,13 +97,13 @@
   <div class="container-xl d-flex align-items-center gap-2 flex-wrap">
     <span class="fw-medium me-1" id="bulkCount"></span>
     <select id="bulkEnable" class="form-select form-select-sm w-auto">
-      <option value="">Activation: no change</option>
-      <option value="enable">Enable monitoring</option>
-      <option value="disable">Disable monitoring</option>
+      <option value="">Активация: без изменений</option>
+      <option value="enable">Включить мониторинг</option>
+      <option value="disable">Выключить мониторинг</option>
     </select>
     <select id="bulkInterval" class="form-select form-select-sm w-auto"></select>
-    <button class="btn btn-sm btn-primary" id="bulkApplyBtn" onclick="applyBulk(this)" disabled>Apply</button>
-    <button class="btn btn-sm btn-link ms-auto text-muted" onclick="clearMonSelection()">Clear selection</button>
+    <button class="btn btn-sm btn-primary" id="bulkApplyBtn" onclick="applyBulk(this)" disabled>Применить</button>
+    <button class="btn btn-sm btn-link ms-auto text-muted" onclick="clearMonSelection()">Снять выделение</button>
   </div>
 </div>
 
@@ -115,14 +115,14 @@ var _monPage = 1;
 var _monPerPage = 25;
 
 var _intervalPresets = [
-  {label: 'Default', value: ''},
-  {label: '30 min', value: 1800},
-  {label: '1 hour', value: 3600},
-  {label: '2 hours', value: 7200},
-  {label: '3 hours', value: 10800},
-  {label: '6 hours', value: 21600},
-  {label: '12 hours', value: 43200},
-  {label: '24 hours', value: 86400},
+  {label: 'По умолчанию', value: ''},
+  {label: '30 мин', value: 1800},
+  {label: '1 час', value: 3600},
+  {label: '2 часа', value: 7200},
+  {label: '3 часа', value: 10800},
+  {label: '6 часов', value: 21600},
+  {label: '12 часов', value: 43200},
+  {label: '24 часа', value: 86400},
 ];
 
 async function loadMonitors() {
@@ -133,7 +133,7 @@ async function loadMonitors() {
     data = await res.json();
   } catch (e) {
     document.getElementById('monBody').innerHTML =
-      '<tr><td colspan="9" class="text-danger text-center py-3">Failed to load monitors.</td></tr>';
+      '<tr><td colspan="9" class="text-danger text-center py-3">Не удалось загрузить.</td></tr>';
     return;
   }
   _defaultInterval = data.default_interval_seconds || 3600;
@@ -165,10 +165,10 @@ function renderMonitors() {
   var pageRows = _allMonitors.slice(start, start + _monPerPage);
   var tbody = document.getElementById('monBody');
 
-  document.getElementById('monCount').textContent = active + ' active / ' + total + ' total';
+  document.getElementById('monCount').textContent = active + ' активно / ' + total + ' всего';
 
   if (!pageRows.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="text-muted text-center py-3">No targets yet. Add targets on the Targets page.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="text-muted text-center py-3">Пока нет товаров. Добавьте их в разделе «Цели».</td></tr>';
     document.getElementById('monPager').innerHTML = '';
     updateMonSelection();
     return;
@@ -186,14 +186,14 @@ function renderMonitors() {
       + '<td>' + intervalSelect(r) + '</td>'
       + '<td class="small text-muted">' + lastNext(r) + '</td>'
       + '<td>' + statusBadge(r.last_status) + '</td>'
-      + '<td><button class="btn btn-sm btn-outline-secondary" onclick="showChart(\'' + r.id + '\')">Chart</button></td>'
+      + '<td><button class="btn btn-sm btn-outline-secondary" onclick="showChart(\'' + r.id + '\')">График</button></td>'
       + '</tr>';
   }).join('');
 
   var from = total ? start + 1 : 0;
   var to = Math.min(start + _monPerPage, total);
   document.getElementById('monPager').innerHTML =
-    '<p class="m-0 text-secondary">Showing ' + from + '–' + to + ' of ' + total + '</p>'
+    '<p class="m-0 text-secondary">Показаны ' + from + '–' + to + ' из ' + total + '</p>'
     + buildPagination(_monPage, totalPages, 'goToMonPage');
   updateMonSelection();
 }
@@ -213,10 +213,10 @@ function updateMonSelection() {
   var total = document.querySelectorAll('.mon-cb').length;
   var saEl = document.getElementById('monSelectAll');
   if (saEl) saEl.checked = total > 0 && checked === total;
-  document.getElementById('monSelectionCount').textContent = checked ? checked + ' selected' : '';
+  document.getElementById('monSelectionCount').textContent = checked ? 'Выбрано: ' + checked : '';
 
   var bar = document.getElementById('monBulkBar');
-  document.getElementById('bulkCount').textContent = checked + ' selected';
+  document.getElementById('bulkCount').textContent = 'Выбрано: ' + checked;
   document.getElementById('bulkApplyBtn').disabled = checked === 0;
   if (checked > 0) {
     bar.style.display = '';
@@ -241,9 +241,9 @@ function populateBulkInterval() {
   var sel = document.getElementById('bulkInterval');
   if (!sel) return;
   var keep = sel.value;
-  var opts = '<option value="__keep__">Interval: no change</option>';
+  var opts = '<option value="__keep__">Интервал: без изменений</option>';
   opts += _intervalPresets.map(function(p) {
-    var lbl = p.value === '' ? 'Default (' + Math.round(_defaultInterval/3600*10)/10 + 'h)' : p.label;
+    var lbl = p.value === '' ? 'По умолчанию (' + Math.round(_defaultInterval/3600*10)/10 + 'h)' : p.label;
     return '<option value="' + p.value + '">' + lbl + '</option>';
   }).join('');
   sel.innerHTML = opts;
@@ -263,7 +263,7 @@ async function applyBulk(btn) {
   if (iv !== '__keep__') body.interval_seconds = (iv === '' ? null : parseInt(iv));
 
   if (!('monitor_enabled' in body) && !('interval_seconds' in body)) {
-    alert('Choose an activation and/or an interval to apply.');
+    alert('Выберите активацию и/или интервал для применения.');
     return;
   }
 
@@ -273,8 +273,8 @@ async function applyBulk(btn) {
       method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
     });
     var d = await res.json().catch(function(){ return {}; });
-    if (!res.ok) alert(d.error || 'Bulk action failed (HTTP ' + res.status + ')');
-  } catch (e) { alert('Bulk action failed'); }
+    if (!res.ok) alert(d.error || 'Массовое действие не выполнено (HTTP ' + res.status + ')');
+  } catch (e) { alert('Массовое действие не выполнено'); }
   setBtnLoading(btn, false);
   document.getElementById('bulkEnable').value = '';
   document.getElementById('bulkInterval').value = '__keep__';
@@ -314,7 +314,7 @@ function intervalSelect(r) {
   var cur = r.interval_seconds || '';
   var opts = _intervalPresets.map(function(p) {
     var lbl = p.label;
-    if (p.value === '') lbl = 'Default (' + Math.round(_defaultInterval/3600*10)/10 + 'h)';
+    if (p.value === '') lbl = 'По умолчанию (' + Math.round(_defaultInterval/3600*10)/10 + 'h)';
     var sel = (String(p.value) === String(cur)) ? ' selected' : '';
     return '<option value="' + p.value + '"' + sel + '>' + lbl + '</option>';
   }).join('');
@@ -324,12 +324,12 @@ function intervalSelect(r) {
 function lastNext(r) {
   var last = r.last_checked_at ? fmtDateFull(r.last_checked_at) : '—';
   var next = r.next_run_at ? fmtDateFull(r.next_run_at) : '—';
-  return 'Last: ' + last + '<br>Next: ' + next;
+  return 'Посл.: ' + last + '<br>След.: ' + next;
 }
 
 function statusBadge(s) {
-  if (s === 'ok') return '<span class="badge bg-success text-white">ok</span>';
-  if (s === 'failed') return '<span class="badge bg-danger text-white">failed</span>';
+  if (s === 'ok') return '<span class="badge bg-success text-white">ок</span>';
+  if (s === 'failed') return '<span class="badge bg-danger text-white">ошибка</span>';
   return '<span class="badge bg-secondary text-white">—</span>';
 }
 
@@ -351,9 +351,9 @@ async function postToggle(body) {
     });
     if (!res.ok) {
       const d = await res.json().catch(function(){return {};});
-      alert(d.error || 'Update failed (HTTP ' + res.status + ')');
+      alert(d.error || 'Ошибка обновления (HTTP ' + res.status + ')');
     }
-  } catch (e) { alert('Update failed'); }
+  } catch (e) { alert('Ошибка обновления'); }
 }
 
 async function runNow(btn) {
@@ -361,9 +361,9 @@ async function runNow(btn) {
   try {
     const res = await fetch('/admin/monitors/run', {method: 'POST'});
     const d = await res.json().catch(function(){return {};});
-    if (res.ok) alert('Checked ' + (d.checked || 0) + ' due (' + (d.ok || 0) + ' ok, ' + (d.failed || 0) + ' failed)');
-    else alert(d.error || 'Run failed');
-  } catch (e) { alert('Run failed'); }
+    if (res.ok) alert('Проверено ' + (d.checked || 0) + ' (' + (d.ok || 0) + ' ок, ' + (d.failed || 0) + ' ошибок)');
+    else alert(d.error || 'Ошибка запуска');
+  } catch (e) { alert('Ошибка запуска'); }
   setBtnLoading(btn, false);
   loadMonitors();
   loadAlerts();
@@ -373,26 +373,26 @@ async function showChart(id) {
   var r = _monitorsById[id] || {};
   var title = r.title || r.name || r.url || '';
   document.getElementById('chartCard').style.display = '';
-  document.getElementById('chartTitle').textContent = 'Price history — ' + title;
-  document.getElementById('chartBox').innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Loading…';
+  document.getElementById('chartTitle').textContent = 'История цены — ' + title;
+  document.getElementById('chartBox').innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Загрузка…';
   window.scrollTo({top: 0, behavior: 'smooth'});
   let d;
   try {
     const res = await fetch('/admin/monitors/history?target_id=' + encodeURIComponent(id));
     d = await res.json();
   } catch (e) {
-    document.getElementById('chartBox').innerHTML = '<span class="text-danger">Failed to load history.</span>';
+    document.getElementById('chartBox').innerHTML = '<span class="text-danger">Не удалось загрузить историю.</span>';
     return;
   }
   const pts = (d.points || []).filter(function(p){ return p.current_price !== null && p.current_price !== undefined; });
   if (pts.length === 0) {
-    document.getElementById('chartBox').innerHTML = '<span class="text-muted">No price data collected yet — it appears after the first scheduled check.</span>';
+    document.getElementById('chartBox').innerHTML = '<span class="text-muted">Данных по цене пока нет — появятся после первой проверки.</span>';
     return;
   }
   if (pts.length === 1) {
     var p = pts[0];
     document.getElementById('chartBox').innerHTML =
-      '<div class="text-muted">Only one check so far — the chart appears once there are at least two.</div>'
+      '<div class="text-muted">Пока только одна проверка — график появится после второй.</div>'
       + '<div class="mt-2"><span class="fw-bold fs-3">' + fmtPrice(p.current_price) + '</span>'
       + '<span class="text-muted small ms-2">at ' + fmtDateFull(p.t) + '</span></div>';
     return;
@@ -448,7 +448,7 @@ async function loadAlerts() {
   const rows = d.alerts || [];
   const tbody = document.getElementById('alertBody');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center py-3">No price changes detected yet.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center py-3">Изменений цены пока не обнаружено.</td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(function(a) {
