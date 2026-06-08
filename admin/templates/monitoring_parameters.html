@@ -15,6 +15,21 @@
 
   <!-- ── Список источников ─────────────────────────────────────────── -->
   <div id="listView" style="display:none;">
+
+    <!-- Настройки Telegram-бота -->
+    <div class="card mb-3">
+      <div class="card-header"><h3 class="card-title">Telegram-бот</h3></div>
+      <div class="card-body" style="max-width:600px;">
+        <label class="form-label">Токен Telegram-бота</label>
+        <div class="input-group">
+          <input id="tgTokenInput" type="text" class="form-control" placeholder="123456789:AA...">
+          <button class="btn btn-primary" id="tgTokenBtn" onclick="saveTgToken(this)">Сохранить</button>
+        </div>
+        <div class="form-hint">Токен бота из @BotFather — нужен для отправки оповещений в Telegram.</div>
+        <div id="tgTokenMsg" class="small mt-2" style="display:none;"></div>
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-header">
         <h3 class="card-title">Источники оповещений</h3>
@@ -104,6 +119,7 @@ async function fetchData() {
 async function showList() {
   document.getElementById('listView').style.display = '';
   document.getElementById('formView').style.display = 'none';
+  loadTgToken();
   const tbody = document.getElementById('srcBody');
   let d;
   try {
@@ -127,6 +143,40 @@ async function showList() {
       + '<td class="text-end"><button class="btn btn-sm btn-outline-danger" onclick="deleteSource(\'' + s.id + '\')">✕</button></td>'
       + '</tr>';
   }).join('');
+}
+
+async function loadTgToken() {
+  try {
+    const res = await fetch('/admin/alert-sources/settings');
+    if (!res.ok) return;
+    const d = await res.json();
+    document.getElementById('tgTokenInput').value = d.telegram_bot_token || '';
+  } catch (e) { /* ignore */ }
+}
+
+async function saveTgToken(btn) {
+  const token = document.getElementById('tgTokenInput').value.trim();
+  const msg = document.getElementById('tgTokenMsg');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/admin/alert-sources/settings', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({telegram_bot_token: token}),
+    });
+    const d = await res.json().catch(function(){ return {}; });
+    if (res.ok) {
+      msg.className = 'small mt-2 text-success';
+      msg.textContent = 'Сохранено.';
+    } else {
+      msg.className = 'small mt-2 text-danger';
+      msg.textContent = d.error || ('Ошибка сохранения (HTTP ' + res.status + ')');
+    }
+  } catch (e) {
+    msg.className = 'small mt-2 text-danger';
+    msg.textContent = 'Ошибка сохранения';
+  }
+  msg.style.display = '';
+  btn.disabled = false;
 }
 
 async function showForm(type) {

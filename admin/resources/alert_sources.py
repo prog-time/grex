@@ -123,6 +123,41 @@ class AlertSourcesRouter:
             return JSONResponse({"error": "Source not found"}, status_code=404)
         return JSONResponse({"deleted": source_id})
 
+    @staticmethod
+    async def get_settings(request: Request) -> JSONResponse:
+        """Return the stored notification settings (Telegram bot token)."""
+        from config import settings  # noqa: PLC0415
+
+        token = settings.get("notifications", {}).get("telegram_bot_token", "") or ""
+        return JSONResponse({"telegram_bot_token": token})
+
+    @staticmethod
+    async def save_settings(request: Request) -> JSONResponse:
+        """Persist the Telegram bot token to settings.yml. Body: {telegram_bot_token}."""
+        import os  # noqa: PLC0415
+
+        import yaml  # noqa: PLC0415
+
+        from config import data_path, settings  # noqa: PLC0415
+
+        body = await request.json()
+        token = (body.get("telegram_bot_token") or "").strip()
+
+        settings_file = os.path.join(data_path, "settings.yml")
+        try:
+            with open(settings_file, encoding="utf-8") as f:
+                raw = yaml.safe_load(f) or {}
+            raw.setdefault("notifications", {})["telegram_bot_token"] = token
+            with open(settings_file, "w", encoding="utf-8") as f:
+                yaml.dump(raw, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"Failed to save Telegram bot token: {exc}")
+            return JSONResponse({"error": "Не удалось сохранить токен"}, status_code=500)
+
+        settings.setdefault("notifications", {})["telegram_bot_token"] = token
+        logger.info("Telegram bot token updated")
+        return JSONResponse({"ok": True})
+
 
 def register_alert_sources_routes(app) -> None:  # type: ignore[no-untyped-def]
     """Attach alert-source endpoints to *app*."""
@@ -140,4 +175,10 @@ def register_alert_sources_routes(app) -> None:  # type: ignore[no-untyped-def]
     )
     app.add_api_route(
         "/admin/alert-sources/delete", router.delete_source, methods=["POST"], tags=["admin"], dependencies=_auth,
+    )
+    app.add_api_route(
+        "/admin/alert-sources/settings", router.get_settings, methods=["GET"], tags=["admin"], dependencies=_auth,
+    )
+    app.add_api_route(
+        "/admin/alert-sources/settings", router.save_settings, methods=["POST"], tags=["admin"], dependencies=_auth,
     )
