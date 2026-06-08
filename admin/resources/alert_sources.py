@@ -133,6 +133,71 @@ class AlertSourcesRouter:
         return JSONResponse({"ok": True, "source": data})
 
     @staticmethod
+    async def update_source(request: Request) -> JSONResponse:
+        """Edit an existing source. Body: {id, recipient, frequency}.
+
+        The type is immutable. For Telegram, the chat id is re-resolved and
+        delivery re-verified only when the recipient changed (or was never set).
+        """
+        from sqlalchemy import select  # noqa: PLC0415
+
+        from models.alert_source import AlertSource  # noqa: PLC0415
+        from models.job import async_session  # noqa: PLC0415
+
+        body = await request.json()
+        source_id = (body.get("id") or "").strip()
+        recipient = (body.get("recipient") or "").strip()
+        frequency = (body.get("frequency") or "").strip()
+
+        if not source_id:
+            return JSONResponse({"error": "id is required"}, status_code=422)
+        if frequency not in _FREQUENCIES:
+            return JSONResponse({"error": "Некорректная частота оповещений"}, status_code=422)
+        if async_session is None:
+            return JSONResponse({"error": "DB not initialised"}, status_code=503)
+
+        async with async_session() as session:
+            source = (await session.execute(
+                select(AlertSource).where(AlertSource.id == source_id)
+            )).scalar_one_or_none()
+            if source is None:
+                return JSONResponse({"error": "Source not found"}, status_code=404)
+
+            type_ = source.type
+            err = _validate_recipient(type_, recipient)
+            if err:
+                return JSONResponse({"error": err}, status_code=422)
+
+            chat_id = source.chat_id
+            if type_ == "telegram" and (recipient != source.recipient or not source.chat_id):
+                token = get_telegram_token()
+                if not token:
+                    return JSONResponse(
+                        {"error": "Сначала укажите токен Telegram-бота в настройках выше"},
+                        status_code=422,
+                    )
+                from services.telegram import can_send, resolve_chat_id  # noqa: PLC0415
+                resolved, rerr = await resolve_chat_id(token, recipient)
+                if rerr:
+                    return JSONResponse({"error": rerr}, status_code=422)
+                ok, send_err = await can_send(token, resolved)
+                if not ok:
+                    return JSONResponse(
+                        {"error": f"Бот не может отправлять сообщения этому получателю: {send_err}"},
+                        status_code=422,
+                    )
+                chat_id = str(resolved)
+
+            source.recipient = recipient
+            source.frequency = frequency
+            source.chat_id = chat_id
+            await session.commit()
+            data = source.to_dict()
+
+        logger.info(f"Alert source updated: {source_id} -> {recipient} (chat_id={chat_id}) [{frequency}]")
+        return JSONResponse({"ok": True, "source": data})
+
+    @staticmethod
     async def delete_source(request: Request) -> JSONResponse:
         """Delete an alert source by id. Body: {"id": str}."""
         from sqlalchemy import delete  # noqa: PLC0415
@@ -220,6 +285,9 @@ def register_alert_sources_routes(app) -> None:  # type: ignore[no-untyped-def]
     )
     app.add_api_route(
         "/admin/alert-sources", router.create_source, methods=["POST"], tags=["admin"], dependencies=_auth,
+    )
+    app.add_api_route(
+        "/admin/alert-sources/update", router.update_source, methods=["POST"], tags=["admin"], dependencies=_auth,
     )
     app.add_api_route(
         "/admin/alert-sources/delete", router.delete_source, methods=["POST"], tags=["admin"], dependencies=_auth,

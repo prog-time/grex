@@ -116,6 +116,40 @@ class TestEndpoints:
             ))
         assert status == 422 and "error" in body
 
+    async def test_update_mail_frequency(self, db):
+        _, created = _payload(await AlertSourcesRouter.create_source(
+            FakeRequest({"type": "mail", "recipient": "a@b.co", "frequency": "daily"})
+        ))
+        sid = created["source"]["id"]
+        status, body = _payload(await AlertSourcesRouter.update_source(
+            FakeRequest({"id": sid, "recipient": "a@b.co", "frequency": "weekly"})
+        ))
+        assert status == 200 and body["source"]["frequency"] == "weekly"
+
+    async def test_update_missing_returns_404(self, db):
+        status, _ = _payload(await AlertSourcesRouter.update_source(
+            FakeRequest({"id": "nope", "recipient": "a@b.co", "frequency": "daily"})
+        ))
+        assert status == 404
+
+    async def test_update_telegram_reresolves_on_recipient_change(self, db):
+        p1, p2, p3 = _tg_ok(chat_id=111)
+        with p1, p2, p3:
+            _, created = _payload(await AlertSourcesRouter.create_source(
+                FakeRequest({"type": "telegram", "recipient": "@oldname", "frequency": "daily"})
+            ))
+        sid = created["source"]["id"]
+        assert created["source"]["chat_id"] == "111"
+
+        with patch("admin.resources.alert_sources.get_telegram_token", return_value="T"), \
+                patch("services.telegram.resolve_chat_id", new=AsyncMock(return_value=(222, None))), \
+                patch("services.telegram.can_send", new=AsyncMock(return_value=(True, None))):
+            status, body = _payload(await AlertSourcesRouter.update_source(
+                FakeRequest({"id": sid, "recipient": "@newname", "frequency": "daily"})
+            ))
+        assert status == 200
+        assert body["source"]["recipient"] == "@newname" and body["source"]["chat_id"] == "222"
+
     async def test_create_mail(self, db):
         status, body = _payload(await AlertSourcesRouter.create_source(
             FakeRequest({"type": "mail", "recipient": "boss@example.com", "frequency": "weekly"})

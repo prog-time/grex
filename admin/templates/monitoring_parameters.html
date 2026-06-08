@@ -103,6 +103,8 @@
 <script>
 var _frequencies = {};
 var _formType = '';
+var _formMode = 'new';
+var _editId = null;
 var _params = new URLSearchParams(window.location.search);
 
 function typeLabel(t) { return t === 'telegram' ? 'Telegram' : (t === 'mail' ? 'Mail' : t); }
@@ -137,14 +139,14 @@ async function showList() {
     return;
   }
   tbody.innerHTML = rows.map(function(s) {
-    return '<tr>'
+    return '<tr style="cursor:pointer" onclick="showEditForm(\'' + s.id + '\')" title="Нажмите, чтобы редактировать">'
       + '<td>' + typeBadge(s.type) + '</td>'
       + '<td><code>' + esc(s.recipient) + '</code>'
         + (s.chat_id ? '<div class="text-muted small">chat_id: ' + esc(s.chat_id) + '</div>' : '') + '</td>'
       + '<td>' + esc(_frequencies[s.frequency] || s.frequency) + '</td>'
       + '<td class="text-muted small">' + fmtDate(s.created_at) + '</td>'
       + '<td class="text-muted small">' + (s.last_sent_at ? fmtDate(s.last_sent_at) : '—') + '</td>'
-      + '<td class="text-end"><button class="btn btn-sm btn-outline-danger" onclick="deleteSource(\'' + s.id + '\')">✕</button></td>'
+      + '<td class="text-end"><button class="btn btn-sm btn-outline-danger" onclick="event.stopPropagation(); deleteSource(\'' + s.id + '\')" title="Удалить">✕</button></td>'
       + '</tr>';
   }).join('');
 }
@@ -202,33 +204,44 @@ async function clearTgToken() {
   loadTgToken();
 }
 
-async function showForm(type) {
-  _formType = type;
+function showFormView() {
   document.getElementById('listView').style.display = 'none';
   document.getElementById('formView').style.display = '';
-  document.getElementById('formTitle').textContent = 'Новый источник — ' + typeLabel(type);
+}
 
+function setupRecipientFields(type) {
   const isTg = type === 'telegram';
   document.getElementById('recipientLabel').textContent = isTg ? 'Telegram id или username' : 'Email';
-  const input = document.getElementById('recipientInput');
-  input.placeholder = isTg ? '@username или числовой id' : 'name@example.com';
+  document.getElementById('recipientInput').placeholder = isTg ? '@username или числовой id' : 'name@example.com';
   document.getElementById('recipientHint').textContent = isTg
     ? 'Укажите @username (пользователь должен был написать боту /start) или числовой chat_id. '
       + 'При сохранении бот проверит доступность и сохранит chat_id.'
     : 'Email-адрес получателя.';
+}
 
-  try { await fetchData(); } catch (e) { /* keep defaults */ }
+function populateFrequency(selected) {
   const sel = document.getElementById('frequencySelect');
   sel.innerHTML = Object.keys(_frequencies).map(function(k) {
-    return '<option value="' + k + '">' + esc(_frequencies[k]) + '</option>';
+    return '<option value="' + k + '"' + (k === selected ? ' selected' : '') + '>' + esc(_frequencies[k]) + '</option>';
   }).join('') || '<option value="">—</option>';
+}
 
-  // A Telegram source requires the bot token to be configured first.
+async function showForm(type) {
+  _formMode = 'new'; _editId = null; _formType = type;
+  showFormView();
+  document.getElementById('formTitle').textContent = 'Новый источник — ' + typeLabel(type);
+  setupRecipientFields(type);
+  document.getElementById('recipientInput').value = '';
+  try { await fetchData(); } catch (e) { /* keep defaults */ }
+  populateFrequency();
+  document.getElementById('saveBtn').textContent = 'Создать';
+
+  // A new Telegram source requires the bot token to be configured first.
   const saveBtn = document.getElementById('saveBtn');
   const errEl = document.getElementById('formError');
   saveBtn.disabled = false;
   errEl.style.display = 'none';
-  if (isTg) {
+  if (type === 'telegram') {
     let hasToken = false;
     try {
       const res = await fetch('/admin/alert-sources/settings');
@@ -242,17 +255,41 @@ async function showForm(type) {
   }
 }
 
+async function showEditForm(id) {
+  showFormView();
+  let src = null;
+  try {
+    const d = await fetchData();
+    src = (d.sources || []).find(function(s){ return s.id === id; });
+  } catch (e) { /* ignore */ }
+  if (!src) { window.location.href = '?'; return; }
+
+  _formMode = 'edit'; _editId = id; _formType = src.type;
+  document.getElementById('formTitle').textContent = 'Редактирование источника — ' + typeLabel(src.type);
+  setupRecipientFields(src.type);
+  document.getElementById('recipientInput').value = src.recipient || '';
+  populateFrequency(src.frequency);
+  document.getElementById('saveBtn').textContent = 'Сохранить';
+  document.getElementById('saveBtn').disabled = false;
+  document.getElementById('formError').style.display = 'none';
+}
+
 async function saveSource(btn) {
   const recipient = document.getElementById('recipientInput').value.trim();
   const frequency = document.getElementById('frequencySelect').value;
   const errEl = document.getElementById('formError');
   errEl.style.display = 'none';
 
+  const url = _formMode === 'edit' ? '/admin/alert-sources/update' : '/admin/alert-sources';
+  const payload = _formMode === 'edit'
+    ? {id: _editId, recipient: recipient, frequency: frequency}
+    : {type: _formType, recipient: recipient, frequency: frequency};
+
   btn.disabled = true;
   try {
-    const res = await fetch('/admin/alert-sources', {
+    const res = await fetch(url, {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({type: _formType, recipient: recipient, frequency: frequency}),
+      body: JSON.stringify(payload),
     });
     const d = await res.json().catch(function(){ return {}; });
     if (res.ok) {
@@ -290,9 +327,11 @@ function esc(s) {
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// Route between the list and the creation form based on the URL.
+// Route between the list, the creation form, and the edit form based on the URL.
 if (_params.get('view') === 'new' && (_params.get('type') === 'telegram' || _params.get('type') === 'mail')) {
   showForm(_params.get('type'));
+} else if (_params.get('view') === 'edit' && _params.get('id')) {
+  showEditForm(_params.get('id'));
 } else {
   showList();
 }
