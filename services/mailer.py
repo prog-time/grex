@@ -15,7 +15,13 @@ from config import settings
 
 
 def _smtp_cfg() -> dict:
-    return settings.get("notifications", {}).get("smtp", {}) or {}
+    """SMTP config with the password decrypted (from ``password_enc``)."""
+    cfg = dict(settings.get("notifications", {}).get("smtp", {}) or {})
+    enc = cfg.get("password_enc")
+    if enc:
+        from services.secrets import decrypt_secret
+        cfg["password"] = decrypt_secret(enc)
+    return cfg
 
 
 async def send_report_email(to_addr: str, subject: str, body: str, file_path: str) -> tuple[bool, str | None]:

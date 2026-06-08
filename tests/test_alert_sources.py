@@ -293,3 +293,52 @@ class TestTelegramResolve:
         with patch("services.telegram._call", new=AsyncMock(return_value={"ok": False, "description": "blocked"})):
             ok, err = await telegram.can_send("T", 555)
         assert ok is False and "blocked" in err
+
+
+# ---------------------------------------------------------------------------
+# SMTP settings: masking, encryption at rest, persistence, mailer decryption
+# ---------------------------------------------------------------------------
+
+class TestSmtpSettings:
+    async def test_get_smtp_masks_password(self):
+        cfg = {"notifications": {"smtp": {"host": "h", "username": "u", "password_enc": "ENC"}}}
+        with patch.dict("config.settings", cfg, clear=False):
+            status, body = _payload(await AlertSourcesRouter.get_smtp_settings(FakeRequest()))
+        assert status == 200 and body["has_password"] is True
+        assert body["host"] == "h" and body["username"] == "u"
+        assert "password" not in body and "password_enc" not in body
+
+    async def test_save_smtp_persists_and_encrypts(self, tmp_path):
+        import yaml
+
+        (tmp_path / "settings.yml").write_text("admin:\n  secret_key: testkey\n", encoding="utf-8")
+        with patch("config.data_path", str(tmp_path)), \
+                patch.dict("config.settings", {"admin": {"secret_key": "testkey"}}, clear=False):
+            status, body = _payload(await AlertSourcesRouter.save_smtp_settings(FakeRequest({
+                "host": "smtp.example.com", "port": 465, "username": "u@x.co",
+                "password": "secretpw", "from": "Grex <u@x.co>", "use_tls": False, "use_ssl": True,
+            })))
+        assert status == 200 and body["has_password"] is True
+
+        smtp = yaml.safe_load((tmp_path / "settings.yml").read_text())["notifications"]["smtp"]
+        assert smtp["host"] == "smtp.example.com" and smtp["port"] == 465 and smtp["use_ssl"] is True
+        assert "password" not in smtp                       # no plaintext password
+        assert smtp["password_enc"] and smtp["password_enc"] != "secretpw"
+
+    def test_mailer_decrypts_password(self):
+        from services import mailer
+        from services.secrets import encrypt_secret
+
+        enc = encrypt_secret("mypw")
+        with patch.dict("config.settings", {"notifications": {"smtp": {"host": "h", "password_enc": enc}}}, clear=False):
+            cfg = mailer._smtp_cfg()
+        assert cfg["host"] == "h" and cfg["password"] == "mypw"
+
+    async def test_send_report_email_skips_when_unconfigured(self, tmp_path):
+        from services import mailer
+
+        report = tmp_path / "r.xlsx"
+        report.write_text("x")
+        with patch.dict("config.settings", {"notifications": {"smtp": {}}}, clear=False):
+            ok, err = await mailer.send_report_email("a@b.co", "subj", "body", str(report))
+        assert ok is False and "SMTP" in err

@@ -33,6 +33,44 @@
       </div>
     </div>
 
+    <!-- Настройки SMTP (для email-отчётов) -->
+    <div class="card mb-3">
+      <div class="card-header"><h3 class="card-title">SMTP (email-отчёты)</h3></div>
+      <div class="card-body" style="max-width:680px;">
+        <div class="row g-2">
+          <div class="col-12 col-sm-8">
+            <label class="form-label">SMTP-хост</label>
+            <input id="smtpHost" type="text" class="form-control" placeholder="smtp.yandex.ru">
+          </div>
+          <div class="col-12 col-sm-4">
+            <label class="form-label">Порт</label>
+            <input id="smtpPort" type="number" class="form-control" value="587">
+          </div>
+          <div class="col-12 col-sm-6">
+            <label class="form-label">Логин</label>
+            <input id="smtpUser" type="text" autocomplete="off" class="form-control" placeholder="user@yandex.ru">
+          </div>
+          <div class="col-12 col-sm-6">
+            <label class="form-label">Пароль</label>
+            <input id="smtpPass" type="password" autocomplete="new-password" class="form-control" placeholder="••••••••">
+          </div>
+          <div class="col-12 col-sm-6">
+            <label class="form-label">От кого (From)</label>
+            <input id="smtpFrom" type="text" class="form-control" placeholder="Grex <user@yandex.ru>">
+          </div>
+          <div class="col-12 col-sm-6 d-flex align-items-end gap-3">
+            <label class="form-check mb-2"><input id="smtpTls" type="checkbox" class="form-check-input" checked> <span class="form-check-label">STARTTLS</span></label>
+            <label class="form-check mb-2"><input id="smtpSsl" type="checkbox" class="form-check-input"> <span class="form-check-label">SSL</span></label>
+          </div>
+        </div>
+        <div class="form-hint mt-1">Пароль хранится в зашифрованном виде. Оставьте поле пароля пустым, чтобы не менять.</div>
+        <div class="mt-2">
+          <button class="btn btn-primary" id="smtpBtn" onclick="saveSmtp(this)">Сохранить</button>
+          <span id="smtpMsg" class="small ms-2" style="display:none;"></span>
+        </div>
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-header">
         <h3 class="card-title">Источники оповещений</h3>
@@ -125,6 +163,7 @@ async function showList() {
   document.getElementById('listView').style.display = '';
   document.getElementById('formView').style.display = 'none';
   loadTgToken();
+  loadSmtp();
   const tbody = document.getElementById('srcBody');
   let d;
   try {
@@ -172,6 +211,48 @@ function showTgMsg(text, ok) {
   msg.className = 'small mt-1 ' + (ok ? 'text-success' : 'text-danger');
   msg.textContent = text;
   msg.style.display = '';
+}
+
+async function loadSmtp() {
+  try {
+    const res = await fetch('/admin/alert-sources/smtp');
+    if (!res.ok) return;
+    const d = await res.json();
+    document.getElementById('smtpHost').value = d.host || '';
+    document.getElementById('smtpPort').value = d.port || 587;
+    document.getElementById('smtpUser').value = d.username || '';
+    document.getElementById('smtpFrom').value = d.from || '';
+    document.getElementById('smtpTls').checked = !!d.use_tls;
+    document.getElementById('smtpSsl').checked = !!d.use_ssl;
+    document.getElementById('smtpPass').value = '';
+    document.getElementById('smtpPass').placeholder = d.has_password ? '•••••••• (сохранён, оставьте пустым)' : 'Пароль';
+  } catch (e) { /* ignore */ }
+}
+
+async function saveSmtp(btn) {
+  const payload = {
+    host: document.getElementById('smtpHost').value.trim(),
+    port: parseInt(document.getElementById('smtpPort').value) || 587,
+    username: document.getElementById('smtpUser').value.trim(),
+    password: document.getElementById('smtpPass').value,   // blank → keep current
+    from: document.getElementById('smtpFrom').value.trim(),
+    use_tls: document.getElementById('smtpTls').checked,
+    use_ssl: document.getElementById('smtpSsl').checked,
+  };
+  const msg = document.getElementById('smtpMsg');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/admin/alert-sources/smtp', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
+    });
+    const d = await res.json().catch(function(){ return {}; });
+    if (res.ok) { msg.className = 'small ms-2 text-success'; msg.textContent = 'Сохранено.'; loadSmtp(); }
+    else { msg.className = 'small ms-2 text-danger'; msg.textContent = d.error || ('Ошибка (HTTP ' + res.status + ')'); }
+  } catch (e) {
+    msg.className = 'small ms-2 text-danger'; msg.textContent = 'Ошибка сохранения';
+  }
+  msg.style.display = '';
+  btn.disabled = false;
 }
 
 async function saveTgToken(btn) {
