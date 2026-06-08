@@ -71,3 +71,28 @@ async def can_send(token: str, chat_id: int | str) -> tuple[bool, str | None]:
     if res.get("ok"):
         return True, None
     return False, res.get("description") or "бот не может отправить сообщение этому получателю"
+
+
+async def send_document(token: str, chat_id: int | str, file_path: str, caption: str = "") -> tuple[bool, str | None]:
+    """Send a file to *chat_id* via sendDocument. Returns (True, None) or (False, error)."""
+    import os  # noqa: PLC0415
+
+    from curl_cffi.requests import AsyncSession  # noqa: PLC0415
+    try:
+        with open(file_path, "rb") as fh:
+            content = fh.read()
+        data = {"chat_id": str(chat_id)}
+        if caption:
+            data["caption"] = caption
+        files = {"document": (os.path.basename(file_path), content)}
+        async with AsyncSession() as session:
+            resp = await session.post(
+                _API.format(token=token, method="sendDocument"), data=data, files=files, timeout=60,
+            )
+        res = resp.json()
+        if res.get("ok"):
+            return True, None
+        return False, res.get("description") or "ошибка отправки документа"
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Telegram sendDocument failed: {exc}")
+        return False, f"ошибка: {exc}"
