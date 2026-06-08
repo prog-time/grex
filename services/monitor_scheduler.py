@@ -36,6 +36,15 @@ async def monitor_scheduler() -> None:
                     if purged:
                         logger.info(f"Purged {purged} price snapshots past retention")
 
+            # Keep the hourly monitoring report fresh and deliver it to due
+            # alert sources (uses the already-built report; never per-delivery).
+            try:
+                from services.reporting import deliver_due, ensure_report_fresh  # noqa: PLC0415
+                await ensure_report_fresh()
+                await deliver_due()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"Report generation/delivery error: {exc}")
+
             backoff = 1.0
             await asyncio.sleep(tick_seconds)
 
