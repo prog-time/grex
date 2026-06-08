@@ -2,10 +2,10 @@
 
 {% block header %}
 <div class="d-flex justify-content-between align-items-center">
-  <h1>Jobs</h1>
+  <h1>История задач</h1>
   <ol class="breadcrumb">
     <li class="breadcrumb-item"><a href="{{ url_for(__name__ ~ ':index') }}">Admin</a></li>
-    <li class="breadcrumb-item active">Jobs</li>
+    <li class="breadcrumb-item active">История задач</li>
   </ol>
 </div>
 {% endblock %}
@@ -18,21 +18,21 @@
     <div class="card-body">
       <div class="row g-3 align-items-end mb-2">
         <div class="col-12 col-md-4">
-          <label class="form-label">Marketplace</label>
+          <label class="form-label">Маркетплейс</label>
           <select id="filterMp" class="form-select" onchange="loadJobs()">
-            <option value="">All</option>
+            <option value="">Все</option>
           </select>
         </div>
         <div class="col-12 col-md-4">
-          <label class="form-label">Status</label>
+          <label class="form-label">Статус</label>
           <select id="filterStatus" class="form-select" onchange="loadJobs()">
-            <option value="">All</option>
-            <option value="success">Success</option>
-            <option value="failed">Failed</option>
+            <option value="">Все</option>
+            <option value="success">Успех</option>
+            <option value="failed">Ошибка</option>
           </select>
         </div>
         <div class="col-auto">
-          <button class="btn btn-outline-secondary" onclick="loadJobs()">Refresh</button>
+          <button class="btn btn-outline-secondary" onclick="loadJobs()">Обновить</button>
         </div>
       </div>
     </div>
@@ -41,7 +41,7 @@
   <!-- Table -->
   <div class="card">
     <div class="card-header">
-      <h3 class="card-title">Job history</h3>
+      <h3 class="card-title">История задач</h3>
       <div class="card-options d-flex align-items-center gap-2">
         <span class="text-muted small" id="jobsCount"></span>
         <span id="selectionCount" class="text-muted small"></span>
@@ -53,7 +53,7 @@
         </select>
         <div class="dropdown">
           <button class="btn btn-sm btn-outline-success dropdown-toggle" type="button" data-bs-toggle="dropdown">
-            Export
+            Экспорт
           </button>
           <div class="dropdown-menu dropdown-menu-end">
             <a class="dropdown-item" href="#" onclick="exportJobs('csv');return false;">CSV (Excel)</a>
@@ -61,7 +61,7 @@
             <a class="dropdown-item" href="#" onclick="exportJobs('json');return false;">JSON</a>
           </div>
         </div>
-        <button class="btn btn-sm btn-outline-danger" onclick="clearAll()">Clear all</button>
+        <button class="btn btn-sm btn-outline-danger" onclick="clearAll()">Очистить всё</button>
       </div>
     </div>
     <div class="table-responsive">
@@ -72,16 +72,16 @@
               <input type="checkbox" class="form-check-input" id="selectAll" onchange="toggleSelectAll(this)">
             </th>
             <th>URL</th>
-            <th>Marketplace</th>
-            <th>Status</th>
-            <th>Processing time</th>
-            <th>Started at</th>
-            <th>Error</th>
+            <th>Маркетплейс</th>
+            <th>Статус</th>
+            <th>Время обработки</th>
+            <th>Начато</th>
+            <th>Ошибка</th>
             <th></th>
           </tr>
         </thead>
         <tbody id="jobsBody">
-          <tr><td colspan="8" class="text-muted text-center py-3">Loading…</td></tr>
+          <tr><td colspan="8" class="text-muted text-center py-3">Загрузка…</td></tr>
         </tbody>
       </table>
     </div>
@@ -111,7 +111,7 @@ async function loadJobs() {
     var sel = document.getElementById('filterMp');
     var cur = sel.value;
     var mps = [...new Set(_allJobs.map(function(j) { return j.marketplace; }).filter(Boolean))].sort();
-    sel.innerHTML = '<option value="">All</option>'
+    sel.innerHTML = '<option value="">Все</option>'
       + mps.map(function(m) {
           return '<option value="' + esc(m) + '"' + (m === cur ? ' selected' : '') + '>' + esc(m) + '</option>';
         }).join('');
@@ -141,11 +141,11 @@ function renderJobs() {
   var start = (_currentPage - 1) * _perPage;
   var page  = _allJobs.slice(start, start + _perPage);
 
-  document.getElementById('jobsCount').textContent = total + ' jobs';
+  document.getElementById('jobsCount').textContent = total + ' задач';
   var tbody = document.getElementById('jobsBody');
 
   if (!page.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="text-muted text-center py-3">No jobs yet.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="text-muted text-center py-3">Пока нет задач.</td></tr>';
     document.getElementById('jobsPager').innerHTML = '';
     updateSelectionCount();
     return;
@@ -153,8 +153,8 @@ function renderJobs() {
 
   tbody.innerHTML = page.map(function(j) {
     var statusBadge = j.status === 'success'
-      ? '<span class="badge bg-success text-white">Success</span>'
-      : '<span class="badge bg-danger text-white">Failed</span>';
+      ? '<span class="badge bg-success text-white">Успех</span>'
+      : '<span class="badge bg-danger text-white">Ошибка</span>';
 
     var procTime  = j.processing_time != null ? j.processing_time.toFixed(2) + ' s' : '—';
     var startedAt = j.started_at ? j.started_at.replace('T', ' ').slice(0, 16) : '—';
@@ -180,7 +180,7 @@ function renderJobs() {
   var from = total ? start + 1 : 0;
   var to   = Math.min(start + _perPage, total);
   document.getElementById('jobsPager').innerHTML =
-    '<p class="m-0 text-secondary">Showing ' + from + '–' + to + ' of ' + total + '</p>'
+    '<p class="m-0 text-secondary">Показано ' + from + '–' + to + ' из ' + total + '</p>'
     + buildPagination(_currentPage, totalPages, 'goToJobPage');
 }
 
@@ -199,7 +199,7 @@ function updateSelectionCount() {
   var total   = document.querySelectorAll('.job-cb').length;
   var countEl = document.getElementById('selectionCount');
   var saEl    = document.getElementById('selectAll');
-  countEl.textContent = checked ? checked + ' selected' : '';
+  countEl.textContent = checked ? checked + ' выбрано' : '';
   if (saEl) saEl.checked = total > 0 && checked === total;
 }
 
@@ -221,7 +221,7 @@ async function exportJobs(fmt) {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body),
     });
-    if (!res.ok) { alert('Export error: ' + res.status); return; }
+    if (!res.ok) { alert('Ошибка экспорта: ' + res.status); return; }
     var blob = await res.blob();
     var ext  = fmt === 'xlsx' ? 'xlsx' : (fmt === 'json' ? 'json' : 'csv');
     var name = 'jobs_' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '.' + ext;
@@ -232,12 +232,12 @@ async function exportJobs(fmt) {
     a.click();
     document.body.removeChild(a);
   } catch(e) {
-    alert('Export error: ' + e);
+    alert('Ошибка экспорта: ' + e);
   }
 }
 
 async function deleteJob(id) {
-  if (!confirm('Delete this job?')) return;
+  if (!confirm('Удалить эту задачу?')) return;
   await fetch('/admin/jobs/delete', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -247,7 +247,7 @@ async function deleteJob(id) {
 }
 
 async function clearAll() {
-  if (!confirm('Delete all jobs?')) return;
+  if (!confirm('Удалить все задачи?')) return;
   await fetch('/admin/jobs/clear', {method: 'POST'});
   await loadJobs();
 }

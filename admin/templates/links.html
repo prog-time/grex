@@ -2,10 +2,10 @@
 
 {% block header %}
 <div class="d-flex justify-content-between align-items-center">
-  <h1>Link Extractor</h1>
+  <h1>Извлечение ссылок</h1>
   <ol class="breadcrumb">
     <li class="breadcrumb-item"><a href="{{ url_for(__name__ ~ ':index') }}">Admin</a></li>
-    <li class="breadcrumb-item active">Link Extractor</li>
+    <li class="breadcrumb-item active">Извлечение ссылок</li>
   </ol>
 </div>
 {% endblock %}
@@ -15,23 +15,23 @@
 
   <!-- ── Form ────────────────────────────────────────────────────────── -->
   <div class="card mb-3">
-    <div class="card-header"><h3 class="card-title">Source</h3></div>
+    <div class="card-header"><h3 class="card-title">Источник</h3></div>
     <div class="card-body">
       <div class="row g-3 mb-3">
         <div class="col-12 col-md-9">
-          <label class="form-label">Seller or catalog URL <span class="text-danger">*</span></label>
+          <label class="form-label">URL продавца или каталога <span class="text-danger">*</span></label>
           <input id="lUrl" type="url" class="form-control"
-                 placeholder="https://www.wildberries.ru/seller/123456 or https://ozon.ru/seller/apple/products/">
-          <div class="form-hint">Marketplace is detected automatically. Seller pages, catalogs and search pages are supported.</div>
+                 placeholder="https://www.wildberries.ru/seller/123456 или https://ozon.ru/seller/apple/products/">
+          <div class="form-hint">Маркетплейс определяется автоматически. Поддерживаются страницы продавцов, каталоги и страницы поиска.</div>
         </div>
         <div class="col-6 col-md-3">
-          <label class="form-label">Max pages</label>
+          <label class="form-label">Макс. страниц</label>
           <input id="lMaxPages" type="number" class="form-control" value="10" min="1" max="50">
         </div>
       </div>
       <div id="lError" class="alert alert-danger mb-3" style="display:none;"></div>
       <button type="button" class="btn btn-primary" id="btnExtract" onclick="startExtraction()">
-        Extract
+        Извлечь
       </button>
     </div>
   </div>
@@ -40,14 +40,14 @@
   <div id="progressCard" class="card mb-3" style="display:none;">
     <div class="card-body text-center py-4">
       <div class="spinner-border text-primary mb-3" role="status"></div>
-      <div class="text-muted" id="progressText">Loading pages…</div>
+      <div class="text-muted" id="progressText">Загрузка страниц…</div>
     </div>
   </div>
 
   <!-- ── Results ───────────────────────────────────────────────────── -->
   <div id="resultsCard" class="card" style="display:none;">
     <div class="card-header">
-      <h3 class="card-title" id="resultsTitle">Results</h3>
+      <h3 class="card-title" id="resultsTitle">Результаты</h3>
       <div class="card-options d-flex align-items-center gap-2">
         <span class="badge bg-azure text-white" id="resultsBadge"></span>
         <select class="form-select form-select-sm w-auto" id="linksPerPage" onchange="setLinksPerPage(this.value)">
@@ -69,7 +69,7 @@
         <thead>
           <tr>
             <th style="width:60px">#</th>
-            <th>Product URL</th>
+            <th>Ссылка на товар</th>
           </tr>
         </thead>
         <tbody id="linksBody"></tbody>
@@ -95,13 +95,13 @@ async function startExtraction() {
   var btn       = document.getElementById('btnExtract');
 
   errEl.style.display = 'none';
-  if (!url) { showError('Please enter a URL.'); return; }
+  if (!url) { showError('Введите URL.'); return; }
 
   btn.disabled = true;
   btn.textContent = '…';
   document.getElementById('progressCard').style.display = '';
   document.getElementById('resultsCard').style.display = 'none';
-  document.getElementById('progressText').textContent = 'Loading pages…';
+  document.getElementById('progressText').textContent = 'Загрузка страниц…';
 
   try {
     var res  = await fetch('/admin/links/extract', {
@@ -127,7 +127,7 @@ async function startExtraction() {
     showError(String(e));
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Extract';
+    btn.textContent = 'Извлечь';
     document.getElementById('progressCard').style.display = 'none';
   }
 }
@@ -158,11 +158,11 @@ function renderResults() {
   var badge = document.getElementById('resultsBadge');
   var tbody = document.getElementById('linksBody');
 
-  title.textContent = 'Extracted links — ' + esc(_extractedMarketplace);
-  badge.textContent = total + ' links';
+  title.textContent = 'Извлечённые ссылки — ' + esc(_extractedMarketplace);
+  badge.textContent = total + ' ссылок';
 
   if (!page.length) {
-    tbody.innerHTML = '<tr><td colspan="2" class="text-muted text-center py-3">No links found.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="2" class="text-muted text-center py-3">Ссылки не найдены.</td></tr>';
     document.getElementById('linksPager').innerHTML = '';
   } else {
     tbody.innerHTML = page.map(function(link, i) {
@@ -176,7 +176,7 @@ function renderResults() {
     var from = total ? start + 1 : 0;
     var to   = Math.min(start + _linksPerPage, total);
     document.getElementById('linksPager').innerHTML =
-      '<p class="m-0 text-secondary">Showing ' + from + '–' + to + ' of ' + total + '</p>'
+      '<p class="m-0 text-secondary">Показано ' + from + '–' + to + ' из ' + total + '</p>'
       + buildPagination(_linksPage, totalPages, 'goToLinkPage');
   }
 
