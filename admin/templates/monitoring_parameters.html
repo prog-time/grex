@@ -33,6 +33,19 @@
       </div>
     </div>
 
+    <!-- Настройки отчёта -->
+    <div class="card mb-3">
+      <div class="card-header"><h3 class="card-title">Отчёт</h3></div>
+      <div class="card-body" style="max-width:600px;">
+        <label class="form-label">Период отчёта (дней)</label>
+        <div class="input-group" style="max-width:260px;">
+          <input id="periodInput" type="number" min="1" max="365" step="1" class="form-control" placeholder="30">
+          <button class="btn btn-primary" id="periodBtn" onclick="savePeriod(this)">Сохранить</button>
+        </div>
+        <div id="periodMsg" class="small mt-1" style="display:none;"></div>
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-header">
         <h3 class="card-title">Источники оповещений</h3>
@@ -149,6 +162,7 @@ async function loadTgToken() {
     if (!res.ok) return;
     const d = await res.json();
     document.getElementById('tgTokenInput').value = '';
+    if (d.report_period_days != null) document.getElementById('periodInput').value = d.report_period_days;
     if (d.has_token) {
       st.innerHTML = 'Текущий токен: <code>' + esc(d.hint || '••••') + '</code>'
         + ' <a href="#" class="text-danger ms-2" onclick="clearTgToken();return false;">Удалить</a>';
@@ -179,6 +193,31 @@ async function saveTgToken(btn) {
     else showTgMsg(d.error || ('Ошибка сохранения (HTTP ' + res.status + ')'), false);
   } catch (e) {
     showTgMsg('Ошибка сохранения', false);
+  }
+  btn.disabled = false;
+}
+
+function showPeriodMsg(text, ok) {
+  const msg = document.getElementById('periodMsg');
+  msg.className = 'small mt-1 ' + (ok ? 'text-success' : 'text-danger');
+  msg.textContent = text;
+  msg.style.display = '';
+}
+
+async function savePeriod(btn) {
+  const v = parseInt(document.getElementById('periodInput').value, 10);
+  if (!(v >= 1 && v <= 365)) { showPeriodMsg('Укажите период от 1 до 365 дней.', false); return; }
+  btn.disabled = true;
+  try {
+    const res = await fetch('/admin/alert-sources/settings', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({report_period_days: v}),
+    });
+    const d = await res.json().catch(function(){ return {}; });
+    if (res.ok) showPeriodMsg('Сохранено.', true);
+    else showPeriodMsg(d.error || ('Ошибка сохранения (HTTP ' + res.status + ')'), false);
+  } catch (e) {
+    showPeriodMsg('Ошибка сохранения', false);
   }
   btn.disabled = false;
 }
