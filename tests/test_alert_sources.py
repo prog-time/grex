@@ -185,6 +185,38 @@ class TestSettingsEndpoint:
             status, body = _payload(await AlertSourcesRouter.get_settings(FakeRequest()))
         assert status == 200 and body["has_token"] is False and body["hint"] == ""
 
+    async def test_get_settings_returns_period(self):
+        import config
+
+        with patch.dict(config.settings, {"notifications": {"report_period_days": 14}}):
+            status, body = _payload(await AlertSourcesRouter.get_settings(FakeRequest()))
+        assert status == 200 and body["report_period_days"] == 14
+
+    async def test_save_period_persists(self, tmp_path):
+        import config
+
+        settings_file = tmp_path / "settings.yml"
+        settings_file.write_text("notifications: {}\n", encoding="utf-8")
+        mem = {"notifications": {}}
+        with patch.object(config, "data_path", str(tmp_path)), \
+                patch.dict(config.settings, mem, clear=True):
+            status, body = _payload(await AlertSourcesRouter.save_settings(
+                FakeRequest({"report_period_days": 7})
+            ))
+            assert status == 200 and body["report_period_days"] == 7
+            assert config.settings["notifications"]["report_period_days"] == 7
+
+        import yaml
+        saved = yaml.safe_load(settings_file.read_text(encoding="utf-8"))
+        assert saved["notifications"]["report_period_days"] == 7
+
+    @pytest.mark.parametrize("value", [0, 366, "abc"])
+    async def test_save_period_rejects_invalid(self, value):
+        status, _ = _payload(await AlertSourcesRouter.save_settings(
+            FakeRequest({"report_period_days": value})
+        ))
+        assert status == 422
+
     async def test_rejects_bad_frequency(self, db):
         status, body = _payload(await AlertSourcesRouter.create_source(
             FakeRequest({"type": "telegram", "recipient": "@buyer", "frequency": "every_minute"})

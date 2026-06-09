@@ -218,20 +218,29 @@ class AlertSourcesRouter:
 
     @staticmethod
     async def get_settings(request: Request) -> JSONResponse:
-        """Return whether a Telegram token is set and a masked hint — never the raw token."""
+        """Return Telegram token presence (masked hint) and the report period."""
+        from services.reporting import report_period_days  # noqa: PLC0415
+
         token = get_telegram_token()
         if token:
             hint = "••••" + token[-4:] if len(token) >= 4 else "••••"
         else:
             hint = ""
-        return JSONResponse({"has_token": bool(token), "hint": hint})
+        return JSONResponse({
+            "has_token": bool(token),
+            "hint": hint,
+            "report_period_days": report_period_days(),
+        })
 
     @staticmethod
     async def save_settings(request: Request) -> JSONResponse:
-        """Set/clear the Telegram bot token (stored ENCRYPTED in settings.yml).
+        """Persist monitoring settings to settings.yml.
 
-        Body: {"telegram_bot_token": "..."} to set, or {"clear": true} to remove.
-        An empty token with no clear flag is a no-op (keeps the current value).
+        Body fields (all optional, applied if present):
+          * ``telegram_bot_token`` — set the bot token (stored ENCRYPTED), or
+          * ``clear: true``        — remove the stored token.
+          * ``report_period_days`` — report look-back window (1–365 days).
+        A request that carries none of these is a no-op.
         """
         import os  # noqa: PLC0415
 
@@ -243,29 +252,45 @@ class AlertSourcesRouter:
         body = await request.json()
         clear = bool(body.get("clear"))
         token = (body.get("telegram_bot_token") or "").strip()
+        set_token = clear or bool(token)
 
-        if not clear and not token:
+        period: int | None = None
+        period_raw = body.get("report_period_days")
+        if period_raw is not None and str(period_raw).strip() != "":
+            try:
+                period = int(period_raw)
+            except (TypeError, ValueError):
+                return JSONResponse({"error": "Период должен быть целым числом дней"}, status_code=422)
+            if not 1 <= period <= 365:
+                return JSONResponse({"error": "Период должен быть от 1 до 365 дней"}, status_code=422)
+
+        if not set_token and period is None:
             return JSONResponse({"ok": True, "has_token": bool(get_telegram_token())})
 
-        enc = "" if clear else encrypt_secret(token)
         settings_file = os.path.join(data_path, "settings.yml")
         try:
             with open(settings_file, encoding="utf-8") as f:
                 raw = yaml.safe_load(f) or {}
             notif = raw.setdefault("notifications", {})
-            notif["telegram_bot_token_enc"] = enc
-            notif.pop("telegram_bot_token", None)  # drop any legacy plaintext key
+            if set_token:
+                notif["telegram_bot_token_enc"] = "" if clear else encrypt_secret(token)
+                notif.pop("telegram_bot_token", None)  # drop any legacy plaintext key
+            if period is not None:
+                notif["report_period_days"] = period
             with open(settings_file, "w", encoding="utf-8") as f:
                 yaml.dump(raw, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
         except Exception as exc:  # noqa: BLE001
-            logger.error(f"Failed to save Telegram bot token: {exc}")
-            return JSONResponse({"error": "Не удалось сохранить токен"}, status_code=500)
+            logger.error(f"Failed to save monitoring settings: {exc}")
+            return JSONResponse({"error": "Не удалось сохранить настройки"}, status_code=500)
 
         notif_mem = settings.setdefault("notifications", {})
-        notif_mem["telegram_bot_token_enc"] = enc
-        notif_mem.pop("telegram_bot_token", None)
-        logger.info(f"Telegram bot token {'cleared' if clear else 'updated'} (encrypted at rest)")
-        return JSONResponse({"ok": True, "has_token": bool(enc)})
+        if set_token:
+            notif_mem["telegram_bot_token_enc"] = notif["telegram_bot_token_enc"]
+            notif_mem.pop("telegram_bot_token", None)
+        if period is not None:
+            notif_mem["report_period_days"] = period
+        logger.info(f"Monitoring settings updated (token={'changed' if set_token else 'kept'}, period={period})")
+        return JSONResponse({"ok": True, "has_token": bool(get_telegram_token()), "report_period_days": period})
 
 
 def register_alert_sources_routes(app) -> None:  # type: ignore[no-untyped-def]
