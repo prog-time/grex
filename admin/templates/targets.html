@@ -412,8 +412,8 @@ function renderTargets() {
 
   tbody.innerHTML = page.map(function(t) {
     var statusBadge = t.enabled
-      ? '<span class="badge bg-success text-white">Включён</span>'
-      : '<span class="badge bg-secondary text-white">Выключен</span>';
+      ? '<span class="badge bg-success text-white" style="cursor:pointer" title="Нажмите, чтобы выключить" onclick="toggleTarget(\'' + t.id + '\')">Включён</span>'
+      : '<span class="badge bg-secondary text-white" style="cursor:pointer" title="Нажмите, чтобы включить" onclick="toggleTarget(\'' + t.id + '\')">Выключен</span>';
 
     var nameRow = t.name
       ? '<div class="fw-semibold">' + esc(t.name) + '</div>'
@@ -427,11 +427,9 @@ function renderTargets() {
       + '<td><span class="badge bg-azure text-white">' + esc(t.marketplace) + '</span></td>'
       + '<td>' + statusBadge + '</td>'
       + '<td class="text-end">'
-      + '<button type="button" class="btn btn-sm btn-icon btn-outline-primary me-1"'
-      + ' id="parse-btn-' + t.id + '" title="Спарсить" onclick="parseTarget(\'' + t.id + '\')"><i class="fa fa-play"></i></button>'
-      + '<button type="button" class="btn btn-sm btn-icon btn-outline-secondary me-1"'
-      + ' title="Включить / выключить" onclick="toggleTarget(\'' + t.id + '\')"><i class="fa fa-power-off"></i></button>'
-      + '<button type="button" class="btn btn-sm btn-icon btn-outline-danger"'
+      + '<button type="button" class="btn btn-sm btn-icon btn-ghost-primary me-1" style="padding:7px"'
+      + ' id="parse-btn-' + t.id + '" title="Старт" onclick="parseTarget(\'' + t.id + '\')"><i class="fa fa-play"></i></button>'
+      + '<button type="button" class="btn btn-sm btn-icon btn-ghost-danger" style="padding:7px"'
       + ' title="Удалить" onclick="deleteTarget(\'' + t.id + '\')"><i class="fa fa-trash"></i></button>'
       + '</td></tr>';
   }).join('');
