@@ -19,6 +19,7 @@ async def db(tmp_path):
     import models.alert_source  # noqa: F401 — register tables
     import models.parse_target  # noqa: F401
     import models.parsed_product  # noqa: F401
+    import models.price_snapshot  # noqa: F401
     from models import job as job_mod
 
     saved_engine, saved_session = job_mod.engine, job_mod.async_session
@@ -38,32 +39,80 @@ def test_frequency_seconds_matches_alert_frequencies():
     assert set(reporting.FREQUENCY_SECONDS) == set(_FREQUENCIES)
 
 
+async def _generate(tmp_path):
+    """Run generate_report() against report globals pointed at tmp_path."""
+    latest = tmp_path / "monitoring_latest.xlsx"
+    with patch.object(reporting, "_REPORTS_DIR", str(tmp_path)), \
+            patch.object(reporting, "_LATEST", str(latest)):
+        path = await reporting.generate_report()
+    return path, latest
+
+
 class TestGenerate:
-    async def test_generate_includes_only_active_monitored(self, db, tmp_path):
+    async def test_products_sheet_only_active_monitored(self, db, tmp_path):
         from models.parse_target import ParseTarget
         from models.parsed_product import ParsedProduct
 
         async with db() as s:
             s.add(ParseTarget(id="t1", url="https://ozon.ru/product/x-1", marketplace="ozon", monitor_enabled=True))
             s.add(ParseTarget(id="t2", url="https://ozon.ru/product/y-2", marketplace="ozon", monitor_enabled=False))
-            s.add(ParsedProduct(url="https://ozon.ru/product/x-1", title="Товар X",
+            s.add(ParsedProduct(url="https://ozon.ru/product/x-1", title="Товар X", sku="SKU1",
                                 current_price=100.0, original_price=150.0, marketplace="ozon"))
             await s.commit()
 
-        latest = tmp_path / "monitoring_latest.xlsx"
-        with patch.object(reporting, "_REPORTS_DIR", str(tmp_path)), \
-                patch.object(reporting, "_LATEST", str(latest)):
-            path = await reporting.generate_report()
+        path, latest = await _generate(tmp_path)
 
         assert path == str(latest) and latest.exists()
         from openpyxl import load_workbook
-        ws = load_workbook(latest).active
+        wb = load_workbook(latest)
+        assert wb.sheetnames == ["Товары", "История цен", "Алерты", "Сводка"]
+        ws = wb["Товары"]
         values = [[c.value for c in row] for row in ws.iter_rows()]
-        assert values[2][0] == "Товар"            # header row (after title + blank)
+        assert values[2][0] == "ID товара" and values[2][1] == "Товар"  # header row (after title + blank)
         data_rows = [r for r in values[3:] if r[0]]
         assert len(data_rows) == 1                 # only the active monitored target
-        assert data_rows[0][0] == "Товар X"
-        assert data_rows[0][3] == 100.0 and data_rows[0][4] == 150.0
+        assert data_rows[0][1] == "Товар X" and data_rows[0][2] == "SKU1"
+        assert data_rows[0][5] == 100.0 and data_rows[0][6] == 150.0   # current / original price
+        assert data_rows[0][8] == 33.33                                # discount %
+
+    async def test_history_and_alert_sheets_and_period_window(self, db, tmp_path):
+        from datetime import timedelta
+
+        from models.parse_target import ParseTarget
+        from models.parsed_product import ParsedProduct
+        from models.price_snapshot import PriceAlert, PriceSnapshot
+
+        url = "https://ozon.ru/product/x-1"
+        now = datetime.utcnow()
+        async with db() as s:
+            s.add(ParseTarget(id="t1", url=url, marketplace="ozon", monitor_enabled=True))
+            s.add(ParsedProduct(url=url, title="Товар X", current_price=90.0, original_price=150.0, marketplace="ozon"))
+            # two in-window snapshots + one stale (outside the 30-day default window)
+            s.add(PriceSnapshot(url=url, marketplace="ozon", current_price=120.0, parsed_at=now - timedelta(days=5)))
+            s.add(PriceSnapshot(url=url, marketplace="ozon", current_price=90.0, parsed_at=now - timedelta(days=1)))
+            s.add(PriceSnapshot(url=url, marketplace="ozon", current_price=999.0, parsed_at=now - timedelta(days=40)))
+            s.add(PriceAlert(url=url, marketplace="ozon", title="Товар X", kind="drop",
+                             old_price=120.0, new_price=90.0, change_pct=-25.0))
+            await s.commit()
+
+        _, latest = await _generate(tmp_path)
+        from openpyxl import load_workbook
+        wb = load_workbook(latest)
+
+        hist = [[c.value for c in r] for r in wb["История цен"].iter_rows()]
+        hist_rows = [r for r in hist[1:] if r[0]]
+        assert len(hist_rows) == 2                 # stale 40-day snapshot excluded
+        assert {r[3] for r in hist_rows} == {120.0, 90.0}
+
+        alerts = [[c.value for c in r] for r in wb["Алерты"].iter_rows()]
+        alert_rows = [r for r in alerts[1:] if r[0]]
+        assert len(alert_rows) == 1 and alert_rows[0][3] == "Падение"
+
+        # Products sheet stats are computed from the in-window snapshots only.
+        prod = [[c.value for c in r] for r in wb["Товары"].iter_rows()][3]
+        assert prod[9] == 90.0 and prod[10] == 120.0   # min / max price in window
+        assert prod[15] == 2                            # observations (stale excluded)
+        assert prod[16] == 1                            # alerts ↓
 
 
 class TestEnsureFresh:

@@ -4,12 +4,26 @@ A single Excel report covering ALL active monitored products is regenerated on
 an interval (default hourly) and stored at ``data/reports/monitoring_latest.xlsx``.
 Alert sources then receive *that already-built* report on their own frequency —
 the report is never regenerated per delivery.
+
+The workbook is built for analysts and has four sheets:
+
+* **Товары**       — one enriched row per monitored product (current state plus
+  min/max/avg/median price, discount and price change over the period).
+* **История цен**  — the raw price time series (one row per snapshot) — the long
+  fact table to pivot/chart in Excel or any BI tool.
+* **Алерты**       — the log of detected price-change events (drop/rise).
+* **Сводка**       — aggregate KPIs (per-marketplace discounts, alert counts,
+  top movers).
+
+The look-back window for the history/alerts sheets and the period statistics is
+``notifications.report_period_days`` (default 30 days).
 """
 from __future__ import annotations
 
 import os
+import statistics
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from loguru import logger
 
@@ -32,6 +46,22 @@ def _report_interval() -> int:
     return int(settings.get("notifications", {}).get("report_interval_seconds", 3600))
 
 
+def report_period_days() -> int:
+    """Look-back window (days) for history, alerts and period statistics."""
+    try:
+        days = int(settings.get("notifications", {}).get("report_period_days", 30))
+    except (TypeError, ValueError):
+        return 30
+    return days if 1 <= days <= 365 else 30
+
+
+def _discount_pct(original: float | None, current: float | None) -> float | None:
+    """Discount of *current* against *original*, in percent (None when N/A)."""
+    if not original or current is None or original <= 0:
+        return None
+    return round((original - current) / original * 100, 2)
+
+
 def latest_report_path() -> str | None:
     """Path of the stored report, or None when none has been generated yet."""
     return _LATEST if os.path.exists(_LATEST) else None
@@ -44,64 +74,277 @@ def report_age_seconds() -> float | None:
     return time.time() - os.path.getmtime(_LATEST)
 
 
-async def _active_monitored_rows() -> list[dict]:
-    """Rows for the report: every active (monitor_enabled) target + latest price."""
+async def _collect_report_data(period_days: int) -> dict:
+    """Gather everything the four report sheets need, in one DB round-trip.
+
+    Returns a dict with ``products`` (enriched per-target rows), ``history`` (the
+    price snapshots inside the window) and ``alerts`` (price-change events inside
+    the window). All price statistics are computed from the in-window snapshots.
+    """
     from sqlalchemy import select  # noqa: PLC0415
 
     from models.job import async_session  # noqa: PLC0415
     from models.parse_target import ParseTarget  # noqa: PLC0415
     from models.parsed_product import ParsedProduct  # noqa: PLC0415
+    from models.price_snapshot import PriceAlert, PriceSnapshot  # noqa: PLC0415
 
+    empty = {"products": [], "history": [], "alerts": []}
     if async_session is None:
-        return []
+        return empty
 
+    cutoff = datetime.utcnow() - timedelta(days=period_days)
     async with async_session() as session:
         targets = (await session.execute(
             select(ParseTarget).where(ParseTarget.monitor_enabled.is_(True))
             .order_by(ParseTarget.created_at.asc())
         )).scalars().all()
+        # Latest parsed product per URL — order ascending so the newest wins.
         prices = (await session.execute(
-            select(ParsedProduct.url, ParsedProduct.title,
+            select(ParsedProduct.url, ParsedProduct.title, ParsedProduct.sku,
                    ParsedProduct.current_price, ParsedProduct.original_price)
+            .order_by(ParsedProduct.parsed_at.asc())
+        )).all()
+        snaps = (await session.execute(
+            select(PriceSnapshot.url, PriceSnapshot.marketplace, PriceSnapshot.current_price,
+                   PriceSnapshot.original_price, PriceSnapshot.available, PriceSnapshot.parsed_at)
+            .where(PriceSnapshot.parsed_at >= cutoff)
+            .order_by(PriceSnapshot.parsed_at.asc())
+        )).all()
+        alerts = (await session.execute(
+            select(PriceAlert.title, PriceAlert.url, PriceAlert.marketplace, PriceAlert.kind,
+                   PriceAlert.old_price, PriceAlert.new_price, PriceAlert.change_pct, PriceAlert.created_at)
+            .where(PriceAlert.created_at >= cutoff)
+            .order_by(PriceAlert.created_at.desc())
         )).all()
 
-    price_by_url = {r[0]: {"title": r[1], "current_price": r[2], "original_price": r[3]} for r in prices}
-    rows = []
+    price_by_url = {r[0]: {"title": r[1], "sku": r[2], "current_price": r[3], "original_price": r[4]} for r in prices}
+
+    # Group in-window snapshot prices per URL (already ordered oldest → newest).
+    series: dict[str, list[float]] = {}
+    first_seen: dict[str, datetime] = {}
+    for s in snaps:
+        url, cur = s[0], s[2]
+        first_seen.setdefault(url, s[5])
+        if cur is not None:
+            series.setdefault(url, []).append(cur)
+
+    # Alert counts per URL by kind.
+    drops: dict[str, int] = {}
+    rises: dict[str, int] = {}
+    for a in alerts:
+        bucket = drops if a[3] == "drop" else rises
+        bucket[a[1]] = bucket.get(a[1], 0) + 1
+
+    products = []
     for t in targets:
         p = price_by_url.get(t.url, {})
-        rows.append({
+        cur = p.get("current_price")
+        orig = p.get("original_price")
+        prices_window = series.get(t.url, [])
+        lo = min(prices_window) if prices_window else None
+        hi = max(prices_window) if prices_window else None
+        avg = round(statistics.mean(prices_window), 2) if prices_window else None
+        med = round(statistics.median(prices_window), 2) if prices_window else None
+        spread = round((hi - lo) / lo * 100, 2) if lo and hi and lo > 0 else None
+        first = prices_window[0] if prices_window else None
+        change = round((cur - first) / first * 100, 2) if first and cur is not None and first > 0 else None
+        products.append({
+            "id": t.id,
             "title": p.get("title") or t.name or t.url,
+            "sku": p.get("sku") or "",
             "marketplace": t.marketplace,
             "url": t.url,
-            "current_price": p.get("current_price"),
-            "original_price": p.get("original_price"),
-            "last_checked_at": t.last_checked_at.strftime("%Y-%m-%d %H:%M") if t.last_checked_at else "",
+            "current_price": cur,
+            "original_price": orig,
+            "discount_rub": round(orig - cur, 2) if orig is not None and cur is not None else None,
+            "discount_pct": _discount_pct(orig, cur),
+            "min_price": lo,
+            "max_price": hi,
+            "avg_price": avg,
+            "median_price": med,
+            "spread_pct": spread,
+            "change_pct": change,
+            "observations": len(prices_window),
+            "alerts_drop": drops.get(t.url, 0),
+            "alerts_rise": rises.get(t.url, 0),
+            "first_seen": _fmt_dt(first_seen.get(t.url)),
+            "last_checked_at": _fmt_dt(t.last_checked_at),
             "status": t.last_status or "",
         })
-    return rows
+
+    history = [{
+        "parsed_at": _fmt_dt(s[5]),
+        "url": s[0],
+        "title": (price_by_url.get(s[0]) or {}).get("title") or s[0],
+        "marketplace": s[1],
+        "current_price": s[2],
+        "original_price": s[3],
+        "discount_pct": _discount_pct(s[3], s[2]),
+        "available": s[4] or "",
+    } for s in snaps]
+
+    alert_rows = [{
+        "created_at": _fmt_dt(a[7]),
+        "title": a[0] or (price_by_url.get(a[1]) or {}).get("title") or a[1],
+        "marketplace": a[2],
+        "kind": "Падение" if a[3] == "drop" else "Рост",
+        "old_price": a[4],
+        "new_price": a[5],
+        "delta_rub": round(a[5] - a[4], 2) if a[4] is not None and a[5] is not None else None,
+        "change_pct": round(a[6], 2),
+        "url": a[1],
+    } for a in alerts]
+
+    return {"products": products, "history": history, "alerts": alert_rows}
+
+
+def _fmt_dt(dt: datetime | None) -> str:
+    return dt.strftime("%Y-%m-%d %H:%M") if dt else ""
+
+
+def _style_header(ws, ncols: int) -> None:
+    """Bold the header row (last appended) and widen columns a little."""
+    from openpyxl.styles import Font  # noqa: PLC0415
+
+    for cell in ws[ws.max_row]:
+        cell.font = Font(bold=True)
+    for i in range(1, ncols + 1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = 18
+
+
+def _build_products_sheet(ws, products: list[dict]) -> None:
+    headers = [
+        "ID товара", "Товар", "Артикул", "Маркетплейс", "URL",
+        "Текущая цена", "Старая цена", "Скидка, ₽", "Скидка, %",
+        "Мин. цена", "Макс. цена", "Средняя цена", "Медианная цена",
+        "Размах, %", "Изменение за период, %", "Наблюдений",
+        "Алертов ↓", "Алертов ↑", "Первое наблюдение", "Последняя проверка", "Статус",
+    ]
+    ws.append(headers)
+    _style_header(ws, len(headers))
+    for r in products:
+        ws.append([
+            r["id"], r["title"], r["sku"], r["marketplace"], r["url"],
+            r["current_price"], r["original_price"], r["discount_rub"], r["discount_pct"],
+            r["min_price"], r["max_price"], r["avg_price"], r["median_price"],
+            r["spread_pct"], r["change_pct"], r["observations"],
+            r["alerts_drop"], r["alerts_rise"], r["first_seen"], r["last_checked_at"], r["status"],
+        ])
+
+
+def _build_history_sheet(ws, history: list[dict]) -> None:
+    headers = ["Дата-время", "Товар", "Маркетплейс", "Текущая цена", "Старая цена", "Скидка, %", "Доступность"]
+    ws.append(headers)
+    _style_header(ws, len(headers))
+    for r in history:
+        ws.append([
+            r["parsed_at"], r["title"], r["marketplace"],
+            r["current_price"], r["original_price"], r["discount_pct"], r["available"],
+        ])
+
+
+def _build_alerts_sheet(ws, alerts: list[dict]) -> None:
+    headers = ["Дата-время", "Товар", "Маркетплейс", "Тип", "Старая цена", "Новая цена", "Δ, ₽", "Δ, %", "URL"]
+    ws.append(headers)
+    _style_header(ws, len(headers))
+    for r in alerts:
+        ws.append([
+            r["created_at"], r["title"], r["marketplace"], r["kind"],
+            r["old_price"], r["new_price"], r["delta_rub"], r["change_pct"], r["url"],
+        ])
+
+
+def _build_summary_sheet(ws, products: list[dict], alerts: list[dict], period_days: int) -> None:
+    from openpyxl.styles import Font  # noqa: PLC0415
+
+    def row(*vals):
+        ws.append(list(vals))
+
+    def section(label: str):
+        ws.append([label])
+        ws[ws.max_row][0].font = Font(bold=True)
+
+    section("Сводка мониторинга")
+    row("Период наблюдения, дней", period_days)
+    row("Товаров на мониторинге", len(products))
+    row("Алертов за период", len(alerts))
+    row("из них падений", sum(1 for a in alerts if a["kind"] == "Падение"))
+    row("из них ростов", sum(1 for a in alerts if a["kind"] == "Рост"))
+    decreased = sum(1 for p in products if p["change_pct"] is not None and p["change_pct"] < 0)
+    measured = sum(1 for p in products if p["change_pct"] is not None)
+    row("Доля подешевевших, %", round(decreased / measured * 100, 1) if measured else 0)
+    ws.append([])
+
+    # Per-marketplace discounts.
+    section("Скидки по маркетплейсам")
+    ws.append(["Маркетплейс", "Товаров", "Средняя скидка, %", "Медианная скидка, %"])
+    ws[ws.max_row][0].font = Font(bold=True)
+    by_mp: dict[str, list[float]] = {}
+    counts: dict[str, int] = {}
+    for p in products:
+        mp = p["marketplace"] or "—"
+        counts[mp] = counts.get(mp, 0) + 1
+        if p["discount_pct"] is not None:
+            by_mp.setdefault(mp, []).append(p["discount_pct"])
+    for mp in sorted(counts):
+        discs = by_mp.get(mp, [])
+        row(mp, counts[mp],
+            round(statistics.mean(discs), 1) if discs else "—",
+            round(statistics.median(discs), 1) if discs else "—")
+    ws.append([])
+
+    # Top movers by price change over the period.
+    moved = [p for p in products if p["change_pct"] is not None]
+    cheapened = sorted(moved, key=lambda p: p["change_pct"])[:5]
+    risen = sorted(moved, key=lambda p: p["change_pct"], reverse=True)[:5]
+
+    section("Топ-5 подешевевших за период")
+    ws.append(["Товар", "Маркетплейс", "Изменение, %", "Текущая цена"])
+    ws[ws.max_row][0].font = Font(bold=True)
+    for p in cheapened:
+        row(p["title"], p["marketplace"], p["change_pct"], p["current_price"])
+    ws.append([])
+
+    section("Топ-5 подорожавших за период")
+    ws.append(["Товар", "Маркетплейс", "Изменение, %", "Текущая цена"])
+    ws[ws.max_row][0].font = Font(bold=True)
+    for p in risen:
+        row(p["title"], p["marketplace"], p["change_pct"], p["current_price"])
+
+    ws.column_dimensions["A"].width = 32
+    for col in ("B", "C", "D"):
+        ws.column_dimensions[col].width = 20
 
 
 async def generate_report() -> str | None:
-    """Build the monitoring Excel report and store it. Returns the path or None."""
-    rows = await _active_monitored_rows()
+    """Build the four-sheet monitoring Excel report and store it.
+
+    Returns the path on success, or None when generation failed.
+    """
+    period = report_period_days()
+    data = await _collect_report_data(period)
     try:
         from openpyxl import Workbook  # noqa: PLC0415
 
         os.makedirs(_REPORTS_DIR, exist_ok=True)
         wb = Workbook()
-        ws = wb.active
-        ws.title = "Мониторинг"
-        ws.append([f"Отчёт мониторинга цен — сформирован {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC"])
-        ws.append([])
-        headers = ["Товар", "Маркетплейс", "URL", "Текущая цена", "Старая цена", "Последняя проверка", "Статус"]
-        ws.append(headers)
-        for r in rows:
-            ws.append([
-                r["title"], r["marketplace"], r["url"],
-                r["current_price"], r["original_price"], r["last_checked_at"], r["status"],
-            ])
+
+        ws_products = wb.active
+        ws_products.title = "Товары"
+        stamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+        ws_products.append([f"Отчёт мониторинга цен — {stamp} UTC · период {period} дн."])
+        ws_products.append([])
+        _build_products_sheet(ws_products, data["products"])
+
+        _build_history_sheet(wb.create_sheet("История цен"), data["history"])
+        _build_alerts_sheet(wb.create_sheet("Алерты"), data["alerts"])
+        _build_summary_sheet(wb.create_sheet("Сводка"), data["products"], data["alerts"], period)
+
         wb.save(_LATEST)
-        logger.info(f"Monitoring report generated: {len(rows)} product(s) -> {_LATEST}")
+        logger.info(
+            f"Monitoring report generated: {len(data['products'])} product(s), "
+            f"{len(data['history'])} snapshot(s), {len(data['alerts'])} alert(s) -> {_LATEST}"
+        )
         return _LATEST
     except Exception as exc:  # noqa: BLE001
         logger.error(f"Failed to generate monitoring report: {exc}")
