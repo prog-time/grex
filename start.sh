@@ -117,53 +117,7 @@ fi
 # Таблицы: jobs (история парсинга), parse_targets (ссылки для парсинга).
 ok "SQLite admin.db инициализируется автоматически при старте"
 
-# ── 8. API ключ ───────────────────────────────────────────────────────────────
-CURRENT_API_KEY=$("$VENV_PYTHON" -c "
-import sys, os
-sys.argv[0] = os.path.abspath('api.py')
-from config import settings
-print(settings.get('licensing', {}).get('api_key', ''))
-" 2>/dev/null)
-
-if [ -z "$CURRENT_API_KEY" ] || [ "$CURRENT_API_KEY" = "your-client-api-key-here" ]; then
-    echo ""
-    warn "API ключ не настроен."
-    printf "  Введите ваш API ключ (выдаётся поставщиком): "
-    read -r USER_API_KEY
-
-    if [ -z "$USER_API_KEY" ]; then
-        fail "API ключ не введён. Запустите start.sh снова."
-    fi
-
-    "$VENV_PYTHON" -c "
-import sys
-key = sys.argv[1]
-with open('data/settings.yml', 'r', encoding='utf-8') as f:
-    lines = f.readlines()
-in_licensing = False
-for i, line in enumerate(lines):
-    if line.startswith('licensing:'):
-        in_licensing = True
-    elif in_licensing and line and not line[0].isspace():
-        in_licensing = False
-    if in_licensing and line.lstrip().startswith('api_key:'):
-        indent = len(line) - len(line.lstrip())
-        lines[i] = ' ' * indent + 'api_key: \"' + key + '\"\n'
-        break
-with open('data/settings.yml', 'w', encoding='utf-8') as f:
-    f.writelines(lines)
-" "$USER_API_KEY" || fail "Не удалось сохранить API ключ в data/settings.yml"
-
-    ok "API ключ сохранён"
-fi
-
-# ── 9. Лицензия ───────────────────────────────────────────────────────────────
-info "Проверка лицензии..."
-"$VENV_PYTHON" -c "from licensing import check_license; check_license()" \
-    || exit 1
-ok "Лицензия проверена"
-
-# ── 10. Запуск ────────────────────────────────────────────────────────────────
+# ── 8. Запуск ─────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${GREEN}  API:      http://localhost:8004${NC}"
