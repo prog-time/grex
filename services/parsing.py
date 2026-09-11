@@ -40,14 +40,6 @@ class ParsingService:
         try:
             marketplace = CrawlerRegistry.detect_marketplace(url)
 
-            if settings.get("licensing", {}).get("enabled", False):
-                from services.license import is_source_allowed  # noqa: PLC0415
-                if not is_source_allowed(marketplace):
-                    raise HTTPException(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        detail=f"Access to '{marketplace}' is not allowed for this API key",
-                    )
-
             # Enforce per-source rate limit from config.
             await self._apply_rate_limit(marketplace)
 

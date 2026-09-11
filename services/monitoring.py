@@ -4,7 +4,7 @@ The scheduler (services/monitor_scheduler.py) calls :func:`run_due_once`
 periodically. For every monitored target whose ``next_run_at`` has elapsed it:
 
   1. re-parses the URL through :class:`ParsingService` (so per-source rate
-     limits, proxy health, the browser cap and license checks all apply),
+     limits, proxy health and the browser cap all apply),
   2. upserts the latest product state (reusing the targets upsert),
   3. appends a :class:`PriceSnapshot` to the price history,
   4. compares the new price with the previous snapshot and logs a
