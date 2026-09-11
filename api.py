@@ -16,7 +16,6 @@ from pydantic import HttpUrl
 
 from config import settings
 from crawlers.registry import CrawlerRegistry
-from licensing import check_license
 from models import (
     BatchParseRequest,
     BatchParseResponse,
@@ -25,12 +24,9 @@ from models import (
     ParseResponse,
 )
 from services import ParsingService
-from services.license import get_allowed_sources, load_config_from_cache, load_config_from_response
-from services.license_client import activate_device, fetch_license_config
 from utils.logger import setup_logger
 
 setup_logger()
-check_license()
 
 
 # ---------------------------------------------------------------------------
@@ -52,36 +48,6 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
         _image_worker_task = asyncio.create_task(image_worker(), name="image_worker")
     except Exception as exc:
         logger.warning(f"Redis init failed (admin panel will be unavailable): {exc}")
-
-    licensing_cfg = settings.get("licensing", {})
-    if licensing_cfg.get("enabled", False):
-        try:
-            import uuid as _uuid  # noqa: PLC0415
-            _mac_int = _uuid.getnode()
-            _mac_address = ":".join(f"{(_mac_int >> i) & 0xff:02x}" for i in range(40, -1, -8)).upper()
-            await activate_device(
-                service_url=licensing_cfg.get("service_url", ""),
-                api_key=licensing_cfg.get("api_key", ""),
-                mac_address=_mac_address,
-                timeout=licensing_cfg.get("timeout_seconds", 5),
-            )
-            response = await fetch_license_config(
-                service_url=licensing_cfg.get("service_url", ""),
-                api_key=licensing_cfg.get("api_key", ""),
-                mac_address=_mac_address,
-                timeout=licensing_cfg.get("timeout_seconds", 5),
-            )
-            if response:
-                await load_config_from_response(response)
-                logger.info(f"License config loaded: {get_allowed_sources()}")
-            else:
-                loaded = await load_config_from_cache()
-                if loaded:
-                    logger.warning("License service unavailable, using cached config")
-                else:
-                    logger.error("No license config available, all sources disabled")
-        except Exception as exc:
-            logger.warning(f"License init failed: {exc}")
 
     _UNSAFE_DEFAULTS = {
         "security.api_key": ("4353456dfvbdfg34", settings.get("security", {}).get("api_key", "")),

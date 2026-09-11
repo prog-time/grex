@@ -2,8 +2,6 @@
 
 Strategy
 --------
-- api.py calls check_license() at module level.  We patch it before importing so
-  every test that imports the module sees a no-op license check.
 - Redis / admin setup fails gracefully (the lifespan swallows those errors).
 - TestClient is used for synchronous HTTP testing — no running server needed.
 - Real marketplace crawlers are NOT invoked; parse_product is mocked where needed.
@@ -21,13 +19,10 @@ import pytest
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.argv[0] = os.path.join(PROJECT_ROOT, "main.py")
 
-# Patch check_license before api.py is first imported so the module-level
-# call does not trigger SystemExit in CI / isolated environments.
-with patch("licensing.checker.check_license", return_value={"key": "test-key"}):
-    from fastapi.testclient import TestClient
+from fastapi.testclient import TestClient
 
-    import api  # noqa: E402  (import after patch is intentional)
-    from models.product import ProductCard
+import api
+from models.product import ProductCard
 
 _API_KEY = "4353456dfvbdfg34"   # from data/settings.yml
 _AUTH_HEADERS = {"X-API-Key": _API_KEY}
