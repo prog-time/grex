@@ -21,7 +21,6 @@ from .base import CookieCrawler
 
 class YandexMarketCrawler(CookieCrawler):
     marketplace_name: ClassVar[str] = "yandex_market"
-    license_source_name: ClassVar[str] = "yandex-market"
     url_pattern: ClassVar[str] = r"market\.yandex\.(ru|by)"
     requires_cookie_lock: ClassVar[bool] = True
 

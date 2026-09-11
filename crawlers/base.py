@@ -80,7 +80,6 @@ class BaseCrawler(ABC):
     marketplace_name: ClassVar[str]
     url_pattern: ClassVar[str]
     requires_cookie_lock: ClassVar[bool] = False
-    license_source_name: ClassVar[str] = ""  # override when JWT source name differs from marketplace_name
 
     # --- URL normalization (override per crawler when needed) ---
     # Regex whose group(1) is the canonical product-URL prefix. When set,
