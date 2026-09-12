@@ -8,17 +8,10 @@ Strategy
 """
 from __future__ import annotations
 
-import os
-import sys
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
-# Ensure project root is importable (mirrors conftest.py bootstrap).
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.argv[0] = os.path.join(PROJECT_ROOT, "main.py")
-
 from fastapi.testclient import TestClient
 
 import api
