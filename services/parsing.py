@@ -4,16 +4,17 @@ import asyncio
 import time
 import traceback
 from datetime import datetime, timezone
-from loguru import logger
-from fastapi import HTTPException, status
 
-from models import ProductCard, BatchItemResult
-from core.exceptions import UnsupportedMarketplaceError, CrawlerNotFoundError, ProductCardParsingException
-from config import settings
+from fastapi import HTTPException, status
+from loguru import logger
+
 # Import the crawlers package (not just the registry) so that all concrete
 # crawler classes are loaded and auto-registered via __init_subclass__.
 import crawlers as _crawlers_pkg  # noqa: F401
+from config import settings
+from core.exceptions import CrawlerNotFoundError, ProductCardParsingException, UnsupportedMarketplaceError
 from crawlers.registry import CrawlerRegistry
+from models import BatchItemResult, ProductCard
 
 
 class ParsingService:
@@ -38,14 +39,6 @@ class ParsingService:
         marketplace: str | None = None
         try:
             marketplace = CrawlerRegistry.detect_marketplace(url)
-
-            if settings.get("licensing", {}).get("enabled", False):
-                from services.license import is_source_allowed  # noqa: PLC0415
-                if not is_source_allowed(marketplace):
-                    raise HTTPException(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        detail=f"Access to '{marketplace}' is not allowed for this API key",
-                    )
 
             # Enforce per-source rate limit from config.
             await self._apply_rate_limit(marketplace)
@@ -196,7 +189,7 @@ class ParsingService:
     ) -> None:
         """Persist a :class:`~models.job.Job` record — never raises."""
         try:
-            from models.job import async_session, Job, JobStatus  # noqa: PLC0415
+            from models.job import Job, JobStatus, async_session  # noqa: PLC0415
 
             if async_session is None:
                 logger.warning(f"_save_job skipped (DB not initialised) for {url}")

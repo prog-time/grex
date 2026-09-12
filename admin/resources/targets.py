@@ -28,9 +28,11 @@ async def _upsert_parsed_product(
     """Insert or update a ParsedProduct row keyed by URL."""
     import json as _json  # noqa: PLC0415
     from datetime import datetime as _dt  # noqa: PLC0415
+
+    from sqlalchemy import select  # noqa: PLC0415
+
     from models.job import async_session  # noqa: PLC0415
     from models.parsed_product import ParsedProduct  # noqa: PLC0415
-    from sqlalchemy import select  # noqa: PLC0415
 
     images_json = _json.dumps(data.get("images", []))
     chars_json = _json.dumps(data.get("characteristics", {}))
@@ -75,10 +77,12 @@ async def _run_all_background(session_id: str, targets: list[dict]) -> None:
     """Background task: parse all targets, save ParsedProduct rows, update ParseSession."""
     import json as _json  # noqa: PLC0415
     from datetime import datetime  # noqa: PLC0415
+
+    from sqlalchemy import update  # noqa: PLC0415
+
     from models.job import async_session  # noqa: PLC0415
     from models.parsed_product import ParseSession  # noqa: PLC0415
     from services.parsing import ParsingService  # noqa: PLC0415
-    from sqlalchemy import update  # noqa: PLC0415
 
     svc = ParsingService()
     succeeded = 0
@@ -137,9 +141,10 @@ class TargetsRouter:
     @staticmethod
     async def list_targets(request: Request) -> JSONResponse:
         try:
+            from sqlalchemy import select  # noqa: PLC0415
+
             from models.job import async_session  # noqa: PLC0415
             from models.parse_target import ParseTarget  # noqa: PLC0415
-            from sqlalchemy import select  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -159,10 +164,10 @@ class TargetsRouter:
     @staticmethod
     async def add_target(request: Request) -> JSONResponse:
         try:
+            from core.exceptions import UnsupportedMarketplaceError  # noqa: PLC0415
+            from crawlers.registry import CrawlerRegistry  # noqa: PLC0415
             from models.job import async_session  # noqa: PLC0415
             from models.parse_target import ParseTarget  # noqa: PLC0415
-            from crawlers.registry import CrawlerRegistry  # noqa: PLC0415
-            from core.exceptions import UnsupportedMarketplaceError  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -276,11 +281,12 @@ class TargetsRouter:
     async def import_bulk(request: Request) -> JSONResponse:
         """Import multiple parse targets from a JSON list of URLs."""
         try:
+            from sqlalchemy import select  # noqa: PLC0415
+
+            from core.exceptions import UnsupportedMarketplaceError  # noqa: PLC0415
+            from crawlers.registry import CrawlerRegistry  # noqa: PLC0415
             from models.job import async_session  # noqa: PLC0415
             from models.parse_target import ParseTarget  # noqa: PLC0415
-            from crawlers.registry import CrawlerRegistry  # noqa: PLC0415
-            from core.exceptions import UnsupportedMarketplaceError  # noqa: PLC0415
-            from sqlalchemy import select  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -350,9 +356,10 @@ class TargetsRouter:
     @staticmethod
     async def clear_all_targets(request: Request) -> JSONResponse:
         try:
+            from sqlalchemy import delete  # noqa: PLC0415
+
             from models.job import async_session  # noqa: PLC0415
             from models.parse_target import ParseTarget  # noqa: PLC0415
-            from sqlalchemy import delete  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -372,9 +379,10 @@ class TargetsRouter:
     async def delete_target(request: Request) -> JSONResponse:
         body = {}
         try:
+            from sqlalchemy import delete  # noqa: PLC0415
+
             from models.job import async_session  # noqa: PLC0415
             from models.parse_target import ParseTarget  # noqa: PLC0415
-            from sqlalchemy import delete  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -402,9 +410,10 @@ class TargetsRouter:
     @staticmethod
     async def toggle_target(request: Request) -> JSONResponse:
         try:
+            from sqlalchemy import select  # noqa: PLC0415
+
             from models.job import async_session  # noqa: PLC0415
             from models.parse_target import ParseTarget  # noqa: PLC0415
-            from sqlalchemy import select  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -433,12 +442,114 @@ class TargetsRouter:
             return JSONResponse({"error": str(exc)}, status_code=500)
 
     @staticmethod
+    async def bulk_toggle(request: Request) -> JSONResponse:
+        """Bulk activate/deactivate targets. Body: {"ids": [str], "enabled": bool}."""
+        try:
+            from sqlalchemy import update  # noqa: PLC0415
+
+            from models.job import async_session  # noqa: PLC0415
+            from models.parse_target import ParseTarget  # noqa: PLC0415
+
+            if async_session is None:
+                return JSONResponse({"error": "DB not initialised"}, status_code=503)
+
+            body = await request.json()
+            ids = body.get("ids")
+            if not isinstance(ids, list) or not ids:
+                return JSONResponse({"error": "ids (non-empty list) is required"}, status_code=422)
+            if not isinstance(body.get("enabled"), bool):
+                return JSONResponse({"error": "enabled (bool) is required"}, status_code=422)
+            ids = [str(i) for i in ids]
+            enabled = bool(body["enabled"])
+
+            async with async_session() as session:
+                result = await session.execute(
+                    update(ParseTarget).where(ParseTarget.id.in_(ids)).values(enabled=enabled)
+                )
+                await session.commit()
+            return JSONResponse({"ok": True, "updated": result.rowcount or 0, "enabled": enabled})  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"Failed to bulk-toggle targets: {exc}")
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+    @staticmethod
+    async def delete_many(request: Request) -> JSONResponse:
+        """Bulk-delete targets. Body: {"ids": [str, ...]}."""
+        try:
+            from sqlalchemy import delete  # noqa: PLC0415
+
+            from models.job import async_session  # noqa: PLC0415
+            from models.parse_target import ParseTarget  # noqa: PLC0415
+
+            if async_session is None:
+                return JSONResponse({"error": "DB not initialised"}, status_code=503)
+
+            body = await request.json()
+            ids = body.get("ids")
+            if not isinstance(ids, list) or not ids:
+                return JSONResponse({"error": "ids (non-empty list) is required"}, status_code=422)
+            ids = [str(i) for i in ids]
+
+            async with async_session() as session:
+                result = await session.execute(delete(ParseTarget).where(ParseTarget.id.in_(ids)))
+                await session.commit()
+            return JSONResponse({"deleted": result.rowcount or 0})  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"Failed to bulk-delete targets: {exc}")
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+    @staticmethod
+    async def run_selected(request: Request) -> JSONResponse:
+        """Start a background parse of the selected targets. Body: {"ids": [str, ...]}."""
+        import asyncio  # noqa: PLC0415
+        try:
+            from sqlalchemy import select  # noqa: PLC0415
+
+            from models.job import async_session  # noqa: PLC0415
+            from models.parse_target import ParseTarget  # noqa: PLC0415
+            from models.parsed_product import ParseSession  # noqa: PLC0415
+
+            if async_session is None:
+                return JSONResponse({"error": "DB not initialised"}, status_code=503)
+
+            body = await request.json()
+            ids = body.get("ids")
+            if not isinstance(ids, list) or not ids:
+                return JSONResponse({"error": "ids (non-empty list) is required"}, status_code=422)
+            ids = [str(i) for i in ids]
+
+            async with async_session() as session:
+                rows = (await session.execute(
+                    select(ParseTarget).where(ParseTarget.id.in_(ids))
+                )).scalars().all()
+            if not rows:
+                return JSONResponse({"error": "no matching targets"}, status_code=404)
+
+            targets = [{"id": r.id, "url": str(r.url), "marketplace": str(r.marketplace)} for r in rows]
+            session_id = str(uuid.uuid4())
+            parse_session = ParseSession(
+                id=session_id, status="pending", total=len(targets),
+                succeeded=0, failed_count=0, started_at=datetime.utcnow(),
+            )
+            async with async_session() as session:
+                session.add(parse_session)
+                await session.commit()
+
+            asyncio.create_task(_run_all_background(session_id, targets))
+            logger.info(f"ParseSession {session_id} started (selected): {len(targets)} targets")
+            return JSONResponse({"session_id": session_id, "total": len(targets), "status": "running"})
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"run_selected failed: {exc}")
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+    @staticmethod
     async def run_target(request: Request) -> JSONResponse:
         """Parse a single target by ID, save to ParsedProduct, return the product data."""
         try:
+            from sqlalchemy import select  # noqa: PLC0415
+
             from models.job import async_session  # noqa: PLC0415
             from models.parse_target import ParseTarget  # noqa: PLC0415
-            from sqlalchemy import select  # noqa: PLC0415
             from services.parsing import ParsingService  # noqa: PLC0415
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -495,10 +606,11 @@ class TargetsRouter:
         """Start background parse of all enabled targets. Returns session_id immediately."""
         import asyncio  # noqa: PLC0415
         try:
+            from sqlalchemy import select  # noqa: PLC0415
+
             from models.job import async_session  # noqa: PLC0415
             from models.parse_target import ParseTarget  # noqa: PLC0415
             from models.parsed_product import ParseSession  # noqa: PLC0415
-            from sqlalchemy import select  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -542,9 +654,10 @@ class TargetsRouter:
     async def get_active_session(request: Request) -> JSONResponse:
         """Return the most recent pending/running ParseSession, or null."""
         try:
+            from sqlalchemy import select  # noqa: PLC0415
+
             from models.job import async_session  # noqa: PLC0415
             from models.parsed_product import ParseSession  # noqa: PLC0415
-            from sqlalchemy import select  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"session": None})
@@ -566,9 +679,10 @@ class TargetsRouter:
     async def get_session_status(session_id: str, request: Request) -> JSONResponse:
         """Return current status of a ParseSession."""
         try:
+            from sqlalchemy import select  # noqa: PLC0415
+
             from models.job import async_session  # noqa: PLC0415
             from models.parsed_product import ParseSession  # noqa: PLC0415
-            from sqlalchemy import select  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -589,6 +703,7 @@ class TargetsRouter:
 
 def register_targets_routes(app) -> None:  # type: ignore[no-untyped-def]
     from fastapi import Depends  # noqa: PLC0415
+
     from admin.resources.auth import require_admin  # noqa: PLC0415
     _auth = [Depends(require_admin)]
     router = TargetsRouter()
@@ -651,6 +766,27 @@ def register_targets_routes(app) -> None:  # type: ignore[no-untyped-def]
     app.add_api_route(
         "/admin/targets/run-all",
         router.run_all_targets,
+        methods=["POST"],
+        tags=["admin"],
+        dependencies=_auth,
+    )
+    app.add_api_route(
+        "/admin/targets/bulk-toggle",
+        router.bulk_toggle,
+        methods=["POST"],
+        tags=["admin"],
+        dependencies=_auth,
+    )
+    app.add_api_route(
+        "/admin/targets/delete-many",
+        router.delete_many,
+        methods=["POST"],
+        tags=["admin"],
+        dependencies=_auth,
+    )
+    app.add_api_route(
+        "/admin/targets/run-selected",
+        router.run_selected,
         methods=["POST"],
         tags=["admin"],
         dependencies=_auth,

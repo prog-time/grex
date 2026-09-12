@@ -61,6 +61,40 @@ async def init_db(db_url: str) -> None:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_migrate_added_columns)
+
+
+# Lightweight, dependency-free column migration. create_all() creates missing
+# TABLES but never ALTERs existing ones, so columns added to a model after its
+# table already exists (e.g. the monitoring fields on parse_targets) must be
+# added explicitly. Idempotent — only adds columns that are absent.
+_ADDED_COLUMNS: dict[str, dict[str, str]] = {
+    "parse_targets": {
+        "monitor_enabled": "BOOLEAN NOT NULL DEFAULT 0",
+        "interval_seconds": "INTEGER",
+        "next_run_at": "DATETIME",
+        "last_checked_at": "DATETIME",
+        "last_status": "VARCHAR(16)",
+    },
+    "alert_sources": {
+        "last_sent_at": "DATETIME",
+        "chat_id": "VARCHAR(32)",
+    },
+}
+
+
+def _migrate_added_columns(sync_conn) -> None:  # type: ignore[no-untyped-def]
+    from sqlalchemy import inspect, text  # noqa: PLC0415
+
+    inspector = inspect(sync_conn)
+    for table, columns in _ADDED_COLUMNS.items():
+        try:
+            existing = {c["name"] for c in inspector.get_columns(table)}
+        except Exception:
+            continue  # table not present yet — create_all will have made it complete
+        for name, ddl in columns.items():
+            if name not in existing:
+                sync_conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
 
 
 async def close_db() -> None:

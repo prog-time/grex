@@ -2,10 +2,10 @@
 
 {% block header %}
 <div class="d-flex justify-content-between align-items-center">
-  <h1>Targets</h1>
+  <h1>Цели</h1>
   <ol class="breadcrumb">
     <li class="breadcrumb-item"><a href="{{ url_for(__name__ ~ ':index') }}">Admin</a></li>
-    <li class="breadcrumb-item active">Targets</li>
+    <li class="breadcrumb-item active">Цели</li>
   </ol>
 </div>
 {% endblock %}
@@ -19,12 +19,12 @@
       <ul class="nav nav-tabs card-header-tabs" id="addTabs">
         <li class="nav-item">
           <a class="nav-link active" id="tab-single-lnk" href="#" onclick="switchTab('single');return false;">
-            Single URL
+            Добавить цель
           </a>
         </li>
         <li class="nav-item">
           <a class="nav-link" id="tab-file-lnk" href="#" onclick="switchTab('file');return false;">
-            Upload file
+            Загрузить файл
           </a>
         </li>
       </ul>
@@ -36,27 +36,27 @@
         <div class="col-12 col-md-7">
           <label class="form-label">URL <span class="text-danger">*</span></label>
           <input id="tUrl" type="url" class="form-control" placeholder="https://ozon.ru/product/...">
-          <div class="form-hint">Marketplace is detected automatically from the URL.</div>
+          <div class="form-hint">Маркетплейс определяется автоматически по URL.</div>
         </div>
         <div class="col-12 col-md-5">
-          <label class="form-label">Name <span class="text-muted">(optional)</span></label>
-          <input id="tName" type="text" class="form-control" placeholder="e.g. Ozon laptops">
+          <label class="form-label">Название <span class="text-muted">(необязательно)</span></label>
+          <input id="tName" type="text" class="form-control" placeholder="например, Ozon laptops">
         </div>
       </div>
       <div id="tError" class="alert alert-danger mb-3" style="display:none;"></div>
-      <button type="button" class="btn btn-primary" onclick="submitTarget()">Save target</button>
+      <button type="button" class="btn btn-primary" onclick="submitTarget()">Добавить цель</button>
     </div>
 
     <!-- Tab 2: upload file -->
     <div id="tab-file" class="card-body" style="display:none;">
       <div class="row g-3 mb-3">
         <div class="col-12 col-md-8">
-          <label class="form-label">File with URLs <span class="text-danger">*</span></label>
+          <label class="form-label">Файл с URL <span class="text-danger">*</span></label>
           <input id="fFile" type="file" class="form-control" accept=".txt,.csv,.xlsx"
                  onchange="onFileSelected(this)">
           <div class="form-hint">
-            Supported formats: <strong>.txt</strong>, <strong>.csv</strong> and <strong>.xlsx</strong>.
-            URLs are searched across all rows/columns — at least one must contain a valid URL.
+            Поддерживаемые форматы: <strong>.txt</strong>, <strong>.csv</strong> и <strong>.xlsx</strong>.
+            URL ищутся по всем строкам и столбцам — хотя бы один должен содержать корректный URL.
           </div>
         </div>
       </div>
@@ -77,7 +77,7 @@
       <div id="fProgress" style="display:none;" class="mb-3">
         <div class="d-flex align-items-center gap-2">
           <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
-          <span class="text-muted" id="fProgressText">Importing…</span>
+          <span class="text-muted" id="fProgressText">Импорт…</span>
         </div>
       </div>
 
@@ -85,7 +85,7 @@
       <div id="fResult" style="display:none;" class="alert mb-3"></div>
 
       <button type="button" class="btn btn-primary" id="btnImport" disabled onclick="importFromFile()">
-        Import
+        Импортировать
       </button>
     </div>
   </div>
@@ -93,9 +93,10 @@
   <!-- ── Targets table ────────────────────────────────────────────── -->
   <div class="card">
     <div class="card-header">
-      <h3 class="card-title">Saved targets</h3>
+      <h3 class="card-title">Сохранённые цели</h3>
       <div class="card-options d-flex align-items-center gap-2">
         <span class="text-muted small" id="targetsCount"></span>
+        <span class="text-muted small" id="targetsSelectionCount"></span>
         <select class="form-select form-select-sm w-auto" id="targetsPerPage" onchange="setPerPage(this.value)">
           <option value="10">10</option>
           <option value="25" selected>25</option>
@@ -104,13 +105,13 @@
         </select>
         <div id="runAllProgress" class="d-none align-items-center gap-2">
           <div class="spinner-border spinner-border-sm text-success" role="status"></div>
-          <span id="runAllProgressText" class="text-muted small">Starting…</span>
+          <span id="runAllProgressText" class="text-muted small">Запуск…</span>
         </div>
         <button type="button" class="btn btn-sm btn-success" id="btnRunAll" onclick="runAll()">
-          Run all
+          Запустить все
         </button>
         <button type="button" class="btn btn-sm btn-outline-danger" onclick="clearAll()">
-          Clear all
+          Очистить всё
         </button>
       </div>
     </div>
@@ -118,18 +119,41 @@
       <table class="table table-vcenter card-table">
         <thead>
           <tr>
-            <th>Name / URL</th>
-            <th>Marketplace</th>
-            <th>Status</th>
+            <th style="width:36px">
+              <input type="checkbox" class="form-check-input" id="targetsSelectAll" onchange="toggleSelectAllTargets(this)">
+            </th>
+            <th>Название / URL</th>
+            <th>Маркетплейс</th>
+            <th>Статус</th>
             <th></th>
           </tr>
         </thead>
         <tbody id="targetsBody">
-          <tr><td colspan="4" class="text-muted text-center py-3">Loading…</td></tr>
+          <tr><td colspan="5" class="text-muted text-center py-3">Загрузка…</td></tr>
         </tbody>
       </table>
     </div>
     <div class="card-footer d-flex align-items-center" id="targetsPager"></div>
+  </div>
+
+  <!-- spacer so the sticky action bar never hides the last rows -->
+  <div id="targetsBulkSpacer" style="height:0"></div>
+</div>
+
+<!-- Sticky bulk-action bar — shown when one or more targets are selected -->
+<div id="targetsBulkBar" class="position-fixed bottom-0 start-0 end-0 border-top bg-white shadow-sm py-2"
+     style="display:none; z-index:1030;">
+  <div class="container-xl d-flex align-items-center gap-2 flex-wrap">
+    <span class="fw-medium me-1" id="targetsBulkCount"></span>
+    <select id="targetsBulkAction" class="form-select form-select-sm w-auto">
+      <option value="">Действие для выбранных…</option>
+      <option value="activate">Активировать</option>
+      <option value="deactivate">Деактивировать</option>
+      <option value="run">Запустить выгрузку</option>
+    </select>
+    <button class="btn btn-sm btn-primary" id="targetsApplyBtn" onclick="applyTargetBulk(this)" disabled>Применить</button>
+    <button class="btn btn-sm btn-outline-danger" onclick="deleteSelectedTargets(this)">Удалить</button>
+    <button class="btn btn-sm btn-link ms-auto text-muted" onclick="clearTargetSelection()">Снять выделение</button>
   </div>
 </div>
 
@@ -138,12 +162,12 @@
   <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title" id="resultModalTitle">Parse result</h5>
+        <h5 class="modal-title" id="resultModalTitle">Результат парсинга</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body" id="resultModalBody"></div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
       </div>
     </div>
   </div>
@@ -154,12 +178,12 @@
   <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable" role="document">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Run all — results</h5>
+        <h5 class="modal-title">Запустить все — результаты</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body" id="runAllBody"></div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
       </div>
     </div>
   </div>
@@ -184,7 +208,7 @@ async function submitTarget() {
   var url  = document.getElementById('tUrl').value.trim();
   var name = document.getElementById('tName').value.trim();
 
-  if (!url) { showSingleError('URL is required.'); return; }
+  if (!url) { showSingleError('URL обязателен.'); return; }
 
   var res = await fetch('/admin/targets/add', {
     method: 'POST',
@@ -223,7 +247,7 @@ async function onFileSelected(input) {
 
   // Show spinner while server reads the file
   document.getElementById('fProgress').style.display = '';
-  document.getElementById('fProgressText').textContent = 'Reading file…';
+  document.getElementById('fProgressText').textContent = 'Чтение файла…';
 
   try {
     var formData = new FormData();
@@ -239,7 +263,7 @@ async function onFileSelected(input) {
 
     var urls = data.urls || [];
     if (!urls.length) {
-      showFileError('No URLs found in the file (http:// or https://).');
+      showFileError('В файле не найдено ни одного URL (http:// или https://).');
       return;
     }
 
@@ -255,8 +279,8 @@ async function onFileSelected(input) {
 
 function renderFilePreview(urls) {
   var SHOW = 8;
-  document.getElementById('fPreviewCount').textContent = 'Found ' + urls.length + ' URLs';
-  document.getElementById('fPreviewNote').textContent  = urls.length > SHOW ? '(showing first ' + SHOW + ')' : '';
+  document.getElementById('fPreviewCount').textContent = 'Найдено URL: ' + urls.length;
+  document.getElementById('fPreviewNote').textContent  = urls.length > SHOW ? '(показаны первые ' + SHOW + ')' : '';
 
   var list = document.getElementById('fPreviewList');
   list.innerHTML = urls.slice(0, SHOW).map(function(u, i) {
@@ -278,7 +302,7 @@ async function importFromFile() {
   btnImp.disabled = true;
   resultEl.style.display = 'none';
   progEl.style.display   = '';
-  document.getElementById('fProgressText').textContent = 'Importing ' + _parsedUrls.length + ' URLs…';
+  document.getElementById('fProgressText').textContent = 'Импорт ' + _parsedUrls.length + ' URL…';
 
   try {
     var res  = await fetch('/admin/targets/import-bulk', {
@@ -376,45 +400,133 @@ function renderTargets() {
   var start = (_currentPage - 1) * _perPage;
   var page  = _allTargets.slice(start, start + _perPage);
 
-  document.getElementById('targetsCount').textContent = total + ' targets';
+  document.getElementById('targetsCount').textContent = 'Целей: ' + total;
   var tbody = document.getElementById('targetsBody');
 
   if (!page.length) {
-    tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center py-3">No targets yet.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="text-muted text-center py-3">Пока нет целей.</td></tr>';
     document.getElementById('targetsPager').innerHTML = '';
+    updateTargetSelection();
     return;
   }
 
   tbody.innerHTML = page.map(function(t) {
     var statusBadge = t.enabled
-      ? '<span class="badge bg-success text-white">Enabled</span>'
-      : '<span class="badge bg-secondary text-white">Disabled</span>';
+      ? '<span class="badge bg-success text-white" style="cursor:pointer" title="Нажмите, чтобы выключить" onclick="toggleTarget(\'' + t.id + '\')">Включён</span>'
+      : '<span class="badge bg-secondary text-white" style="cursor:pointer" title="Нажмите, чтобы включить" onclick="toggleTarget(\'' + t.id + '\')">Выключен</span>';
 
     var nameRow = t.name
       ? '<div class="fw-semibold">' + esc(t.name) + '</div>'
       : '';
 
     return '<tr id="trow-' + t.id + '">'
+      + '<td><input type="checkbox" class="form-check-input target-cb" data-id="' + esc(t.id) + '" onchange="updateTargetSelection()"></td>'
       + '<td>' + nameRow
       + '<a href="' + esc(t.url) + '" target="_blank" class="text-truncate d-block" style="max-width:340px"'
       + ' title="' + esc(t.url) + '">' + esc(t.url) + '</a></td>'
       + '<td><span class="badge bg-azure text-white">' + esc(t.marketplace) + '</span></td>'
       + '<td>' + statusBadge + '</td>'
       + '<td class="text-end">'
-      + '<button type="button" class="btn btn-sm btn-outline-primary me-1"'
-      + ' id="parse-btn-' + t.id + '" onclick="parseTarget(\'' + t.id + '\')">Parse</button>'
-      + '<button type="button" class="btn btn-sm btn-outline-secondary me-1"'
-      + ' onclick="toggleTarget(\'' + t.id + '\')">Toggle</button>'
-      + '<button type="button" class="btn btn-sm btn-outline-danger"'
-      + ' onclick="deleteTarget(\'' + t.id + '\')">Delete</button>'
+      + '<button type="button" class="btn btn-sm btn-icon btn-ghost-primary me-1" style="padding:7px"'
+      + ' id="parse-btn-' + t.id + '" title="Старт" onclick="parseTarget(\'' + t.id + '\')"><i class="fa fa-play"></i></button>'
+      + '<button type="button" class="btn btn-sm btn-icon btn-ghost-danger" style="padding:7px"'
+      + ' title="Удалить" onclick="deleteTarget(\'' + t.id + '\')"><i class="fa fa-trash"></i></button>'
       + '</td></tr>';
   }).join('');
 
   var from = total ? start + 1 : 0;
   var to   = Math.min(start + _perPage, total);
   document.getElementById('targetsPager').innerHTML =
-    '<p class="m-0 text-secondary">Showing ' + from + '–' + to + ' of ' + total + '</p>'
+    '<p class="m-0 text-secondary">Показаны ' + from + '–' + to + ' из ' + total + '</p>'
     + buildPagination(_currentPage, totalPages, 'goToTargetPage');
+  updateTargetSelection();
+}
+
+// --- selection + bulk actions ---
+function getSelectedTargetIds() {
+  return Array.from(document.querySelectorAll('.target-cb:checked')).map(function(c){ return c.dataset.id; });
+}
+
+function toggleSelectAllTargets(cb) {
+  document.querySelectorAll('.target-cb').forEach(function(c){ c.checked = cb.checked; });
+  updateTargetSelection();
+}
+
+function updateTargetSelection() {
+  var checked = document.querySelectorAll('.target-cb:checked').length;
+  var total = document.querySelectorAll('.target-cb').length;
+  var sa = document.getElementById('targetsSelectAll');
+  if (sa) sa.checked = total > 0 && checked === total;
+  document.getElementById('targetsSelectionCount').textContent = checked ? 'Выбрано: ' + checked : '';
+
+  var bar = document.getElementById('targetsBulkBar');
+  document.getElementById('targetsBulkCount').textContent = 'Выбрано: ' + checked;
+  document.getElementById('targetsApplyBtn').disabled = checked === 0;
+  if (checked > 0) {
+    bar.style.display = '';
+    document.getElementById('targetsBulkSpacer').style.height = '64px';
+  } else {
+    bar.style.display = 'none';
+    document.getElementById('targetsBulkSpacer').style.height = '0';
+  }
+}
+
+function clearTargetSelection() {
+  document.querySelectorAll('.target-cb').forEach(function(c){ c.checked = false; });
+  var sa = document.getElementById('targetsSelectAll'); if (sa) sa.checked = false;
+  document.getElementById('targetsBulkAction').value = '';
+  updateTargetSelection();
+}
+
+async function applyTargetBulk(btn) {
+  var ids = getSelectedTargetIds();
+  if (!ids.length) return;
+  var action = document.getElementById('targetsBulkAction').value;
+  if (!action) { alert('Выберите действие для выбранных целей.'); return; }
+
+  setTargetBtnLoading(btn, true);
+  try {
+    if (action === 'activate' || action === 'deactivate') {
+      var res = await fetch('/admin/targets/bulk-toggle', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ids: ids, enabled: action === 'activate'}),
+      });
+      var d = await res.json().catch(function(){ return {}; });
+      if (!res.ok) alert(d.error || 'Действие не выполнено (HTTP ' + res.status + ')');
+    } else if (action === 'run') {
+      var res2 = await fetch('/admin/targets/run-selected', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ids: ids}),
+      });
+      var d2 = await res2.json().catch(function(){ return {}; });
+      if (res2.ok) alert('Запущена выгрузка для ' + (d2.total || ids.length) + ' целей… Следите за прогрессом на странице Товары.');
+      else alert(d2.error || 'Запуск не выполнен (HTTP ' + res2.status + ')');
+    }
+  } catch (e) { alert('Действие не выполнено'); }
+  setTargetBtnLoading(btn, false);
+  document.getElementById('targetsBulkAction').value = '';
+  await loadTargets();
+}
+
+async function deleteSelectedTargets(btn) {
+  var ids = getSelectedTargetIds();
+  if (!ids.length) return;
+  if (!confirm('Удалить выбранные цели (' + ids.length + ')?')) return;
+  setTargetBtnLoading(btn, true);
+  try {
+    var res = await fetch('/admin/targets/delete-many', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids: ids}),
+    });
+    var d = await res.json().catch(function(){ return {}; });
+    if (!res.ok) alert(d.error || 'Удаление не выполнено (HTTP ' + res.status + ')');
+  } catch (e) { alert('Удаление не выполнено'); }
+  setTargetBtnLoading(btn, false);
+  await loadTargets();
+}
+
+function setTargetBtnLoading(btn, loading) {
+  if (loading) { btn.disabled = true; btn.dataset.orig = btn.innerHTML; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+  else { btn.disabled = false; btn.innerHTML = btn.dataset.orig || btn.innerHTML; }
 }
 
 function esc(s) {
@@ -427,7 +539,7 @@ function esc(s) {
 
 async function parseTarget(id) {
   var btn = document.getElementById('parse-btn-' + id);
-  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
 
   try {
     var res = await fetch('/admin/targets/run', {
@@ -440,7 +552,7 @@ async function parseTarget(id) {
   } catch(e) {
     showResultModal({success: false, error: String(e)});
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Parse'; }
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa fa-play"></i>'; }
   }
 }
 
@@ -449,13 +561,13 @@ function showResultModal(data) {
   var body  = document.getElementById('resultModalBody');
 
   if (data.error && !data.success) {
-    title.textContent = 'Parse error';
+    title.textContent = 'Ошибка парсинга';
     body.innerHTML = '<div class="alert alert-danger">' + esc(data.error) + '</div>';
   } else if (!data.success) {
-    title.textContent = 'Parse failed — ' + esc(data.url || '');
-    body.innerHTML = '<div class="alert alert-warning">' + esc(data.error || 'Unknown error') + '</div>';
+    title.textContent = 'Парсинг не выполнен — ' + esc(data.url || '');
+    body.innerHTML = '<div class="alert alert-warning">' + esc(data.error || 'Неизвестная ошибка') + '</div>';
   } else {
-    title.textContent = 'Parse result — ' + esc(data.marketplace || '');
+    title.textContent = 'Результат парсинга — ' + esc(data.marketplace || '');
     body.innerHTML = renderDataTable(data.data || {}, data.url);
   }
 
@@ -504,10 +616,10 @@ async function checkActiveSession() {
       _runAllSessionId = data.session.id;
       var done = (data.session.succeeded || 0) + (data.session.failed || 0);
       document.getElementById('runAllProgressText').textContent =
-        'Processing ' + done + ' / ' + (data.session.total || '?') + '…';
+        'Обработка ' + done + ' / ' + (data.session.total || '?') + '…';
       var btn = document.getElementById('btnRunAll');
       btn.disabled = true;
-      btn.textContent = 'Running…';
+      btn.textContent = 'Выполняется…';
       document.getElementById('runAllProgress').classList.remove('d-none');
       document.getElementById('runAllProgress').classList.add('d-flex');
       _runAllPollTimer = setInterval(pollRunAllStatus, 2000);
@@ -522,10 +634,10 @@ async function runAll() {
 
   var btn = document.getElementById('btnRunAll');
   btn.disabled = true;
-  btn.textContent = 'Starting…';
+  btn.textContent = 'Запуск…';
   document.getElementById('runAllProgress').classList.remove('d-none');
   document.getElementById('runAllProgress').classList.add('d-flex');
-  document.getElementById('runAllProgressText').textContent = 'Starting…';
+  document.getElementById('runAllProgressText').textContent = 'Запуск…';
 
   try {
     var res = await fetch('/admin/targets/run-all', {
@@ -534,22 +646,22 @@ async function runAll() {
       body: '{}',
     });
     var data = res.ok ? await res.json() : {error: 'HTTP ' + res.status};
-    if (data.error) { alert('Error: ' + data.error); resetRunAllUI(); return; }
+    if (data.error) { alert('Ошибка: ' + data.error); resetRunAllUI(); return; }
 
     if (!data.session_id) {
-      alert(data.message || 'No active targets found.');
+      alert(data.message || 'Активные цели не найдены.');
       resetRunAllUI();
       return;
     }
 
     _runAllSessionId = data.session_id;
     document.getElementById('runAllProgressText').textContent =
-      'Processing 0 / ' + data.total + '…';
-    btn.textContent = 'Running…';
+      'Обработка 0 / ' + data.total + '…';
+    btn.textContent = 'Выполняется…';
 
     _runAllPollTimer = setInterval(pollRunAllStatus, 2000);
   } catch(e) {
-    alert('Error: ' + e);
+    alert('Ошибка: ' + e);
     resetRunAllUI();
   }
 }
@@ -563,7 +675,7 @@ async function pollRunAllStatus() {
 
     var done = data.succeeded + data.failed;
     document.getElementById('runAllProgressText').textContent =
-      'Processing ' + done + ' / ' + data.total + '…';
+      'Обработка ' + done + ' / ' + data.total + '…';
 
     if (data.status === 'completed' || data.status === 'failed') {
       clearInterval(_runAllPollTimer);
@@ -580,7 +692,7 @@ function resetRunAllUI() {
   if (_runAllPollTimer) { clearInterval(_runAllPollTimer); _runAllPollTimer = null; }
   var btn = document.getElementById('btnRunAll');
   btn.disabled = false;
-  btn.textContent = 'Run all';
+  btn.textContent = 'Запустить все';
   document.getElementById('runAllProgress').classList.add('d-none');
   document.getElementById('runAllProgress').classList.remove('d-flex');
   _runAllSessionId = null;
@@ -589,11 +701,11 @@ function resetRunAllUI() {
 function showRunAllDone(data) {
   var body = document.getElementById('runAllBody');
   body.innerHTML = '<div class="mb-3">'
-    + '<span class="badge bg-success text-white me-2">' + data.succeeded + ' succeeded</span>'
-    + '<span class="badge bg-danger text-white me-2">' + data.failed + ' failed</span>'
-    + '<span class="text-muted small">Total: ' + data.total + '</span>'
+    + '<span class="badge bg-success text-white me-2">' + data.succeeded + ' успешно</span>'
+    + '<span class="badge bg-danger text-white me-2">' + data.failed + ' с ошибкой</span>'
+    + '<span class="text-muted small">Всего: ' + data.total + '</span>'
     + '</div>'
-    + '<p class="text-muted">Results saved. Go to <strong>Products</strong> to view them.</p>';
+    + '<p class="text-muted">Результаты сохранены. Перейдите в раздел <strong>Товары</strong> для просмотра.</p>';
   var modal = new bootstrap.Modal(document.getElementById('runAllModal'));
   modal.show();
 }
@@ -610,7 +722,7 @@ async function toggleTarget(id) {
 }
 
 async function deleteTarget(id) {
-  if (!confirm('Delete this target?')) return;
+  if (!confirm('Удалить эту цель?')) return;
   await fetch('/admin/targets/delete', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -620,7 +732,7 @@ async function deleteTarget(id) {
 }
 
 async function clearAll() {
-  if (!confirm('Delete all targets? This cannot be undone.')) return;
+  if (!confirm('Удалить все цели? Это действие нельзя отменить.')) return;
   var res = await fetch('/admin/targets/clear-all', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -630,7 +742,7 @@ async function clearAll() {
     await loadTargets();
   } else {
     var data = await res.json().catch(function() { return {}; });
-    alert('Error: ' + (data.error || res.status));
+    alert('Ошибка: ' + (data.error || res.status));
   }
 }
 

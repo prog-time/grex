@@ -22,22 +22,23 @@ Category / catalog pages:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import re
-import asyncio
 import time
-from typing import ClassVar
 from decimal import Decimal
 from multiprocessing import Queue
+from typing import ClassVar
 
 from bs4 import BeautifulSoup, Tag
 from curl_cffi.requests.session import AsyncSession
 from loguru import logger
 
-from .base import BaseCrawler
-from models import ProductCard
 from config import settings
 from core.exceptions import ProductCardParsingException
+from models import ProductCard
+
+from .base import BaseCrawler
 
 
 class VseInstrumentiCrawler(BaseCrawler):

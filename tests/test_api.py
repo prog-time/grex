@@ -2,16 +2,14 @@
 
 Strategy
 --------
-- api.py calls check_license() at module level.  We patch it before importing so
-  every test that imports the module sees a no-op license check.
 - Redis / admin setup fails gracefully (the lifespan swallows those errors).
 - TestClient is used for synchronous HTTP testing — no running server needed.
 - Real marketplace crawlers are NOT invoked; parse_product is mocked where needed.
 """
 from __future__ import annotations
 
-import sys
 import os
+import sys
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
@@ -21,12 +19,10 @@ import pytest
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.argv[0] = os.path.join(PROJECT_ROOT, "main.py")
 
-# Patch check_license before api.py is first imported so the module-level
-# call does not trigger SystemExit in CI / isolated environments.
-with patch("licensing.checker.check_license", return_value={"key": "test-key"}):
-    from fastapi.testclient import TestClient
-    import api  # noqa: E402  (import after patch is intentional)
-    from models.product import ProductCard
+from fastapi.testclient import TestClient
+
+import api
+from models.product import ProductCard
 
 _API_KEY = "4353456dfvbdfg34"   # from data/settings.yml
 _AUTH_HEADERS = {"X-API-Key": _API_KEY}
@@ -356,9 +352,10 @@ class TestParseErrorHandling:
 # ---------------------------------------------------------------------------
 
 class TestFavicon:
-    def test_returns_204(self, client):
+    def test_serves_svg(self, client):
         r = client.get("/favicon.ico")
-        assert r.status_code == 204
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "image/svg+xml"
 
 
 # ---------------------------------------------------------------------------
@@ -388,18 +385,21 @@ class TestParseRequestModel:
 
     def test_rejects_unsupported_amazon_url(self):
         from pydantic import ValidationError
+
         from models.product import ParseRequest
         with pytest.raises(ValidationError):
             ParseRequest(url="https://amazon.com/dp/B08N5WRWNW")
 
     def test_rejects_completely_invalid_domain(self):
         from pydantic import ValidationError
+
         from models.product import ParseRequest
         with pytest.raises(ValidationError):
             ParseRequest(url="https://notamarketplace.example.com/product/1")
 
     def test_rejects_non_url_string(self):
         from pydantic import ValidationError
+
         from models.product import ParseRequest
         with pytest.raises(ValidationError):
             ParseRequest(url="this-is-not-a-url")

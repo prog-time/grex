@@ -53,9 +53,10 @@ class ProductsRouter:
     @staticmethod
     async def list_products(request: Request) -> JSONResponse:
         try:
+            from sqlalchemy import select  # noqa: PLC0415
+
             from models.job import async_session  # noqa: PLC0415
             from models.parsed_product import ParsedProduct  # noqa: PLC0415
-            from sqlalchemy import select  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -83,9 +84,10 @@ class ProductsRouter:
     @staticmethod
     async def delete_product(request: Request) -> JSONResponse:
         try:
+            from sqlalchemy import delete  # noqa: PLC0415
+
             from models.job import async_session  # noqa: PLC0415
             from models.parsed_product import ParsedProduct  # noqa: PLC0415
-            from sqlalchemy import delete  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -111,9 +113,10 @@ class ProductsRouter:
     @staticmethod
     async def clear_products(request: Request) -> JSONResponse:
         try:
+            from sqlalchemy import delete  # noqa: PLC0415
+
             from models.job import async_session  # noqa: PLC0415
             from models.parsed_product import ParsedProduct  # noqa: PLC0415
-            from sqlalchemy import delete  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -124,6 +127,71 @@ class ProductsRouter:
             return JSONResponse({"ok": True})
         except Exception as exc:  # noqa: BLE001
             logger.error(f"Failed to clear products: {exc}")
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+    @staticmethod
+    async def delete_many(request: Request) -> JSONResponse:
+        """Bulk-delete parsed products by id. Body: {"ids": [str, ...]}."""
+        try:
+            from sqlalchemy import delete  # noqa: PLC0415
+
+            from models.job import async_session  # noqa: PLC0415
+            from models.parsed_product import ParsedProduct  # noqa: PLC0415
+
+            if async_session is None:
+                return JSONResponse({"error": "DB not initialised"}, status_code=503)
+
+            body = await request.json()
+            ids = body.get("ids")
+            if not isinstance(ids, list) or not ids:
+                return JSONResponse({"error": "ids (non-empty list) is required"}, status_code=422)
+            ids = [str(i) for i in ids]
+
+            async with async_session() as session:
+                result = await session.execute(delete(ParsedProduct).where(ParsedProduct.id.in_(ids)))
+                await session.commit()
+            return JSONResponse({"deleted": result.rowcount or 0})  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"Failed to bulk-delete products: {exc}")
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+    @staticmethod
+    async def refetch_products(request: Request) -> JSONResponse:
+        """Re-parse the selected products in the background. Body: {"ids": [str, ...]}.
+
+        Returns immediately with how many were queued; the table reflects the
+        refreshed prices/timestamps once the background re-parse completes.
+        """
+        try:
+            import asyncio  # noqa: PLC0415
+
+            from sqlalchemy import select  # noqa: PLC0415
+
+            from models.job import async_session  # noqa: PLC0415
+            from models.parsed_product import ParsedProduct  # noqa: PLC0415
+
+            if async_session is None:
+                return JSONResponse({"error": "DB not initialised"}, status_code=503)
+
+            body = await request.json()
+            ids = body.get("ids")
+            if not isinstance(ids, list) or not ids:
+                return JSONResponse({"error": "ids (non-empty list) is required"}, status_code=422)
+            ids = [str(i) for i in ids]
+
+            async with async_session() as session:
+                rows = (await session.execute(
+                    select(ParsedProduct.url, ParsedProduct.marketplace, ParsedProduct.target_id)
+                    .where(ParsedProduct.id.in_(ids))
+                )).all()
+            items = [{"url": r[0], "marketplace": r[1] or "", "target_id": r[2]} for r in rows if r[0]]
+            if not items:
+                return JSONResponse({"error": "no matching products"}, status_code=404)
+
+            asyncio.create_task(_refetch_background(items))
+            return JSONResponse({"ok": True, "queued": len(items)})
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"Failed to start refetch: {exc}")
             return JSONResponse({"error": str(exc)}, status_code=500)
 
     @staticmethod
@@ -139,9 +207,10 @@ class ProductsRouter:
         id_list: list[str] = [str(i) for i in (body.get("ids") or []) if i]
 
         try:
+            from sqlalchemy import select  # noqa: PLC0415
+
             from models.job import async_session  # noqa: PLC0415
             from models.parsed_product import ParsedProduct  # noqa: PLC0415
-            from sqlalchemy import select  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -218,8 +287,32 @@ class ProductsRouter:
         )
 
 
+async def _refetch_background(items: list[dict]) -> None:
+    """Re-parse each product URL and upsert the refreshed result (fire-and-forget)."""
+    import json as _json  # noqa: PLC0415
+
+    from admin.resources.targets import _upsert_parsed_product  # noqa: PLC0415
+    from services.parsing import ParsingService  # noqa: PLC0415
+
+    svc = ParsingService()
+    ok = 0
+    for it in items:
+        try:
+            product = await svc.parse_product(it["url"])
+            await _upsert_parsed_product(
+                session_id=None, target_id=it.get("target_id"), url=it["url"],
+                marketplace=it.get("marketplace") or "", data=product.to_dict(), json_module=_json,
+            )
+            ok += 1
+            logger.info(f"refetch OK: {it['url']}")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"refetch FAIL: {it['url']}: {exc}")
+    logger.info(f"Refetch finished: {ok}/{len(items)} products updated")
+
+
 def register_products_routes(app) -> None:  # type: ignore[no-untyped-def]
     from fastapi import Depends  # noqa: PLC0415
+
     from admin.resources.auth import require_admin  # noqa: PLC0415
     _auth = [Depends(require_admin)]
     router = ProductsRouter()
@@ -230,6 +323,12 @@ def register_products_routes(app) -> None:  # type: ignore[no-untyped-def]
     )
     app.add_api_route(
         "/admin/products/delete", router.delete_product, methods=["POST"], tags=["admin"], dependencies=_auth,
+    )
+    app.add_api_route(
+        "/admin/products/delete_many", router.delete_many, methods=["POST"], tags=["admin"], dependencies=_auth,
+    )
+    app.add_api_route(
+        "/admin/products/refetch", router.refetch_products, methods=["POST"], tags=["admin"], dependencies=_auth,
     )
     app.add_api_route(
         "/admin/products/clear", router.clear_products, methods=["POST"], tags=["admin"], dependencies=_auth,

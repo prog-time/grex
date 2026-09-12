@@ -1,0 +1,369 @@
+{% extends "layout.html" %}
+
+{% block header %}
+<div class="d-flex justify-content-between align-items-center">
+  <h1>Параметры мониторинга</h1>
+  <ol class="breadcrumb mb-0">
+    <li class="breadcrumb-item"><a href="{{ url_for(__name__ ~ ':index') }}">Admin</a></li>
+    <li class="breadcrumb-item active">Параметры мониторинга</li>
+  </ol>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="container-xl">
+
+  <!-- ── Список источников ─────────────────────────────────────────── -->
+  <div id="listView" style="display:none;">
+
+    <!-- Настройки Telegram-бота -->
+    <div class="card mb-3">
+      <div class="card-header"><h3 class="card-title">Telegram-бот</h3></div>
+      <div class="card-body" style="max-width:600px;">
+        <label class="form-label">Токен Telegram-бота</label>
+        <div class="input-group">
+          <input id="tgTokenInput" type="password" autocomplete="off" class="form-control" placeholder="123456789:AA...">
+          <button class="btn btn-primary" id="tgTokenBtn" onclick="saveTgToken(this)">Сохранить</button>
+        </div>
+        <div class="form-hint">
+          Токен из @BotFather. Хранится в зашифрованном виде. Введите новый токен, чтобы заменить.
+        </div>
+        <div id="tgTokenStatus" class="small mt-2 text-muted"></div>
+        <div id="tgTokenMsg" class="small mt-1" style="display:none;"></div>
+      </div>
+    </div>
+
+    <!-- Настройки отчёта -->
+    <div class="card mb-3">
+      <div class="card-header"><h3 class="card-title">Отчёт</h3></div>
+      <div class="card-body" style="max-width:600px;">
+        <label class="form-label">Период отчёта (дней)</label>
+        <div class="input-group" style="max-width:260px;">
+          <input id="periodInput" type="number" min="1" max="365" step="1" class="form-control" placeholder="30">
+          <button class="btn btn-primary" id="periodBtn" onclick="savePeriod(this)">Сохранить</button>
+        </div>
+        <div id="periodMsg" class="small mt-1" style="display:none;"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">Источники оповещений</h3>
+        <div class="card-options">
+          <a class="btn btn-primary btn-sm" href="?view=new&type=telegram">Добавить</a>
+        </div>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-vcenter card-table">
+          <thead>
+            <tr>
+              <th style="width:120px">Тип</th>
+              <th>Кому отправить</th>
+              <th style="width:170px">Частота</th>
+              <th style="width:160px">Создан</th>
+              <th style="width:160px">Посл. отправка</th>
+              <th style="width:70px"></th>
+            </tr>
+          </thead>
+          <tbody id="srcBody">
+            <tr><td colspan="6" class="text-center text-muted py-3">
+              <span class="spinner-border spinner-border-sm me-2"></span>Загрузка…
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="text-muted small mt-2">
+      Оповещение — периодическая отправка одного Excel-документа со всеми активными товарами раздела
+      «Monitoring» выбранному получателю с заданной частотой. Сама доставка подключается отдельно.
+    </p>
+  </div>
+
+  <!-- ── Форма создания источника ──────────────────────────────────── -->
+  <div id="formView" style="display:none;">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title" id="formTitle">Новый источник</h3></div>
+      <div class="card-body" style="max-width:560px;">
+        <div class="mb-3">
+          <label class="form-label" id="recipientLabel">Кому отправить</label>
+          <input id="recipientInput" type="text" class="form-control" placeholder="">
+          <div class="form-hint" id="recipientHint"></div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Частота оповещений</label>
+          <select id="frequencySelect" class="form-select"></select>
+        </div>
+        <div id="formError" class="text-danger mb-2" style="display:none;"></div>
+      </div>
+      <div class="card-footer d-flex gap-2">
+        <button class="btn btn-primary" id="saveBtn" onclick="saveSource(this)">Создать</button>
+        <a class="btn btn-link text-muted" href="?">Отмена</a>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+var _frequencies = {};
+var _formType = '';
+var _formMode = 'new';
+var _editId = null;
+var _params = new URLSearchParams(window.location.search);
+
+function typeLabel(t) { return t === 'telegram' ? 'Telegram' : (t === 'mail' ? 'Mail' : t); }
+function typeBadge(t) {
+  var cls = t === 'telegram' ? 'bg-azure' : (t === 'mail' ? 'bg-green' : 'bg-secondary');
+  return '<span class="badge ' + cls + ' text-white">' + esc(typeLabel(t)) + '</span>';
+}
+
+async function fetchData() {
+  const res = await fetch('/admin/alert-sources/api');
+  if (!res.ok) throw new Error('http ' + res.status);
+  const d = await res.json();
+  _frequencies = d.frequencies || {};
+  return d;
+}
+
+async function showList() {
+  document.getElementById('listView').style.display = '';
+  document.getElementById('formView').style.display = 'none';
+  loadTgToken();
+  const tbody = document.getElementById('srcBody');
+  let d;
+  try {
+    d = await fetchData();
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-danger text-center py-3">Не удалось загрузить источники.</td></tr>';
+    return;
+  }
+  const rows = d.sources || [];
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center py-3">Источников пока нет. Нажмите «Добавить».</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(function(s) {
+    return '<tr style="cursor:pointer" onclick="showEditForm(\'' + s.id + '\')" title="Нажмите, чтобы редактировать">'
+      + '<td>' + typeBadge(s.type) + '</td>'
+      + '<td><code>' + esc(s.recipient) + '</code>'
+        + (s.chat_id ? '<div class="text-muted small">chat_id: ' + esc(s.chat_id) + '</div>' : '') + '</td>'
+      + '<td>' + esc(_frequencies[s.frequency] || s.frequency) + '</td>'
+      + '<td class="text-muted small">' + fmtDate(s.created_at) + '</td>'
+      + '<td class="text-muted small">' + (s.last_sent_at ? fmtDate(s.last_sent_at) : '—') + '</td>'
+      + '<td class="text-end"><button class="btn btn-sm btn-outline-danger" onclick="event.stopPropagation(); deleteSource(\'' + s.id + '\')" title="Удалить">✕</button></td>'
+      + '</tr>';
+  }).join('');
+}
+
+async function loadTgToken() {
+  const st = document.getElementById('tgTokenStatus');
+  try {
+    const res = await fetch('/admin/alert-sources/settings');
+    if (!res.ok) return;
+    const d = await res.json();
+    document.getElementById('tgTokenInput').value = '';
+    if (d.report_period_days != null) document.getElementById('periodInput').value = d.report_period_days;
+    if (d.has_token) {
+      st.innerHTML = 'Текущий токен: <code>' + esc(d.hint || '••••') + '</code>'
+        + ' <a href="#" class="text-danger ms-2" onclick="clearTgToken();return false;">Удалить</a>';
+    } else {
+      st.textContent = 'Токен не задан.';
+    }
+  } catch (e) { /* ignore */ }
+}
+
+function showTgMsg(text, ok) {
+  const msg = document.getElementById('tgTokenMsg');
+  msg.className = 'small mt-1 ' + (ok ? 'text-success' : 'text-danger');
+  msg.textContent = text;
+  msg.style.display = '';
+}
+
+async function saveTgToken(btn) {
+  const token = document.getElementById('tgTokenInput').value.trim();
+  if (!token) { showTgMsg('Введите токен.', false); return; }
+  btn.disabled = true;
+  try {
+    const res = await fetch('/admin/alert-sources/settings', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({telegram_bot_token: token}),
+    });
+    const d = await res.json().catch(function(){ return {}; });
+    if (res.ok) { showTgMsg('Сохранено.', true); loadTgToken(); }
+    else showTgMsg(d.error || ('Ошибка сохранения (HTTP ' + res.status + ')'), false);
+  } catch (e) {
+    showTgMsg('Ошибка сохранения', false);
+  }
+  btn.disabled = false;
+}
+
+function showPeriodMsg(text, ok) {
+  const msg = document.getElementById('periodMsg');
+  msg.className = 'small mt-1 ' + (ok ? 'text-success' : 'text-danger');
+  msg.textContent = text;
+  msg.style.display = '';
+}
+
+async function savePeriod(btn) {
+  const v = parseInt(document.getElementById('periodInput').value, 10);
+  if (!(v >= 1 && v <= 365)) { showPeriodMsg('Укажите период от 1 до 365 дней.', false); return; }
+  btn.disabled = true;
+  try {
+    const res = await fetch('/admin/alert-sources/settings', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({report_period_days: v}),
+    });
+    const d = await res.json().catch(function(){ return {}; });
+    if (res.ok) showPeriodMsg('Сохранено.', true);
+    else showPeriodMsg(d.error || ('Ошибка сохранения (HTTP ' + res.status + ')'), false);
+  } catch (e) {
+    showPeriodMsg('Ошибка сохранения', false);
+  }
+  btn.disabled = false;
+}
+
+async function clearTgToken() {
+  if (!confirm('Удалить сохранённый токен?')) return;
+  try {
+    await fetch('/admin/alert-sources/settings', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({clear: true}),
+    });
+    showTgMsg('Токен удалён.', true);
+  } catch (e) { showTgMsg('Не удалось удалить токен', false); }
+  loadTgToken();
+}
+
+function showFormView() {
+  document.getElementById('listView').style.display = 'none';
+  document.getElementById('formView').style.display = '';
+}
+
+function setupRecipientFields(type) {
+  const isTg = type === 'telegram';
+  document.getElementById('recipientLabel').textContent = isTg ? 'Telegram id или username' : 'Email';
+  document.getElementById('recipientInput').placeholder = isTg ? '@username или числовой id' : 'name@example.com';
+  document.getElementById('recipientHint').textContent = isTg
+    ? 'Укажите @username (пользователь должен был написать боту /start) или числовой chat_id. '
+      + 'При сохранении бот проверит доступность и сохранит chat_id.'
+    : 'Email-адрес получателя.';
+}
+
+function populateFrequency(selected) {
+  const sel = document.getElementById('frequencySelect');
+  sel.innerHTML = Object.keys(_frequencies).map(function(k) {
+    return '<option value="' + k + '"' + (k === selected ? ' selected' : '') + '>' + esc(_frequencies[k]) + '</option>';
+  }).join('') || '<option value="">—</option>';
+}
+
+async function showForm(type) {
+  _formMode = 'new'; _editId = null; _formType = type;
+  showFormView();
+  document.getElementById('formTitle').textContent = 'Новый источник — ' + typeLabel(type);
+  setupRecipientFields(type);
+  document.getElementById('recipientInput').value = '';
+  try { await fetchData(); } catch (e) { /* keep defaults */ }
+  populateFrequency();
+  document.getElementById('saveBtn').textContent = 'Создать';
+
+  // A new Telegram source requires the bot token to be configured first.
+  const saveBtn = document.getElementById('saveBtn');
+  const errEl = document.getElementById('formError');
+  saveBtn.disabled = false;
+  errEl.style.display = 'none';
+  if (type === 'telegram') {
+    let hasToken = false;
+    try {
+      const res = await fetch('/admin/alert-sources/settings');
+      if (res.ok) hasToken = !!(await res.json()).has_token;
+    } catch (e) { /* ignore */ }
+    if (!hasToken) {
+      errEl.textContent = 'Сначала укажите токен Telegram-бота на странице «Параметры мониторинга».';
+      errEl.style.display = '';
+      saveBtn.disabled = true;
+    }
+  }
+}
+
+async function showEditForm(id) {
+  showFormView();
+  let src = null;
+  try {
+    const d = await fetchData();
+    src = (d.sources || []).find(function(s){ return s.id === id; });
+  } catch (e) { /* ignore */ }
+  if (!src) { window.location.href = '?'; return; }
+
+  _formMode = 'edit'; _editId = id; _formType = src.type;
+  document.getElementById('formTitle').textContent = 'Редактирование источника — ' + typeLabel(src.type);
+  setupRecipientFields(src.type);
+  document.getElementById('recipientInput').value = src.recipient || '';
+  populateFrequency(src.frequency);
+  document.getElementById('saveBtn').textContent = 'Сохранить';
+  document.getElementById('saveBtn').disabled = false;
+  document.getElementById('formError').style.display = 'none';
+}
+
+async function saveSource(btn) {
+  const recipient = document.getElementById('recipientInput').value.trim();
+  const frequency = document.getElementById('frequencySelect').value;
+  const errEl = document.getElementById('formError');
+  errEl.style.display = 'none';
+
+  const url = _formMode === 'edit' ? '/admin/alert-sources/update' : '/admin/alert-sources';
+  const payload = _formMode === 'edit'
+    ? {id: _editId, recipient: recipient, frequency: frequency}
+    : {type: _formType, recipient: recipient, frequency: frequency};
+
+  btn.disabled = true;
+  try {
+    const res = await fetch(url, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    const d = await res.json().catch(function(){ return {}; });
+    if (res.ok) {
+      window.location.href = '?';   // back to the list
+      return;
+    }
+    errEl.textContent = d.error || ('Ошибка сохранения (HTTP ' + res.status + ')');
+    errEl.style.display = '';
+  } catch (e) {
+    errEl.textContent = 'Ошибка сохранения';
+    errEl.style.display = '';
+  }
+  btn.disabled = false;
+}
+
+async function deleteSource(id) {
+  if (!confirm('Удалить источник оповещений?')) return;
+  try {
+    await fetch('/admin/alert-sources/delete', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: id}),
+    });
+  } catch (e) { /* ignore */ }
+  showList();
+}
+
+function fmtDate(s) {
+  if (!s) return '—';
+  if (s && !/[zZ]$|[+\-]\d{2}:?\d{2}$/.test(s)) s += 'Z';
+  var d = new Date(s);
+  return isNaN(d) ? '—' : d.toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
+}
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Route between the list, the creation form, and the edit form based on the URL.
+if (_params.get('view') === 'new' && (_params.get('type') === 'telegram' || _params.get('type') === 'mail')) {
+  showForm(_params.get('type'));
+} else if (_params.get('view') === 'edit' && _params.get('id')) {
+  showEditForm(_params.get('id'));
+} else {
+  showList();
+}
+</script>
+{% endblock %}

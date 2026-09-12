@@ -1,19 +1,21 @@
+import asyncio
+import json
 import os
 import re
-import json
 import time
-import asyncio
-from typing import ClassVar
-from loguru import logger
 from decimal import Decimal
 from multiprocessing import Queue
+from typing import ClassVar
+
 from curl_cffi.requests.session import AsyncSession
+from loguru import logger
 
 from config import data_path
-from .base import BaseCrawler
+from core.exceptions import ProductCardParsingException
 from models import ProductCard
 from utils.helpers import parse_url
-from core.exceptions import ProductCardParsingException
+
+from .base import BaseCrawler
 
 
 class WildberriesCrawler(BaseCrawler):
@@ -34,11 +36,19 @@ class WildberriesCrawler(BaseCrawler):
     # CDN upstreams — needed to construct image URLs
     # ------------------------------------------------------------------
 
+    # Refresh the cached CDN upstreams map at least this often — WB rotates
+    # basket hosts, and a stale map points at dead hosts (proxy 503 / 404).
+    _UPSTREAMS_TTL_SECONDS = 6 * 3600
+
     def _load_upstreams_from_file(self) -> dict:
         if not os.path.exists(self.upstreams_file_path):
             logger.debug(f"Upstreams file not found: {self.upstreams_file_path}")
             return {}
         try:
+            age = time.time() - os.path.getmtime(self.upstreams_file_path)
+            if age > self._UPSTREAMS_TTL_SECONDS:
+                logger.debug(f"WB upstreams cache is stale ({age / 3600:.1f}h); will refetch")
+                return {}
             with open(self.upstreams_file_path) as f:
                 data = json.load(f)
                 logger.debug(f"WB upstreams loaded from {self.upstreams_file_path}")
@@ -107,26 +117,62 @@ class WildberriesCrawler(BaseCrawler):
             ),
         }
 
-    async def _fetch_product_card(self, sku: str) -> dict | None:
-        """Fetch card.json from the WB CDN (title, photo count, etc.)."""
+    async def _refresh_upstreams(self) -> None:
+        """Force a re-fetch of the CDN upstreams map (current cache may be stale)."""
+        self.upstreams_data = {}
         try:
-            upstream_host = await self._get_upstream_host_by_sku(sku)
-            response = await self.session.get(
-                url=f"{upstream_host}/{sku}/info/ru/card.json",
-                proxy=self.proxy,
-            )
-            return response.json()
-        except Exception as e:
-            logger.warning(f"Failed to get card.json from WB #{sku}: {e}")
-            return None
+            await self._save_upstreams_data()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"WB upstreams refresh failed: {e}")
+
+    async def _fetch_product_card(self, sku: str) -> dict | None:
+        """Fetch card.json from the WB CDN, retrying with a fresh proxy on failure.
+
+        Pool proxies intermittently return ``503 CONNECT tunnel failed``; a single
+        attempt then fails the whole parse with "Product card not found". So retry
+        with a re-picked proxy on any proxy/connection/5xx error. A 404 usually
+        means a stale or wrong-geo upstreams host, so refresh the upstreams map
+        once and retry before giving up.
+        """
+        from config import settings  # noqa: PLC0415
+
+        attempts = max(3, int(settings.get("max_retries", 3)) + 2)
+        refreshed = False
+        for i in range(attempts):
+            try:
+                upstream_host = await self._get_upstream_host_by_sku(sku)
+                response = await self.session.get(
+                    url=f"{upstream_host}/{sku}/info/ru/card.json",
+                    proxy=self.proxy,
+                    timeout=20,
+                )
+                if response.status_code == 200:
+                    return response.json()
+                logger.warning(f"WB card.json HTTP {response.status_code} for #{sku} (attempt {i + 1})")
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"WB card.json attempt {i + 1} failed for #{sku}: {e}")
+
+            # A failure is most often a stale/dead upstreams host (the cached CDN
+            # host no longer resolves, so the proxy returns 503 CONNECT). Refresh
+            # the upstreams map once; after that, rotate the proxy.
+            if not refreshed:
+                refreshed = True
+                logger.debug(f"WB card.json failed for #{sku}; refreshing upstreams")
+                await self._refresh_upstreams()
+            else:
+                self.proxy = await self.get_proxy(self.marketplace_name)
+        logger.warning(f"Failed to get card.json from WB #{sku} after {attempts} attempts")
+        return None
 
     async def _fetch_product_details(self, sku: str) -> dict | None:
         """Fetch price/size details from card.wb.ru (tries multiple API versions)."""
         base_params = f"appType=1&curr=rub&dest=-1257786&spp=30&nm={sku}"
         slim_params = f"dest=-1257786&nm={sku}"
+        # v4 is WB's current version (v2/v3/v1 now return 404). v4 also changed
+        # the response shape: products are top-level, not under a "data" key.
         attempts = [
+            ("v4", base_params), ("v4", slim_params),
             ("v2", base_params), ("v3", base_params), ("v1", base_params),
-            ("v2", slim_params),  ("v3", slim_params),
             (None, base_params),
         ]
         for version, params in attempts:
@@ -145,11 +191,13 @@ class WildberriesCrawler(BaseCrawler):
                     logger.warning(f"WB details {path} empty body for #{sku}")
                     continue
                 data = response.json()
-                if "data" in data:
-                    products = data["data"]["products"]
-                    if products:
-                        logger.debug(f"WB details fetched via {path} for #{sku}")
-                        return products[0]
+                # v4: {"products": [...]}; older: {"data": {"products": [...]}}
+                products = data.get("products")
+                if products is None and isinstance(data.get("data"), dict):
+                    products = data["data"].get("products")
+                if products:
+                    logger.debug(f"WB details fetched via {path} for #{sku}")
+                    return products[0]
             except Exception as e:
                 logger.warning(f"WB details {path} failed for #{sku}: {e}")
 
@@ -196,6 +244,7 @@ class WildberriesCrawler(BaseCrawler):
         """Open the WB product page in a browser and read prices from the DOM."""
         try:
             import time as _time
+
             from patchright.sync_api import sync_playwright
 
             with sync_playwright() as p:
@@ -240,6 +289,7 @@ class WildberriesCrawler(BaseCrawler):
         """Browser-based product link extraction for catalog/brand/search pages."""
         try:
             import time as _time
+
             from patchright.sync_api import sync_playwright
 
             with sync_playwright() as p:

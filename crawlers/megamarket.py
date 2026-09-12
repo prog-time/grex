@@ -1,21 +1,23 @@
-import os
-import json
-import time
-import random
 import asyncio
-from typing import ClassVar
-from loguru import logger
+import json
+import os
+import random
+import time
 from decimal import Decimal
 from multiprocessing import Queue
+from typing import ClassVar
+
 from curl_cffi.requests.session import AsyncSession
+from loguru import logger
 from patchright._impl._api_structures import ProxySettings
 
-from .base import CookieCrawler
+from config import data_path, settings
+from core.exceptions import ProductCardParsingException
+from core.managers import ProxyManager
 from models import ProductCard
 from utils.helpers import parse_url
-from core.managers import ProxyManager
-from config import settings, data_path
-from core.exceptions import ProductCardParsingException
+
+from .base import CookieCrawler
 
 
 class MegaMarketCrawler(CookieCrawler):

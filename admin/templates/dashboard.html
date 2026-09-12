@@ -2,10 +2,10 @@
 
 {% block header %}
 <div class="d-flex justify-content-between align-items-center">
-  <h1>Home</h1>
+  <h1>Главная</h1>
   <ol class="breadcrumb">
     <li class="breadcrumb-item"><a href="{{ url_for(__name__ ~ ':index') }}">Admin</a></li>
-    <li class="breadcrumb-item active">Home</li>
+    <li class="breadcrumb-item active">Главная</li>
   </ol>
 </div>
 {% endblock %}
@@ -26,37 +26,6 @@
             <strong>Grex Parser</strong> — профессиональный парсер маркетплейсов для сбора данных
             о товарах: названия, цены, изображения, описания и характеристики.
           </p>
-        </div>
-      </div>
-    </div>
-
-    <!-- License -->
-    <div class="col-12 col-lg-4 mb-3">
-      <div class="card h-100">
-        <div class="card-header">
-          <h3 class="card-title"><i class="fa fa-key me-2 text-yellow"></i>Лицензия</h3>
-        </div>
-        <div class="card-body">
-          {% if license_key %}
-          <div class="mb-3">
-            <div class="text-muted small">API токен</div>
-            <code class="text-break">{{ license_key }}</code>
-          </div>
-          <div>
-            <div class="text-muted small mb-1">Доступные источники</div>
-            {% if allowed_sources %}
-            <div style="display:flex;flex-direction:row;flex-wrap:wrap;gap:4px">
-              {% for source in allowed_sources %}
-              <span class="badge bg-green text-white">{{ source }}</span>
-              {% endfor %}
-            </div>
-            {% else %}
-            <span class="text-muted">—</span>
-            {% endif %}
-          </div>
-          {% else %}
-          <p class="text-muted mb-0">Информация о лицензии недоступна.</p>
-          {% endif %}
         </div>
       </div>
     </div>

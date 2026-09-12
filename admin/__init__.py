@@ -12,9 +12,10 @@ from starlette_admin.auth import AdminUser, AuthProvider
 from starlette_admin.contrib.sqla import Admin
 from starlette_admin.exceptions import FormValidationError
 
+import models.alert_source  # noqa: F401  — registers AlertSource in Base.metadata
 import models.parse_target  # noqa: F401 — registers ParseTarget in Base.metadata
 import models.parsed_product  # noqa: F401  — registers ParseSession, ParsedProduct in Base.metadata
-
+import models.price_snapshot  # noqa: F401  — registers PriceSnapshot, PriceAlert in Base.metadata
 
 # ---------------------------------------------------------------------------
 # Auth — credentials from data/settings.yml
@@ -57,26 +58,8 @@ class SettingsAuthProvider(AuthProvider):
 
 class DashboardView(CustomView):
     async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
-        license_key = ""
-        allowed_sources: list[str] = []
-        try:
-            from licensing.checker import _read_license_file, _decode_token_source  # noqa: PLC0415
-            from services.license import get_allowed_sources  # noqa: PLC0415
-            lic = _read_license_file()
-            client_id = lic.get("client_id", "")
-            license_key = client_id[:8] + "…" + client_id[-8:] if len(client_id) > 16 else client_id
-            # Prefer in-memory sources (loaded at startup); fall back to decoding cache tokens
-            allowed_sources = get_allowed_sources() or [
-                s for s in (_decode_token_source(t) for t in lic.get("tokens", []))
-                if s is not None
-            ]
-        except Exception:
-            pass
-
         return templates.TemplateResponse("dashboard.html", {
             "request": request,
-            "license_key": license_key,
-            "allowed_sources": allowed_sources,
         })
 
 
@@ -105,6 +88,16 @@ class ProductsView(CustomView):
         return templates.TemplateResponse("products.html", {"request": request})
 
 
+class MonitoringView(CustomView):
+    async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
+        return templates.TemplateResponse("monitors.html", {"request": request})
+
+
+class MonitoringParametersView(CustomView):
+    async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
+        return templates.TemplateResponse("monitoring_parameters.html", {"request": request})
+
+
 class UsersView(CustomView):
     async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
         return templates.TemplateResponse("users.html", {"request": request})
@@ -115,9 +108,10 @@ class UsersView(CustomView):
 # ---------------------------------------------------------------------------
 
 async def setup_admin(app: FastAPI) -> None:
+    import os  # noqa: PLC0415
+
     from config import settings  # noqa: PLC0415
     from models.job import init_db  # noqa: PLC0415
-    import os  # noqa: PLC0415
 
     db_url: str = settings.get("admin", {}).get("db_url", "sqlite:///data/admin.db")
     secret_key: str = settings.get("admin", {}).get("secret_key", "change-me")
@@ -137,37 +131,46 @@ async def setup_admin(app: FastAPI) -> None:
         templates_dir=templates_dir,
         middlewares=[Middleware(SessionMiddleware, secret_key=secret_key)],
         index_view=DashboardView(
-            "Home", icon="fa fa-home",
+            "Главная", icon="fa fa-home",
             path="/", template_path="dashboard.html", name="index",
         ),
     )
 
     admin.add_view(TargetsView(
-        "Targets", icon="fa fa-crosshairs",
+        "Цели", icon="fa fa-crosshairs",
         path="/targets", template_path="targets.html", name="targets",
     ))
     admin.add_view(LinksView(
-        "Link Extractor", icon="fa fa-link",
+        "Извлечение ссылок", icon="fa fa-link",
         path="/links", template_path="links.html", name="links",
     ))
     admin.add_view(ProductsView(
-        "Products", icon="fa fa-shopping-cart",
+        "Товары", icon="fa fa-shopping-cart",
         path="/products", template_path="products.html", name="products",
     ))
+    admin.add_view(MonitoringView(
+        "Мониторинг", icon="fa fa-bell",
+        path="/monitors", template_path="monitors.html", name="monitors",
+    ))
     admin.add_view(JobsView(
-        "Jobs", icon="fa fa-list",
+        "История задач", icon="fa fa-list",
         path="/jobs", template_path="jobs.html", name="jobs",
     ))
     admin.add_view(DropDown(
-        "Settings",
+        "Настройки",
         icon="fa fa-sliders",
         views=[
+            MonitoringParametersView(
+                "Параметры мониторинга", icon="fa fa-paper-plane",
+                path="/monitoring-parameters", template_path="monitoring_parameters.html",
+                name="monitoring_parameters",
+            ),
             ProxiesView(
-                "Proxies", icon="fa fa-shield",
+                "Прокси", icon="fa fa-shield",
                 path="/proxies", template_path="proxies.html", name="proxies",
             ),
             UsersView(
-                "Users", icon="fa fa-users",
+                "Пользователи", icon="fa fa-users",
                 path="/users", template_path="users.html", name="users",
             ),
         ],
@@ -175,11 +178,13 @@ async def setup_admin(app: FastAPI) -> None:
 
     # Register all auxiliary API routes BEFORE mounting starlette-admin so that
     # FastAPI's exact Route entries take priority over the admin Mount prefix.
-    from admin.resources.proxies import register_proxies_routes  # noqa: PLC0415
+    from admin.resources.alert_sources import register_alert_sources_routes  # noqa: PLC0415
     from admin.resources.jobs import register_jobs_routes  # noqa: PLC0415
-    from admin.resources.targets import register_targets_routes  # noqa: PLC0415
     from admin.resources.links import register_links_routes  # noqa: PLC0415
+    from admin.resources.monitors import register_monitors_routes  # noqa: PLC0415
     from admin.resources.products import register_products_routes  # noqa: PLC0415
+    from admin.resources.proxies import register_proxies_routes  # noqa: PLC0415
+    from admin.resources.targets import register_targets_routes  # noqa: PLC0415
     from admin.resources.users import register_users_routes  # noqa: PLC0415
 
     register_proxies_routes(app)
@@ -188,11 +193,13 @@ async def setup_admin(app: FastAPI) -> None:
     register_links_routes(app)
     register_products_routes(app)
     register_users_routes(app)
+    register_monitors_routes(app)
+    register_alert_sources_routes(app)
 
     # Stats reset endpoint
+    from fastapi import Depends  # noqa: PLC0415
     from fastapi.responses import JSONResponse  # noqa: PLC0415
 
-    from fastapi import Depends  # noqa: PLC0415
     from admin.resources.auth import require_admin  # noqa: PLC0415
 
     async def stats_reset() -> JSONResponse:

@@ -30,9 +30,6 @@ data
 
 tasks
 
-# License cache — contains API tokens, must not be committed
-data/license_cache.json
-
 # Backups
 backups/
 

@@ -1,0 +1,518 @@
+{% extends "layout.html" %}
+
+{% block header %}
+<div class="d-flex justify-content-between align-items-center">
+  <h1>Мониторинг</h1>
+  <div class="d-flex align-items-center gap-3">
+    <button class="btn btn-outline-primary" id="runNowBtn" onclick="runNow(this)">Запустить сейчас</button>
+    <ol class="breadcrumb mb-0">
+      <li class="breadcrumb-item"><a href="{{ url_for(__name__ ~ ':index') }}">Admin</a></li>
+      <li class="breadcrumb-item active">Мониторинг</li>
+    </ol>
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="container-xl">
+
+  <!-- Price history chart (shown when a row's Chart button is clicked) -->
+  <div class="card mb-3" id="chartCard" style="display:none;">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <h3 class="card-title mb-0" id="chartTitle">История цены</h3>
+      <button class="btn btn-sm btn-outline-secondary" onclick="hideChart()">Закрыть</button>
+    </div>
+    <div class="card-body">
+      <div id="chartBox" class="text-muted">Загрузка…</div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header">
+      <h3 class="card-title">Отслеживаемые товары</h3>
+      <div class="card-options d-flex align-items-center gap-2">
+        <span class="text-muted small" id="monCount"></span>
+        <span id="monSelectionCount" class="text-muted small"></span>
+        <select class="form-select form-select-sm w-auto" id="monPerPage" onchange="setMonPerPage(this.value)">
+          <option value="10">10</option>
+          <option value="25" selected>25</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table">
+        <thead>
+          <tr>
+            <th style="width:36px">
+              <input type="checkbox" class="form-check-input" id="monSelectAll" onchange="toggleSelectAllMon(this)">
+            </th>
+            <th>Товар</th>
+            <th style="width:90px">Маркет</th>
+            <th style="width:130px">Цена</th>
+            <th style="width:90px">Мониторинг</th>
+            <th style="width:130px">Интервал</th>
+            <th style="width:185px">Посл. / След.</th>
+            <th style="width:90px">Статус</th>
+            <th style="width:80px"></th>
+          </tr>
+        </thead>
+        <tbody id="monBody">
+          <tr><td colspan="9" class="text-center text-muted py-3">
+            <span class="spinner-border spinner-border-sm me-2"></span>Загрузка…
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card-footer d-flex align-items-center" id="monPager"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h3 class="card-title">Изменения цены</h3></div>
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table">
+        <thead>
+          <tr>
+            <th style="width:160px">Когда</th>
+            <th style="width:80px">Изменение</th>
+            <th>Товар</th>
+            <th style="width:160px">Цена</th>
+          </tr>
+        </thead>
+        <tbody id="alertBody">
+          <tr><td colspan="4" class="text-center text-muted py-3">—</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- spacer so the sticky action bar never hides the last rows -->
+  <div id="bulkSpacer" style="height:0"></div>
+</div>
+
+<!-- Sticky bulk-action bar — shown when one or more rows are selected -->
+<div id="monBulkBar" class="position-fixed bottom-0 start-0 end-0 border-top bg-white shadow-sm py-2"
+     style="display:none; z-index:1030;">
+  <div class="container-xl d-flex align-items-center gap-2 flex-wrap">
+    <span class="fw-medium me-1" id="bulkCount"></span>
+    <select id="bulkEnable" class="form-select form-select-sm w-auto">
+      <option value="">Активация: без изменений</option>
+      <option value="enable">Включить мониторинг</option>
+      <option value="disable">Выключить мониторинг</option>
+    </select>
+    <select id="bulkInterval" class="form-select form-select-sm w-auto"></select>
+    <button class="btn btn-sm btn-primary" id="bulkApplyBtn" onclick="applyBulk(this)" disabled>Применить</button>
+    <button class="btn btn-sm btn-link ms-auto text-muted" onclick="clearMonSelection()">Снять выделение</button>
+  </div>
+</div>
+
+<script>
+var _defaultInterval = 3600;
+var _monitorsById = {};
+var _allMonitors = [];
+var _monPage = 1;
+var _monPerPage = 25;
+
+var _intervalPresets = [
+  {label: 'По умолчанию', value: ''},
+  {label: '30 мин', value: 1800},
+  {label: '1 час', value: 3600},
+  {label: '2 часа', value: 7200},
+  {label: '3 часа', value: 10800},
+  {label: '6 часов', value: 21600},
+  {label: '12 часов', value: 43200},
+  {label: '24 часа', value: 86400},
+];
+
+async function loadMonitors() {
+  let data;
+  try {
+    const res = await fetch('/admin/monitors/api');
+    if (!res.ok) throw new Error('http ' + res.status);
+    data = await res.json();
+  } catch (e) {
+    document.getElementById('monBody').innerHTML =
+      '<tr><td colspan="9" class="text-danger text-center py-3">Не удалось загрузить.</td></tr>';
+    return;
+  }
+  _defaultInterval = data.default_interval_seconds || 3600;
+  populateBulkInterval();
+  _allMonitors = data.monitors || [];
+  _monitorsById = {};
+  _allMonitors.forEach(function(r){ _monitorsById[r.id] = r; });
+  _monPage = 1;
+  renderMonitors();
+}
+
+function setMonPerPage(val) {
+  _monPerPage = parseInt(val) || 25;
+  _monPage = 1;
+  renderMonitors();
+}
+
+function goToMonPage(p) {
+  var totalPages = Math.max(1, Math.ceil(_allMonitors.length / _monPerPage));
+  _monPage = Math.max(1, Math.min(p, totalPages));
+  renderMonitors();
+}
+
+function renderMonitors() {
+  var total = _allMonitors.length;
+  var active = _allMonitors.filter(function(r){ return r.monitor_enabled; }).length;
+  var totalPages = Math.max(1, Math.ceil(total / _monPerPage));
+  var start = (_monPage - 1) * _monPerPage;
+  var pageRows = _allMonitors.slice(start, start + _monPerPage);
+  var tbody = document.getElementById('monBody');
+
+  document.getElementById('monCount').textContent = active + ' активно / ' + total + ' всего';
+
+  if (!pageRows.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="text-muted text-center py-3">Пока нет товаров. Добавьте их в разделе «Цели».</td></tr>';
+    document.getElementById('monPager').innerHTML = '';
+    updateMonSelection();
+    return;
+  }
+
+  tbody.innerHTML = pageRows.map(function(r) {
+    return '<tr>'
+      + '<td><input type="checkbox" class="form-check-input mon-cb" data-id="' + esc(r.id) + '" onchange="updateMonSelection()"></td>'
+      + '<td><div class="text-truncate" style="max-width:340px">' + esc(r.title || r.name || r.url) + '</div>'
+      + '<div class="text-muted small text-truncate" style="max-width:340px"><a href="' + esc(r.url) + '" target="_blank" rel="noopener">' + esc(r.url) + '</a></div></td>'
+      + '<td><span class="badge bg-azure text-white">' + esc(r.marketplace || '?') + '</span></td>'
+      + '<td>' + priceCell(r) + '</td>'
+      + '<td><label class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" '
+        + (r.monitor_enabled ? 'checked' : '') + ' onchange="toggleMonitor(\'' + r.id + '\', this.checked)"></label></td>'
+      + '<td>' + intervalSelect(r) + '</td>'
+      + '<td class="small text-muted">' + lastNext(r) + '</td>'
+      + '<td>' + statusBadge(r.last_status) + '</td>'
+      + '<td><button class="btn btn-sm btn-outline-secondary" onclick="showChart(\'' + r.id + '\')">График</button></td>'
+      + '</tr>';
+  }).join('');
+
+  var from = total ? start + 1 : 0;
+  var to = Math.min(start + _monPerPage, total);
+  document.getElementById('monPager').innerHTML =
+    '<p class="m-0 text-secondary">Показаны ' + from + '–' + to + ' из ' + total + '</p>'
+    + buildPagination(_monPage, totalPages, 'goToMonPage');
+  updateMonSelection();
+}
+
+// --- selection + bulk actions ---
+function getSelectedMonIds() {
+  return Array.from(document.querySelectorAll('.mon-cb:checked')).map(function(c){ return c.dataset.id; });
+}
+
+function toggleSelectAllMon(cb) {
+  document.querySelectorAll('.mon-cb').forEach(function(c){ c.checked = cb.checked; });
+  updateMonSelection();
+}
+
+function updateMonSelection() {
+  var checked = document.querySelectorAll('.mon-cb:checked').length;
+  var total = document.querySelectorAll('.mon-cb').length;
+  var saEl = document.getElementById('monSelectAll');
+  if (saEl) saEl.checked = total > 0 && checked === total;
+  document.getElementById('monSelectionCount').textContent = checked ? 'Выбрано: ' + checked : '';
+
+  var bar = document.getElementById('monBulkBar');
+  document.getElementById('bulkCount').textContent = 'Выбрано: ' + checked;
+  document.getElementById('bulkApplyBtn').disabled = checked === 0;
+  if (checked > 0) {
+    bar.style.display = '';
+    document.getElementById('bulkSpacer').style.height = '64px';
+  } else {
+    bar.style.display = 'none';
+    document.getElementById('bulkSpacer').style.height = '0';
+  }
+}
+
+function clearMonSelection() {
+  document.querySelectorAll('.mon-cb').forEach(function(c){ c.checked = false; });
+  var sa = document.getElementById('monSelectAll'); if (sa) sa.checked = false;
+  document.getElementById('bulkEnable').value = '';
+  document.getElementById('bulkInterval').value = '__keep__';
+  updateMonSelection();
+}
+
+// Fill the bulk interval dropdown: "no change" + Default + presets.
+// Preserves the current choice across table refreshes.
+function populateBulkInterval() {
+  var sel = document.getElementById('bulkInterval');
+  if (!sel) return;
+  var keep = sel.value;
+  var opts = '<option value="__keep__">Интервал: без изменений</option>';
+  opts += _intervalPresets.map(function(p) {
+    var lbl = p.value === '' ? 'По умолчанию (' + Math.round(_defaultInterval/3600*10)/10 + 'h)' : p.label;
+    return '<option value="' + p.value + '">' + lbl + '</option>';
+  }).join('');
+  sel.innerHTML = opts;
+  sel.value = keep || '__keep__';
+  if (!sel.value) sel.value = '__keep__';
+}
+
+async function applyBulk(btn) {
+  var ids = getSelectedMonIds();
+  if (!ids.length) return;
+  var en = document.getElementById('bulkEnable').value;
+  var iv = document.getElementById('bulkInterval').value;
+
+  var body = {ids: ids};
+  if (en === 'enable') body.monitor_enabled = true;
+  else if (en === 'disable') body.monitor_enabled = false;
+  if (iv !== '__keep__') body.interval_seconds = (iv === '' ? null : parseInt(iv));
+
+  if (!('monitor_enabled' in body) && !('interval_seconds' in body)) {
+    alert('Выберите активацию и/или интервал для применения.');
+    return;
+  }
+
+  setBtnLoading(btn, true);
+  try {
+    var res = await fetch('/admin/monitors/bulk', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+    });
+    var d = await res.json().catch(function(){ return {}; });
+    if (!res.ok) alert(d.error || 'Массовое действие не выполнено (HTTP ' + res.status + ')');
+  } catch (e) { alert('Массовое действие не выполнено'); }
+  setBtnLoading(btn, false);
+  document.getElementById('bulkEnable').value = '';
+  document.getElementById('bulkInterval').value = '__keep__';
+  await loadMonitors();
+}
+
+function buildPagination(current, totalPages, goFn) {
+  if (totalPages <= 1) return '';
+  var items = [];
+  var s = Math.max(1, current - 2), e = Math.min(totalPages, current + 2);
+  if (s > 1) { items.push(1); if (s > 2) items.push('…'); }
+  for (var i = s; i <= e; i++) items.push(i);
+  if (e < totalPages) { if (e < totalPages - 1) items.push('…'); items.push(totalPages); }
+  var html = '<ul class="pagination m-0 ms-auto">';
+  html += '<li class="page-item' + (current === 1 ? ' disabled' : '') + '">'
+    + '<a class="page-link" href="#" onclick="' + goFn + '(' + (current - 1) + ');return false;">‹</a></li>';
+  items.forEach(function(p) {
+    if (p === '…') html += '<li class="page-item disabled"><span class="page-link">…</span></li>';
+    else html += '<li class="page-item' + (p === current ? ' active' : '') + '">'
+      + '<a class="page-link" href="#" onclick="' + goFn + '(' + p + ');return false;">' + p + '</a></li>';
+  });
+  html += '<li class="page-item' + (current === totalPages ? ' disabled' : '') + '">'
+    + '<a class="page-link" href="#" onclick="' + goFn + '(' + (current + 1) + ');return false;">›</a></li>';
+  return html + '</ul>';
+}
+
+function priceCell(r) {
+  if (r.current_price === null || r.current_price === undefined) return '<span class="text-muted">—</span>';
+  var html = '<span class="fw-bold">' + fmtPrice(r.current_price) + '</span>';
+  if (r.original_price && r.original_price > r.current_price) {
+    html += ' <s class="text-muted small">' + fmtPrice(r.original_price) + '</s>';
+  }
+  return html;
+}
+
+function intervalSelect(r) {
+  var cur = r.interval_seconds || '';
+  var opts = _intervalPresets.map(function(p) {
+    var lbl = p.label;
+    if (p.value === '') lbl = 'По умолчанию (' + Math.round(_defaultInterval/3600*10)/10 + 'h)';
+    var sel = (String(p.value) === String(cur)) ? ' selected' : '';
+    return '<option value="' + p.value + '"' + sel + '>' + lbl + '</option>';
+  }).join('');
+  return '<select class="form-select form-select-sm" onchange="setIntervalFor(\'' + r.id + '\', this.value)">' + opts + '</select>';
+}
+
+function lastNext(r) {
+  var last = r.last_checked_at ? fmtDateFull(r.last_checked_at) : '—';
+  var next = r.next_run_at ? fmtDateFull(r.next_run_at) : '—';
+  return 'Посл.: ' + last + '<br>След.: ' + next;
+}
+
+function statusBadge(s) {
+  if (s === 'ok') return '<span class="badge bg-success text-white">ок</span>';
+  if (s === 'failed') return '<span class="badge bg-danger text-white">ошибка</span>';
+  return '<span class="badge bg-secondary text-white">—</span>';
+}
+
+async function toggleMonitor(id, enabled) {
+  await postToggle({id: id, monitor_enabled: enabled});
+  loadMonitors();
+}
+
+async function setIntervalFor(id, value) {
+  var body = {id: id, interval_seconds: value === '' ? null : parseInt(value)};
+  await postToggle(body);
+  loadMonitors();
+}
+
+async function postToggle(body) {
+  try {
+    const res = await fetch('/admin/monitors/toggle', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(function(){return {};});
+      alert(d.error || 'Ошибка обновления (HTTP ' + res.status + ')');
+    }
+  } catch (e) { alert('Ошибка обновления'); }
+}
+
+async function runNow(btn) {
+  setBtnLoading(btn, true);
+  try {
+    const res = await fetch('/admin/monitors/run', {method: 'POST'});
+    const d = await res.json().catch(function(){return {};});
+    if (res.ok) alert('Проверено ' + (d.checked || 0) + ' (' + (d.ok || 0) + ' ок, ' + (d.failed || 0) + ' ошибок)');
+    else alert(d.error || 'Ошибка запуска');
+  } catch (e) { alert('Ошибка запуска'); }
+  setBtnLoading(btn, false);
+  loadMonitors();
+  loadAlerts();
+}
+
+async function showChart(id) {
+  var r = _monitorsById[id] || {};
+  var title = r.title || r.name || r.url || '';
+  document.getElementById('chartCard').style.display = '';
+  document.getElementById('chartTitle').textContent = 'История цены — ' + title;
+  document.getElementById('chartBox').innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Загрузка…';
+  window.scrollTo({top: 0, behavior: 'smooth'});
+  let d;
+  try {
+    const res = await fetch('/admin/monitors/history?target_id=' + encodeURIComponent(id));
+    d = await res.json();
+  } catch (e) {
+    document.getElementById('chartBox').innerHTML = '<span class="text-danger">Не удалось загрузить историю.</span>';
+    return;
+  }
+  const pts = (d.points || []).filter(function(p){ return p.current_price !== null && p.current_price !== undefined; });
+  if (pts.length === 0) {
+    document.getElementById('chartBox').innerHTML = '<span class="text-muted">Данных по цене пока нет — появятся после первой проверки.</span>';
+    return;
+  }
+  if (pts.length === 1) {
+    var p = pts[0];
+    document.getElementById('chartBox').innerHTML =
+      '<div class="text-muted">Пока только одна проверка — график появится после второй.</div>'
+      + '<div class="mt-2"><span class="fw-bold fs-3">' + fmtPrice(p.current_price) + '</span>'
+      + '<span class="text-muted small ms-2">at ' + fmtDateFull(p.t) + '</span></div>';
+    return;
+  }
+  document.getElementById('chartBox').innerHTML = buildChart(pts);
+}
+
+function hideChart() { document.getElementById('chartCard').style.display = 'none'; }
+
+// Dependency-free SVG line chart.
+function buildChart(pts) {
+  var W = 900, H = 260, padL = 60, padR = 20, padT = 20, padB = 28;
+  var prices = pts.map(function(p){ return p.current_price; });
+  var min = Math.min.apply(null, prices), max = Math.max.apply(null, prices);
+  if (min === max) { min = min * 0.95; max = max * 1.05 || 1; }
+  var n = pts.length;
+  function x(i) { return padL + (W - padL - padR) * (i / (n - 1)); }
+  function y(v) { return padT + (H - padT - padB) * (1 - (v - min) / (max - min)); }
+
+  var line = pts.map(function(p, i){ return (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(p.current_price).toFixed(1); }).join(' ');
+  var area = line + ' L' + x(n-1).toFixed(1) + ' ' + (H - padB) + ' L' + x(0).toFixed(1) + ' ' + (H - padB) + ' Z';
+
+  var grid = '';
+  for (var g = 0; g <= 4; g++) {
+    var gv = min + (max - min) * g / 4;
+    var gy = y(gv).toFixed(1);
+    grid += '<line x1="' + padL + '" y1="' + gy + '" x2="' + (W - padR) + '" y2="' + gy + '" stroke="#e9ecef"/>';
+    grid += '<text x="' + (padL - 8) + '" y="' + (parseFloat(gy) + 4) + '" text-anchor="end" font-size="11" fill="#888">' + fmtPrice(gv) + '</text>';
+  }
+  var first = pts[0], last = pts[n-1];
+  var diff = last.current_price - first.current_price;
+  var pct = first.current_price ? (diff / first.current_price * 100) : 0;
+  var color = diff < 0 ? '#2fb344' : (diff > 0 ? '#d63939' : '#4263eb');
+  var caption = fmtDate(first.t) + ' → ' + fmtDate(last.t)
+    + '  ·  ' + fmtPrice(first.current_price) + ' → ' + fmtPrice(last.current_price)
+    + '  (' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%, min ' + fmtPrice(min) + ' / max ' + fmtPrice(max) + ')';
+
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" preserveAspectRatio="xMidYMid meet" role="img">'
+    + grid
+    + '<path d="' + area + '" fill="' + color + '" fill-opacity="0.08"/>'
+    + '<path d="' + line + '" fill="none" stroke="' + color + '" stroke-width="2"/>'
+    + '<circle cx="' + x(n-1).toFixed(1) + '" cy="' + y(last.current_price).toFixed(1) + '" r="3.5" fill="' + color + '"/>'
+    + '</svg>'
+    + '<div class="text-muted small mt-2">' + esc(caption) + '</div>';
+}
+
+async function loadAlerts() {
+  let d;
+  try {
+    const res = await fetch('/admin/monitors/alerts?limit=50');
+    d = await res.json();
+  } catch (e) { return; }
+  const rows = d.alerts || [];
+  const tbody = document.getElementById('alertBody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center py-3">Изменений цены пока не обнаружено.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(function(a) {
+    var badge = a.kind === 'drop'
+      ? '<span class="badge bg-success text-white">▼ ' + Math.abs(a.change_pct).toFixed(1) + '%</span>'
+      : '<span class="badge bg-danger text-white">▲ ' + Math.abs(a.change_pct).toFixed(1) + '%</span>';
+    return '<tr>'
+      + '<td class="text-muted small">' + fmtDate(a.created_at) + '</td>'
+      + '<td>' + badge + '</td>'
+      + '<td><div class="text-truncate" style="max-width:420px"><a href="' + esc(a.url) + '" target="_blank" rel="noopener">' + esc(a.title || a.url) + '</a></div></td>'
+      + '<td>' + fmtPrice(a.old_price) + ' → <span class="fw-bold">' + fmtPrice(a.new_price) + '</span></td>'
+      + '</tr>';
+  }).join('');
+}
+
+// --- helpers ---
+function fmtPrice(v) {
+  if (v === null || v === undefined) return '—';
+  return Math.round(v).toLocaleString('ru-RU') + ' ₽';
+}
+function asUTC(s) {
+  // Backend sends naive UTC (datetime.utcnow().isoformat(), no offset). Tag it
+  // as UTC so the browser converts to local time instead of reading it as local.
+  if (s && !/[zZ]$|[+\-]\d{2}:?\d{2}$/.test(s)) s += 'Z';
+  return new Date(s);
+}
+function fmtDate(s) {
+  if (!s) return '—';
+  var d = asUTC(s);
+  return isNaN(d) ? s : d.toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+}
+function fmtDateFull(s) {
+  if (!s) return '—';
+  var d = asUTC(s);
+  return isNaN(d) ? s : d.toLocaleString('ru-RU',
+    {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit'});
+}
+function relTime(s) {
+  if (!s) return '—';
+  var d = asUTC(s); if (isNaN(d)) return s;
+  var diff = (d - new Date()) / 1000;
+  var abs = Math.abs(diff);
+  var unit = 'm', val = Math.round(abs / 60);
+  if (abs >= 3600) { unit = 'h'; val = Math.round(abs / 3600 * 10) / 10; }
+  if (abs < 60) { unit = 's'; val = Math.round(abs); }
+  return (diff >= 0 ? 'in ' : '') + val + unit + (diff < 0 ? ' ago' : '');
+}
+function setBtnLoading(btn, loading) {
+  if (loading) { btn.disabled = true; btn.dataset.orig = btn.innerHTML; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+  else { btn.disabled = false; btn.innerHTML = btn.dataset.orig || btn.innerHTML; }
+}
+function jsStr(s) { return JSON.stringify(String(s)); }
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+loadMonitors();
+loadAlerts();
+// Live-refresh the table, but pause while the user has a selection so their
+// checkboxes (and the bulk bar) aren't wiped out mid-action.
+setInterval(function() {
+  if (document.querySelectorAll('.mon-cb:checked').length === 0) loadMonitors();
+}, 30000);
+</script>
+{% endblock %}

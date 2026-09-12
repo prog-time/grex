@@ -3,10 +3,10 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+
 from loguru import logger
 
 from config import settings
-
 
 # ---------------------------------------------------------------------------
 # Global async queue for SSE log streaming (TASK-12)

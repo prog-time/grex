@@ -1,36 +1,32 @@
 from __future__ import annotations
 
 import asyncio
-import uvicorn
 import traceback
 from contextlib import asynccontextmanager
+from datetime import datetime
+from typing import Dict, List
+
+import uvicorn
+from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.responses import JSONResponse
+from fastapi.security.api_key import APIKeyHeader
+from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from pydantic import HttpUrl
-from datetime import datetime
-from typing import List, Dict
-from fastapi.security.api_key import APIKeyHeader
-from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 
 from config import settings
-from services.license import load_config_from_response, load_config_from_cache, get_allowed_sources
-from services.license_client import activate_device, fetch_license_config
+from crawlers.registry import CrawlerRegistry
 from models import (
-    ParseRequest,
-    ParseResponse,
-    HealthResponse,
     BatchParseRequest,
     BatchParseResponse,
+    HealthResponse,
+    ParseRequest,
+    ParseResponse,
 )
-from crawlers.registry import CrawlerRegistry
 from services import ParsingService
 from utils.logger import setup_logger
-from licensing import check_license
-
 
 setup_logger()
-check_license()
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +37,7 @@ check_license()
 async def lifespan(app: FastAPI):  # type: ignore[type-arg]
     """Initialise shared resources on startup and clean up on shutdown."""
     _image_worker_task = None
+    _monitor_task = None
 
     try:
         from services.redis_client import init_redis  # noqa: PLC0415
@@ -51,36 +48,6 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
         _image_worker_task = asyncio.create_task(image_worker(), name="image_worker")
     except Exception as exc:
         logger.warning(f"Redis init failed (admin panel will be unavailable): {exc}")
-
-    licensing_cfg = settings.get("licensing", {})
-    if licensing_cfg.get("enabled", False):
-        try:
-            import uuid as _uuid  # noqa: PLC0415
-            _mac_int = _uuid.getnode()
-            _mac_address = ":".join(f"{(_mac_int >> i) & 0xff:02x}" for i in range(40, -1, -8)).upper()
-            await activate_device(
-                service_url=licensing_cfg.get("service_url", ""),
-                api_key=licensing_cfg.get("api_key", ""),
-                mac_address=_mac_address,
-                timeout=licensing_cfg.get("timeout_seconds", 5),
-            )
-            response = await fetch_license_config(
-                service_url=licensing_cfg.get("service_url", ""),
-                api_key=licensing_cfg.get("api_key", ""),
-                mac_address=_mac_address,
-                timeout=licensing_cfg.get("timeout_seconds", 5),
-            )
-            if response:
-                await load_config_from_response(response)
-                logger.info(f"License config loaded: {get_allowed_sources()}")
-            else:
-                loaded = await load_config_from_cache()
-                if loaded:
-                    logger.warning("License service unavailable, using cached config")
-                else:
-                    logger.error("No license config available, all sources disabled")
-        except Exception as exc:
-            logger.warning(f"License init failed: {exc}")
 
     _UNSAFE_DEFAULTS = {
         "security.api_key": ("4353456dfvbdfg34", settings.get("security", {}).get("api_key", "")),
@@ -100,11 +67,21 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
     except Exception as exc:
         logger.warning(f"Admin setup failed: {exc}")
 
+    # Start the monitoring scheduler after the DB is initialised (setup_admin
+    # calls init_db). It no-ops until there are due monitored targets.
     try:
+        from services.monitor_scheduler import monitor_scheduler  # noqa: PLC0415
+        _monitor_task = asyncio.create_task(monitor_scheduler(), name="monitor_scheduler")
+    except Exception as exc:
+        logger.warning(f"Monitor scheduler start failed: {exc}")
+
+    try:
+        from datetime import datetime, timezone  # noqa: PLC0415
+
+        from sqlalchemy import update  # noqa: PLC0415
+
         from models.job import async_session  # noqa: PLC0415
         from models.parsed_product import ParseSession  # noqa: PLC0415
-        from sqlalchemy import update  # noqa: PLC0415
-        from datetime import datetime, timezone  # noqa: PLC0415
         if async_session is not None:
             async with async_session() as s:
                 await s.execute(
@@ -119,12 +96,13 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
 
     yield
 
-    if _image_worker_task is not None and not _image_worker_task.done():
-        _image_worker_task.cancel()
-        try:
-            await _image_worker_task
-        except asyncio.CancelledError:
-            pass
+    for _task in (_image_worker_task, _monitor_task):
+        if _task is not None and not _task.done():
+            _task.cancel()
+            try:
+                await _task
+            except asyncio.CancelledError:
+                pass
 
     try:
         from admin import teardown_admin  # noqa: PLC0415
@@ -149,9 +127,11 @@ app = FastAPI(
 )
 
 from starlette.middleware.sessions import SessionMiddleware as _SessionMiddleware  # noqa: E402
+
 app.add_middleware(_SessionMiddleware, secret_key=settings.get("admin", {}).get("secret_key", "change-me"))
 
 import os as _os  # noqa: E402
+
 _static_dir = _os.path.join(_os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 

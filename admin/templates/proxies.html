@@ -2,13 +2,13 @@
 
 {% block header %}
 <div class="d-flex justify-content-between align-items-center">
-  <h1>Proxies</h1>
+  <h1>Прокси</h1>
   <div class="d-flex align-items-center gap-3">
     <input id="proxyFileInput" type="file" accept=".txt,text/plain" style="display:none" onchange="onProxyFileSelected(this)">
-    <button class="btn btn-outline-secondary" onclick="document.getElementById('proxyFileInput').click()">Reload from file</button>
+    <button class="btn btn-outline-secondary" onclick="document.getElementById('proxyFileInput').click()">Загрузить из файла</button>
     <ol class="breadcrumb mb-0">
-      <li class="breadcrumb-item"><a href="{{ url_for(__name__ ~ ':index') }}">Admin</a></li>
-      <li class="breadcrumb-item active">Proxies</li>
+      <li class="breadcrumb-item"><a href="{{ url_for(__name__ ~ ':index') }}">Админ</a></li>
+      <li class="breadcrumb-item active">Прокси</li>
     </ol>
   </div>
 </div>
@@ -18,10 +18,10 @@
 <div class="container-xl">
 
   <div class="card mb-3">
-    <div class="card-header"><h3 class="card-title">Proxy usage</h3></div>
+    <div class="card-header"><h3 class="card-title">Использование прокси</h3></div>
     <div class="card-body">
       <div class="d-flex align-items-center justify-content-between mb-3 pb-3 border-bottom">
-        <span class="text-body fw-medium">Use proxy</span>
+        <span class="text-body fw-medium">Использовать прокси</span>
         <div class="form-check form-switch mb-0">
           <input class="form-check-input" type="checkbox" id="proxyActive"
                  style="width:2.5em;height:1.4em;cursor:pointer;"
@@ -29,7 +29,7 @@
         </div>
       </div>
       <div class="d-flex align-items-center gap-4">
-        <span class="text-body fw-medium">Protocol</span>
+        <span class="text-body fw-medium">Протокол</span>
         <div class="d-flex gap-3">
           <label class="form-check mb-0">
             <input class="form-check-input" type="radio" name="proxyType" value="http" onchange="setProxyType('http')">
@@ -45,23 +45,23 @@
   </div>
 
   <div class="card mb-3">
-    <div class="card-header"><h3 class="card-title">Add proxy</h3></div>
+    <div class="card-header"><h3 class="card-title">Добавить прокси</h3></div>
     <div class="card-body">
       <div class="row g-2">
         <div class="col-12 col-sm-5">
-          <input id="proxyHost" type="text" class="form-control" placeholder="Host">
+          <input id="proxyHost" type="text" class="form-control" placeholder="Хост">
         </div>
         <div class="col-6 col-sm-2">
-          <input id="proxyPort" type="text" class="form-control" placeholder="Port">
+          <input id="proxyPort" type="text" class="form-control" placeholder="Порт">
         </div>
         <div class="col-6 col-sm-2">
-          <input id="proxyLogin" type="text" class="form-control" placeholder="Login (optional)">
+          <input id="proxyLogin" type="text" class="form-control" placeholder="Логин (опц.)">
         </div>
         <div class="col-10 col-sm-2">
-          <input id="proxyPassword" type="password" class="form-control" placeholder="Password (optional)">
+          <input id="proxyPassword" type="password" class="form-control" placeholder="Пароль (опц.)">
         </div>
         <div class="col-2 col-sm-1 d-flex">
-          <button id="addBtn" class="btn btn-primary w-100" onclick="addProxy()">Add</button>
+          <button id="addBtn" class="btn btn-primary w-100" onclick="addProxy()">Добавить</button>
         </div>
       </div>
       <div id="proxyError" class="text-danger mt-1" style="display:none;"></div>
@@ -70,7 +70,7 @@
 
   <div class="card">
     <div class="card-header">
-      <h3 class="card-title">Proxy pool</h3>
+      <h3 class="card-title">Пул прокси</h3>
       <div class="card-options d-flex align-items-center gap-2">
         <span class="text-muted small" id="proxyCount"></span>
         <span id="proxySelectionCount" class="text-muted small"></span>
@@ -80,7 +80,7 @@
           <option value="50">50</option>
           <option value="100">100</option>
         </select>
-        <button class="btn btn-sm btn-outline-danger" id="proxyDeleteSelected" onclick="deleteSelectedProxies(this)" disabled>Delete selected</button>
+        <button class="btn btn-sm btn-outline-danger" id="proxyDeleteSelected" onclick="deleteSelectedProxies(this)" disabled>Удалить выбранные</button>
       </div>
     </div>
     <div class="table-responsive">
@@ -91,12 +91,12 @@
               <input type="checkbox" class="form-check-input" id="proxySelectAll" onchange="toggleSelectAllProxies(this)">
             </th>
             <th style="width:56px">#</th>
-            <th>Proxy</th>
+            <th>Прокси</th>
           </tr>
         </thead>
         <tbody id="proxyTableBody">
           <tr><td colspan="3" class="text-center text-muted py-3">
-            <span class="spinner-border spinner-border-sm me-2"></span>Loading...
+            <span class="spinner-border spinner-border-sm me-2"></span>Загрузка...
           </td></tr>
         </tbody>
       </table>
@@ -116,11 +116,11 @@ async function loadProxies() {
   try {
     res = await fetch('/admin/proxies/api');
   } catch (e) {
-    tbody.innerHTML = '<tr><td colspan="3" class="text-danger text-center py-3">Failed to load proxies.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="3" class="text-danger text-center py-3">Не удалось загрузить прокси.</td></tr>';
     return;
   }
   if (!res.ok) {
-    tbody.innerHTML = '<tr><td colspan="3" class="text-danger text-center py-3">Failed to load proxies.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="3" class="text-danger text-center py-3">Не удалось загрузить прокси.</td></tr>';
     return;
   }
   const data = await res.json();
@@ -148,10 +148,10 @@ function renderProxies() {
   const pageRows = _allProxies.slice(start, start + _proxyPerPage);
   const tbody = document.getElementById('proxyTableBody');
 
-  document.getElementById('proxyCount').textContent = total + ' proxies';
+  document.getElementById('proxyCount').textContent = total + ' прокси';
 
   if (!pageRows.length) {
-    tbody.innerHTML = '<tr><td colspan="3" class="text-muted text-center py-3">Proxy pool is empty.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="3" class="text-muted text-center py-3">Пул прокси пуст.</td></tr>';
     document.getElementById('proxyPager').innerHTML = '';
     updateProxySelection();
     return;
@@ -169,7 +169,7 @@ function renderProxies() {
   const from = total ? start + 1 : 0;
   const to = Math.min(start + _proxyPerPage, total);
   document.getElementById('proxyPager').innerHTML =
-    '<p class="m-0 text-secondary">Showing ' + from + '–' + to + ' of ' + total + '</p>'
+    '<p class="m-0 text-secondary">Показаны ' + from + '–' + to + ' из ' + total + '</p>'
     + buildPagination(_proxyPage, totalPages, 'goToProxyPage');
 }
 
@@ -189,7 +189,7 @@ function updateProxySelection() {
   const countEl = document.getElementById('proxySelectionCount');
   const saEl = document.getElementById('proxySelectAll');
   const delBtn = document.getElementById('proxyDeleteSelected');
-  countEl.textContent = checked ? checked + ' selected' : '';
+  countEl.textContent = checked ? 'Выбрано: ' + checked : '';
   if (saEl) saEl.checked = total > 0 && checked === total;
   if (delBtn) delBtn.disabled = checked === 0;
 }
@@ -197,7 +197,7 @@ function updateProxySelection() {
 async function deleteSelectedProxies(btn) {
   const indexes = getSelectedProxyIndexes();
   if (!indexes.length) return;
-  if (!confirm('Delete ' + indexes.length + ' selected ' + (indexes.length === 1 ? 'proxy' : 'proxies') + '?')) return;
+  if (!confirm('Удалить ' + indexes.length + ' выбранн' + (indexes.length === 1 ? 'ый прокси' : 'ых прокси') + '?')) return;
   setLoading(btn, true);
   try {
     const res = await fetch('/admin/proxies/remove_many', {
@@ -206,7 +206,7 @@ async function deleteSelectedProxies(btn) {
       body: JSON.stringify({indexes: indexes})
     });
     const data = await res.json().catch(function() { return {}; });
-    if (!res.ok) { alert(data.error || 'Delete failed (HTTP ' + res.status + ')'); return; }
+    if (!res.ok) { alert(data.error || 'Ошибка удаления (HTTP ' + res.status + ')'); return; }
     await loadProxies();
   } finally {
     setLoading(btn, false);
@@ -294,7 +294,7 @@ async function addProxy() {
   errEl.style.display = 'none';
 
   if (!host || !port) {
-    errEl.textContent = 'Host and port are required';
+    errEl.textContent = 'Хост и порт обязательны';
     errEl.style.display = '';
     return;
   }
@@ -312,7 +312,7 @@ async function addProxy() {
     });
     const data = await res.json().catch(function() { return {}; });
     if (!res.ok) {
-      errEl.textContent = data.error || 'Error ' + res.status;
+      errEl.textContent = data.error || 'Ошибка ' + res.status;
       errEl.style.display = '';
       setLoading(btn, false);
     } else {
@@ -324,7 +324,7 @@ async function addProxy() {
       loadProxies();
     }
   } catch(e) {
-    errEl.textContent = 'Request failed: ' + e;
+    errEl.textContent = 'Ошибка запроса: ' + e;
     errEl.style.display = '';
     setLoading(btn, false);
   }
@@ -342,11 +342,11 @@ async function onProxyFileSelected(input) {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      alert(data.error || `Upload failed (HTTP ${res.status})`);
+      alert(data.error || `Ошибка загрузки (HTTP ${res.status})`);
       return;
     }
     await loadProxies();
-    alert(`Loaded ${data.reloaded} proxies from ${file.name}`);
+    alert(`Загружено ${data.reloaded} прокси из ${file.name}`);
   } finally {
     input.value = '';  // reset so selecting the same file again re-fires change
   }

@@ -18,23 +18,24 @@ Product pages:
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import re
-import json
 import time
-import asyncio
-from typing import ClassVar
 from decimal import Decimal
 from multiprocessing import Queue
+from typing import ClassVar
 
 from bs4 import BeautifulSoup, Tag
 from curl_cffi.requests.session import AsyncSession
 from loguru import logger
 
-from .base import BaseCrawler
-from models import ProductCard
-from config import settings, data_path
+from config import data_path, settings
 from core.exceptions import ProductCardParsingException
+from models import ProductCard
+
+from .base import BaseCrawler
 
 
 class CitilinkCrawler(BaseCrawler):

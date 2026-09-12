@@ -2,10 +2,10 @@
 
 {% block header %}
 <div class="d-flex justify-content-between align-items-center">
-  <h1>Products</h1>
+  <h1>Товары</h1>
   <ol class="breadcrumb">
     <li class="breadcrumb-item"><a href="{{ url_for(__name__ ~ ':index') }}">Admin</a></li>
-    <li class="breadcrumb-item active">Products</li>
+    <li class="breadcrumb-item active">Товары</li>
   </ol>
 </div>
 {% endblock %}
@@ -18,17 +18,17 @@
     <div class="card-body">
       <div class="row g-3 align-items-end mb-2">
         <div class="col-12 col-md-5">
-          <label class="form-label">Search by title</label>
-          <input id="filterSearch" type="text" class="form-control" placeholder="Enter title…" oninput="applySearch()">
+          <label class="form-label">Поиск по названию</label>
+          <input id="filterSearch" type="text" class="form-control" placeholder="Введите название…" oninput="applySearch()">
         </div>
         <div class="col-12 col-md-4">
-          <label class="form-label">Marketplace</label>
+          <label class="form-label">Маркетплейс</label>
           <select id="filterMp" class="form-select" onchange="loadProducts()">
-            <option value="">All</option>
+            <option value="">Все</option>
           </select>
         </div>
         <div class="col-auto">
-          <button class="btn btn-outline-secondary" onclick="loadProducts()">Refresh</button>
+          <button class="btn btn-outline-secondary" onclick="loadProducts()">Обновить</button>
         </div>
       </div>
     </div>
@@ -37,7 +37,7 @@
   <!-- Table -->
   <div class="card">
     <div class="card-header">
-      <h3 class="card-title">Parsed results</h3>
+      <h3 class="card-title">Результаты парсинга</h3>
       <div class="card-options d-flex align-items-center gap-2">
         <span class="text-muted small" id="productsCount"></span>
         <span id="selectionCount" class="text-muted small"></span>
@@ -49,7 +49,7 @@
         </select>
         <div class="dropdown">
           <button class="btn btn-sm btn-outline-success dropdown-toggle" type="button" data-bs-toggle="dropdown">
-            Export
+            Экспорт
           </button>
           <div class="dropdown-menu dropdown-menu-end">
             <a class="dropdown-item" href="#" onclick="exportProducts('csv');return false;">CSV (Excel)</a>
@@ -57,7 +57,7 @@
             <a class="dropdown-item" href="#" onclick="exportProducts('json');return false;">JSON</a>
           </div>
         </div>
-        <button class="btn btn-sm btn-outline-danger" onclick="clearAll()">Clear all</button>
+        <button class="btn btn-sm btn-outline-danger" onclick="clearAll()">Очистить всё</button>
       </div>
     </div>
     <div class="table-responsive">
@@ -68,23 +68,37 @@
               <input type="checkbox" class="form-check-input" id="selectAll" onchange="toggleSelectAll(this)">
             </th>
             <th style="width:56px;min-width:56px"></th>
-            <th>Title</th>
-            <th>Marketplace</th>
-            <th>SKU</th>
-            <th>Original price</th>
-            <th>Current price</th>
-            <th>Description</th>
-            <th>Characteristics</th>
-            <th>Parsed at</th>
+            <th>Название</th>
+            <th>Маркетплейс</th>
+            <th>Артикул</th>
+            <th>Старая цена</th>
+            <th>Текущая цена</th>
+            <th>Описание</th>
+            <th>Характеристики</th>
+            <th>Дата</th>
             <th></th>
           </tr>
         </thead>
         <tbody id="productsBody">
-          <tr><td colspan="9" class="text-muted text-center py-3">Loading…</td></tr>
+          <tr><td colspan="9" class="text-muted text-center py-3">Загрузка…</td></tr>
         </tbody>
       </table>
     </div>
     <div class="card-footer d-flex align-items-center" id="productsPager"></div>
+  </div>
+
+  <!-- spacer so the sticky action bar never hides the last rows -->
+  <div id="prodBulkSpacer" style="height:0"></div>
+</div>
+
+<!-- Sticky bulk-action bar — shown when one or more products are selected -->
+<div id="prodBulkBar" class="position-fixed bottom-0 start-0 end-0 border-top bg-white shadow-sm py-2"
+     style="display:none; z-index:1030;">
+  <div class="container-xl d-flex align-items-center gap-2 flex-wrap">
+    <span class="fw-medium me-1" id="prodBulkCount"></span>
+    <button class="btn btn-sm btn-outline-primary" onclick="bulkRefetchProducts(this)">Перевыгрузить выбранные</button>
+    <button class="btn btn-sm btn-outline-danger" onclick="bulkDeleteProducts(this)">Удалить выбранные</button>
+    <button class="btn btn-sm btn-link ms-auto text-muted" onclick="clearProductSelection()">Снять выделение</button>
   </div>
 </div>
 
@@ -104,7 +118,7 @@ async function loadProducts() {
 
     var sel = document.getElementById('filterMp');
     var cur = sel.value;
-    sel.innerHTML = '<option value="">All</option>'
+    sel.innerHTML = '<option value="">Все</option>'
       + (data.marketplaces || []).map(function(m) {
           return '<option value="' + esc(m) + '"' + (m === cur ? ' selected' : '') + '>' + esc(m) + '</option>';
         }).join('');
@@ -142,11 +156,11 @@ function renderProducts() {
   var start = (_currentPage - 1) * _perPage;
   var page  = _filteredProducts.slice(start, start + _perPage);
 
-  document.getElementById('productsCount').textContent = total + ' products';
+  document.getElementById('productsCount').textContent = total + ' товаров';
   var tbody = document.getElementById('productsBody');
 
   if (!page.length) {
-    tbody.innerHTML = '<tr><td colspan="11" class="text-muted text-center py-3">No products yet.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" class="text-muted text-center py-3">Пока нет товаров.</td></tr>';
     document.getElementById('productsPager').innerHTML = '';
     updateSelectionCount();
     return;
@@ -196,12 +210,12 @@ function renderProducts() {
   var from = total ? start + 1 : 0;
   var to   = Math.min(start + _perPage, total);
   document.getElementById('productsPager').innerHTML =
-    '<p class="m-0 text-secondary">Showing ' + from + '–' + to + ' of ' + total + '</p>'
+    '<p class="m-0 text-secondary">Показаны ' + from + '–' + to + ' из ' + total + '</p>'
     + buildPagination(_currentPage, totalPages, 'goToProductPage');
 }
 
 async function deleteProduct(id) {
-  if (!confirm('Delete this product?')) return;
+  if (!confirm('Удалить этот товар?')) return;
   await fetch('/admin/products/delete', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -225,8 +239,60 @@ function updateSelectionCount() {
   var total   = document.querySelectorAll('.product-cb').length;
   var countEl = document.getElementById('selectionCount');
   var saEl    = document.getElementById('selectAll');
-  countEl.textContent = checked ? checked + ' selected' : '';
+  countEl.textContent = checked ? 'Выбрано: ' + checked : '';
   if (saEl) saEl.checked = total > 0 && checked === total;
+
+  var bar = document.getElementById('prodBulkBar');
+  document.getElementById('prodBulkCount').textContent = 'Выбрано: ' + checked;
+  if (checked > 0) {
+    bar.style.display = '';
+    document.getElementById('prodBulkSpacer').style.height = '64px';
+  } else {
+    bar.style.display = 'none';
+    document.getElementById('prodBulkSpacer').style.height = '0';
+  }
+}
+
+function clearProductSelection() {
+  document.querySelectorAll('.product-cb').forEach(function(c){ c.checked = false; });
+  var sa = document.getElementById('selectAll'); if (sa) sa.checked = false;
+  updateSelectionCount();
+}
+
+async function bulkDeleteProducts(btn) {
+  var ids = getSelectedIds();
+  if (!ids.length) return;
+  if (!confirm('Удалить выбранные товары (' + ids.length + ')?')) return;
+  setBtnLoading(btn, true);
+  try {
+    var res = await fetch('/admin/products/delete_many', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids: ids}),
+    });
+    var d = await res.json().catch(function(){ return {}; });
+    if (!res.ok) alert(d.error || 'Ошибка удаления (HTTP ' + res.status + ')');
+  } catch (e) { alert('Ошибка удаления'); }
+  setBtnLoading(btn, false);
+  await loadProducts();
+}
+
+async function bulkRefetchProducts(btn) {
+  var ids = getSelectedIds();
+  if (!ids.length) return;
+  setBtnLoading(btn, true);
+  try {
+    var res = await fetch('/admin/products/refetch', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids: ids}),
+    });
+    var d = await res.json().catch(function(){ return {}; });
+    if (res.ok) alert('Перевыгрузка запущена для ' + (d.queued || ids.length) + ' товаров. Обновите страницу через некоторое время.');
+    else alert(d.error || 'Ошибка перевыгрузки (HTTP ' + res.status + ')');
+  } catch (e) { alert('Ошибка перевыгрузки'); }
+  setBtnLoading(btn, false);
+}
+
+function setBtnLoading(btn, loading) {
+  if (loading) { btn.disabled = true; btn.dataset.orig = btn.innerHTML; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+  else { btn.disabled = false; btn.innerHTML = btn.dataset.orig || btn.innerHTML; }
 }
 
 async function exportProducts(fmt) {
@@ -242,7 +308,7 @@ async function exportProducts(fmt) {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body),
     });
-    if (!res.ok) { alert('Export error: ' + res.status); return; }
+    if (!res.ok) { alert('Ошибка экспорта: ' + res.status); return; }
     var blob = await res.blob();
     var ext  = fmt === 'xlsx' ? 'xlsx' : (fmt === 'json' ? 'json' : 'csv');
     var name = 'products_' + new Date().toISOString().slice(0,10).replace(/-/g,'') + '.' + ext;
@@ -253,12 +319,12 @@ async function exportProducts(fmt) {
     a.click();
     document.body.removeChild(a);
   } catch(e) {
-    alert('Export error: ' + e);
+    alert('Ошибка экспорта: ' + e);
   }
 }
 
 async function clearAll() {
-  if (!confirm('Delete all products?')) return;
+  if (!confirm('Удалить все товары?')) return;
   await fetch('/admin/products/clear', {method: 'POST'});
   await loadProducts();
 }

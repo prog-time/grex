@@ -255,7 +255,7 @@ async def main() -> None:
     # 3) Analyse the best HTML we have
     scan = _scan_html(local["html"]) if local.get("ok") and local.get("html") else None
     if scan:
-        print(f"\n  Structured data in raw HTML:")
+        print("\n  Structured data in raw HTML:")
         print(f"    JSON-LD Product:  {'YES' if scan['jsonld_product'] else 'no'}"
               + (f"  (name: {scan['jsonld_product'].get('name','')[:50]!r})" if scan['jsonld_product'] else ""))
         print(f"    OpenGraph:        {', '.join(scan['og'].keys()) or 'none'}")
@@ -268,7 +268,7 @@ async def main() -> None:
     # 4) Browser render + API sniff
     browser = None
     if args.browser:
-        print(f"\n  Browser render (sniffing JSON APIs)…")
+        print("\n  Browser render (sniffing JSON APIs)…")
         proxy_dict = BaseCrawler._playwright_proxy(proxy_str) if proxy_str else None
         browser = await asyncio.get_event_loop().run_in_executor(
             None, _browser_probe, args.url, proxy_dict

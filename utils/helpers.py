@@ -1,5 +1,6 @@
-from loguru import logger
 from urllib.parse import urlparse
+
+from loguru import logger
 
 
 def parse_url(url: str):
