@@ -1,0 +1,45 @@
+app:
+  host: "localhost"
+  port: 8004
+
+security:
+  api_key: "4353456dfvbdfg34"
+
+admin:
+  secret_key: "change-me-in-production-secret-key"
+  db_url: "sqlite:///data/admin.db"
+  username: "admin"
+  password: "admin"
+
+redis:
+  host: "localhost"
+  port: 6379
+  db: 0
+
+max_retries: 3
+
+sources:
+  ozon:
+    rate_limit: 60
+  wildberries:
+    rate_limit: 60
+  yandex_market:
+    rate_limit: 60
+  megamarket:
+    rate_limit: 60
+
+proxy:
+  active: false
+  type: "http"
+
+browser:
+  max_concurrent: 4
+  timeout_seconds: 60
+
+batch:
+  concurrency: 10
+  max_concurrency: 50
+
+debug:
+  active: false
+  logging_in_file: true

@@ -23,7 +23,8 @@ build/
 logs/
 
 # Runtime data (auto-generated, may contain sensitive session data)
-data
+data/*
+!data/settings.yml.example
 
 # macOS
 .DS_Store
