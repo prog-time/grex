@@ -75,6 +75,7 @@ _ADDED_COLUMNS: dict[str, dict[str, str]] = {
         "next_run_at": "DATETIME",
         "last_checked_at": "DATETIME",
         "last_status": "VARCHAR(16)",
+        "api_key_id": "VARCHAR(36)",
     },
     "alert_sources": {
         "last_sent_at": "DATETIME",
