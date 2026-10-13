@@ -40,7 +40,7 @@ redis==8.1.0
 ruff==0.17.0
 soupsieve==3.0.3
 sqlalchemy==2.0.54
-sse-starlette==3.0.3
+sse-starlette==3.5.0
 starlette==0.47.3
 starlette-admin==0.17.1
 typing-inspection==0.4.4
