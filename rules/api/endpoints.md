@@ -17,17 +17,33 @@ If behavior exists in code but not here, it is undocumented and must be added be
 
 ## 2. Endpoint inventory
 
-All endpoints are defined in `api.py`. The FastAPI application is instantiated as `app = FastAPI(...)`.
+All public endpoints are defined in `api.py` on two routers:
 
-Authentication via `X-API-Key` header is required for `POST /parse` only. All other endpoints are unauthenticated.
+- `api_router` — endpoints that existed before versioning. Mounted under `/v1` **and** at the original unversioned path, marked `deprecated` in OpenAPI so old clients keep working.
+- `v1_router` — endpoints added after versioning. Mounted under `/v1` only.
+
+Authentication via `X-API-Key` header is required for `parse`, `parse/batch`, `jobs`, `monitors` and `alerts`. All other public endpoints are unauthenticated; `/admin/*` endpoints require an admin session.
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `GET` | `/` | No | Root info, returns service name and key endpoint links |
-| `GET` | `/health` | No | Service health check with uptime and supported marketplaces |
-| `POST` | `/parse` | Yes (`X-API-Key`) | Parse a product URL and return product card data |
-| `GET` | `/marketplaces` | No | List supported marketplace names and example URLs |
-| `GET` | `/parse/detect` | No | Detect marketplace from a URL without parsing |
+| `GET` | `/` | No | Root info, returns service name and key endpoint links (unversioned) |
+| `GET` | `/v1/health` | No | Service health check with uptime and supported marketplaces |
+| `POST` | `/v1/parse` | Yes (`X-API-Key`) | Parse a product URL and return product card data |
+| `POST` | `/v1/parse/batch` | Yes (`X-API-Key`) | Parse up to 100 URLs; responds when all are done |
+| `GET` | `/v1/marketplaces` | No | List supported marketplace names |
+| `GET` | `/v1/parse/detect` | No | Detect marketplace from a URL without parsing |
+| `POST` | `/v1/jobs` | Yes (`X-API-Key`) | Create a background parse job (up to 1000 URLs), `202` |
+| `GET` | `/v1/jobs` | Yes (`X-API-Key`) | List the key's most recent jobs (`limit` 1–100, default 20), without results |
+| `GET` | `/v1/jobs/{id}` | Yes (`X-API-Key`) | Job status, progress and results finished so far |
+| `POST` | `/v1/monitors` | Yes (`X-API-Key`) | Start price monitoring of a URL, `201` |
+| `GET` | `/v1/monitors` | Yes (`X-API-Key`) | The key's monitors with their latest price |
+| `GET` | `/v1/monitors/{id}` | Yes (`X-API-Key`) | One monitor |
+| `PATCH` | `/v1/monitors/{id}` | Yes (`X-API-Key`) | Partial update: `active`, `interval_seconds` (null = default), `name` |
+| `DELETE` | `/v1/monitors/{id}` | Yes (`X-API-Key`) | Delete the monitor with its history and alerts, `204` |
+| `GET` | `/v1/monitors/{id}/history` | Yes (`X-API-Key`) | Price points, oldest → newest (`limit` 1–2000, default 500) |
+| `GET` | `/v1/alerts` | Yes (`X-API-Key`) | Price-change alerts of the key's monitors, newest first (`since`, `limit` 1–500) |
+
+Unversioned `/health`, `/parse`, `/parse/batch`, `/marketplaces`, `/parse/detect` are deprecated aliases of the `/v1` endpoints. The specifications below use the unversioned names; they apply to both paths.
 
 ## 3. Endpoint specifications
 
@@ -165,18 +181,12 @@ Standard FastAPI 422 response with details on which field failed validation.
 
 ### `GET /marketplaces`
 
-Returns the list of registered marketplace names and hardcoded example URLs.
+Returns the list of registered marketplace names.
 
 **Response `200`:**
 ```json
 {
-  "supported_marketplaces": ["wildberries", "ozon", "yandex_market", "megamarket"],
-  "example_urls": [
-    "https://www.wildberries.ru/catalog/17386348/detail.aspx",
-    "https://ozon.ru/product/shumin-maska-dlya-sna-chernaya-1563221610",
-    "https://market.yandex.ru/card/espander-dlya-paltsev-ruk-kistevoy-95-kg-s-krepleniyem-na-zapyastye-tsvet---chernyy/103757317666",
-    "https://megamarket.ru/catalog/details/puhovik-detskiy-poivre-blanc-w21-1201-jrgl-2122-mega-pink-128-600011555038"
-  ]
+  "supported_marketplaces": ["wildberries", "ozon", "yandex_market", "megamarket"]
 }
 ```
 
@@ -208,12 +218,48 @@ Detects the marketplace for a given URL without performing a parse.
 }
 ```
 
+### `POST /v1/jobs`, `GET /v1/jobs/{id}`
+
+Asynchronous counterpart of `/parse/batch` (`services/api_jobs.py`, tables `api_jobs` / `api_job_items`).
+
+**Request:** `{"urls": [...1–1000 supported URLs], "concurrency": null | 1–200}` — same validation as `/parse/batch`.
+
+**Response `202`** (and `GET /v1/jobs/{id}` → `200`):
+```json
+{
+  "id": "uuid", "status": "running", "total": 2, "done": 1, "succeeded": 1, "failed": 0,
+  "error": null, "created_at": "...", "started_at": "...", "finished_at": null,
+  "results": [{"url": "...", "success": true, "data": {...}, "error": null, "marketplace": "wildberries", "processing_time": 2.1}]
+}
+```
+
+- `status`: `pending` → `running` → `completed`; `failed` only when the job as a whole broke (`error` explains). Per-URL failures are items with `success: false` in a `completed` job.
+- `results` holds finished URLs only, in request order; it fills in while the job runs.
+- A job is visible only to the API key that created it — any other key gets `404`.
+- At most 5 unfinished jobs per key — over the limit `POST` returns `429`.
+- Jobs run as in-process asyncio tasks: jobs unfinished at shutdown are marked `failed` ("Interrupted by server restart") on the next startup. This assumes a single server process; do not run multiple workers against one DB.
+- Results are returned to the client only — jobs do not write to the admin panel's Products.
+
+### `/v1/monitors`, `/v1/alerts`
+
+Public-API price monitoring (`services/api_monitors.py`, schemas in `models/monitor.py`).
+
+- An API monitor is a `ParseTarget` row with `api_key_id` set. The regular scheduler (`services/monitoring.py`) checks it, records `PriceSnapshot`s and logs `PriceAlert`s exactly like admin targets — but it does **not** upsert `ParsedProduct`, so API products never show up in the admin panel. The latest price comes from the newest snapshot.
+- **Ownership is mandatory in every query.** API endpoints filter by `ParseTarget.api_key_id == <key id>`; admin views and the Telegram report filter with `admin_owned()` (targets) and `not_api_owned(<Model>.target_id)` (snapshots, alerts) from `models/parse_target.py`. Any new query over `parse_targets`, `price_snapshots` or `price_alerts` must use one of them — `tests/test_api_monitors.py::TestAdminIsolation` covers the existing ones.
+- The previous price for change detection is scoped by owner: admin targets by URL (excluding API snapshots), API monitors by their own target id.
+- URLs are normalized (`crawler.normalize_url`) before storing; one key can't monitor the same URL twice (`409`). Limit: 500 monitors per key (`429`). `interval_seconds` below `monitoring.min_interval_seconds` → `422`.
+- Foreign or unknown monitor id → `404` (never `403`, so ids of other keys can't be probed).
+- Revoking a key pauses its monitors; deleting a revoked key in the admin panel deletes its monitors, their snapshots and alerts, and its jobs.
+- Alert thresholds are global (`monitoring.drop_percent` / `rise_percent`).
+
 ## 4. Authentication rules
 
-- Authentication uses a static `X-API-Key` header
-- The key value is stored in `settings.security.api_key` (loaded from `data/settings.yml`)
+- Authentication uses an `X-API-Key` header; keys are created and revoked in the admin panel (Настройки → API-ключи)
+- Keys are stored hashed in the `api_keys` table (`models/api_key.py`, `services/api_keys.py`); `settings.security.api_key` is only imported once on startup as a seed
+- If key storage (DB) is unavailable, authenticated endpoints return `503`
 - Authentication is implemented in the `verify_api_key` dependency, not in the endpoint body
-- The `GET /health`, `GET /`, `GET /marketplaces`, and `GET /parse/detect` endpoints are intentionally unauthenticated
+- `verify_api_key` returns the key's id; endpoints that own data (`/v1/jobs`, `/v1/monitors`, `/v1/alerts`) take it via `Depends(verify_api_key)` to scope access
+- The `GET /`, `health`, `marketplaces` and `parse/detect` endpoints are intentionally unauthenticated
 - Never move authentication logic out of the `verify_api_key` dependency and into handler functions
 
 ## 5. Middleware behavior

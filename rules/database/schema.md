@@ -125,7 +125,7 @@ The application has no SQL database. Persistence is maintained through files in 
 |---|---|---|---|
 | `app.host` | `str` | `"localhost"` | uvicorn bind host |
 | `app.port` | `int` | `8004` | uvicorn bind port |
-| `security.api_key` | `str` | — | Static API key required in `X-API-Key` header |
+| `security.api_key` | `str` | — | Seed key imported once into the `api_keys` table on startup; keys are managed in the admin panel afterwards |
 | `max_retries` | `int` | `3` | Number of retry attempts per crawler on failure |
 | `proxy.active` | `bool` | `false` | Enables proxy rotation for crawlers that support it |
 | `proxy.type` | `str` | `"http"` | Proxy protocol: `"http"` or `"socks5"` |
