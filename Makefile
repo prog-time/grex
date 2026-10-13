@@ -1,4 +1,4 @@
-.PHONY: run stop restart help
+.PHONY: run stop restart help lint-yaml lock
 
 PORT ?= 8004
 
@@ -7,6 +7,8 @@ help:
 	@echo "  make run                  — запустить локально (через start.sh)"
 	@echo "  make stop                 — остановить процесс на порту $(PORT)"
 	@echo "  make restart              — перезапустить (stop + run)"
+	@echo "  make lint-yaml            — проверить YAML (yamllint)"
+	@echo "  make lock                 — пересобрать requirements-ci.txt"
 	@echo ""
 
 # ── Запуск ────────────────────────────────────────────────────────────────────
@@ -34,3 +36,10 @@ stop:
 
 # ── Перезапуск ────────────────────────────────────────────────────────────────
 restart: stop run
+
+# ── CI ────────────────────────────────────────────────────────────────────────
+lint-yaml:
+	@yamllint -c .yamllint.yml .github/ .yamllint.yml
+
+lock:
+	@.venv/bin/python scripts/lock_requirements.py
