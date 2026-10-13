@@ -61,6 +61,7 @@ Grex Parser сам собирает данные о товарах с крупн
 | **Настройки → Параметры мониторинга** | Подключить Telegram-бота для уведомлений о падении цены и регулярных отчётов. |
 | **Настройки → Прокси** | Список прокси-серверов, если маркетплейсы блокируют прямые запросы. |
 | **Настройки → Пользователи** | Управление логинами и паролями для входа в панель. |
+| **Настройки → API-ключи** | Ключи доступа для REST API: создать, отозвать, посмотреть, когда ключ использовался. |
 
 Типичный сценарий: зайдите в **«Цели»**, вставьте ссылку на товар, нажмите «Запустить» — результат появится в разделе **«Товары»**. Чтобы следить за ценой этого товара со временем, включите его в разделе **«Мониторинг»**.
 
@@ -93,21 +94,34 @@ Grex Parser сам собирает данные о товарах с крупн
 
 Если нужно подключить сбор данных к своей программе напрямую — доступен REST API. Интерактивная документация — на `http://localhost:8004/docs`.
 
+Все пути API начинаются с `/v1`. Старые пути без версии (`/parse`, `/parse/batch` и т. д.) пока работают, но устарели — в новых интеграциях используйте `/v1`.
+
+Все запросы, кроме `/v1/health`, `/v1/marketplaces` и `/v1/parse/detect`, требуют заголовок `X-API-Key`. Ключ создаётся в веб-панели: **Настройки → API-ключи → Создать ключ**. Он показывается один раз — сразу скопируйте его.
+
 ### Эндпоинты
 
 | Метод | URL | Описание |
 |---|---|---|
 | `GET` | `/` | Информация о сервисе |
-| `GET` | `/health` | Статус и uptime |
-| `GET` | `/marketplaces` | Список маркетплейсов и примеры URL |
-| `GET` | `/parse/detect?url=...` | Определить маркетплейс по URL |
-| `POST` | `/parse` | Парсинг одного товара |
-| `POST` | `/parse/batch` | Пакетный парсинг |
+| `GET` | `/v1/health` | Статус и uptime |
+| `GET` | `/v1/marketplaces` | Список маркетплейсов |
+| `GET` | `/v1/parse/detect?url=...` | Определить маркетплейс по URL |
+| `POST` | `/v1/parse` | Парсинг одного товара |
+| `POST` | `/v1/parse/batch` | Пакетный парсинг до 100 ссылок, ответ после обработки всех |
+| `POST` | `/v1/jobs` | Фоновая задача на парсинг до 1000 ссылок |
+| `GET` | `/v1/jobs` | Последние задачи этого ключа |
+| `GET` | `/v1/jobs/{id}` | Статус, прогресс и результаты задачи |
+| `POST` | `/v1/monitors` | Начать отслеживать цену товара |
+| `GET` | `/v1/monitors` | Мои мониторы с последней ценой |
+| `GET` / `PATCH` / `DELETE` | `/v1/monitors/{id}` | Монитор: посмотреть, поставить на паузу или сменить интервал, удалить |
+| `GET` | `/v1/monitors/{id}/history` | История цен |
+| `GET` | `/v1/alerts?since=...` | Изменения цен по моим мониторам |
 
-### POST /parse
+### POST /v1/parse
 
 ```bash
-curl -X POST http://localhost:8004/parse \
+curl -X POST http://localhost:8004/v1/parse \
+  -H "X-API-Key: ваш-ключ" \
   -H "Content-Type: application/json" \
   -d '{"url": "https://www.wildberries.ru/catalog/17386348/detail.aspx"}'
 ```
@@ -130,10 +144,11 @@ curl -X POST http://localhost:8004/parse \
 }
 ```
 
-### POST /parse/batch
+### POST /v1/parse/batch
 
 ```bash
-curl -X POST http://localhost:8004/parse/batch \
+curl -X POST http://localhost:8004/v1/parse/batch \
+  -H "X-API-Key: ваш-ключ" \
   -H "Content-Type: application/json" \
   -d '{
     "urls": [
@@ -147,6 +162,45 @@ curl -X POST http://localhost:8004/parse/batch \
 - `urls` — список ссылок (до 100)
 - `concurrency` — количество параллельных запросов
 
+Ответ приходит, только когда обработаны все ссылки. Для больших списков используйте задачи.
+
+### Задачи: POST /v1/jobs
+
+Задача принимает до 1000 ссылок, сразу отвечает `202` с `id` и парсит ссылки в фоне. Прогресс и готовые результаты — в `GET /v1/jobs/{id}`; опрашивайте его, пока `status` не станет `completed` или `failed`.
+
+```bash
+curl -X POST http://localhost:8004/v1/jobs \
+  -H "X-API-Key: ваш-ключ" \
+  -H "Content-Type: application/json" \
+  -d '{"urls": ["https://www.wildberries.ru/catalog/17386348/detail.aspx"]}'
+
+curl http://localhost:8004/v1/jobs/<id> -H "X-API-Key: ваш-ключ"
+```
+
+- `status`: `pending` → `running` → `completed` (или `failed`, если задача прервалась целиком, например при перезапуске сервера — её стоит создать заново)
+- `done` / `total` — прогресс; `results` — результаты готовых ссылок в порядке запроса, по формату как в `/v1/parse/batch`
+- Задача видна только ключу, которым создана. Одновременно у ключа может быть до 5 незавершённых задач, иначе — `429`
+
+### Мониторинг цен: /v1/monitors
+
+Монитор периодически перепроверяет товар и записывает цену. Первая проверка — сразу после создания.
+
+```bash
+curl -X POST http://localhost:8004/v1/monitors \
+  -H "X-API-Key: ваш-ключ" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://www.wildberries.ru/catalog/17386348/detail.aspx", "interval_seconds": 3600, "name": "Матрас"}'
+```
+
+- `interval_seconds` — как часто проверять; без него — значение сервера по умолчанию (`monitoring.default_interval_seconds`), не меньше `monitoring.min_interval_seconds`
+- `GET /v1/monitors` — все мониторы ключа с последней ценой (`current_price`, `price_updated_at`) и статусом проверки (`last_status`)
+- `PATCH /v1/monitors/{id}` — изменить только переданные поля: `{"active": false}` — пауза, `{"interval_seconds": null}` — вернуть интервал по умолчанию
+- `DELETE /v1/monitors/{id}` — удалить монитор вместе с историей цен
+- `GET /v1/monitors/{id}/history` — точки цены от старых к новым
+- `GET /v1/alerts?since=2026-10-06T10:00:00Z` — изменения цены сильнее порогов сервера (`monitoring.drop_percent` / `rise_percent`), новые сверху. Передавайте в `since` время прошлого запроса, чтобы получать только новые
+
+Мониторы видны только своему ключу и не попадают в веб-панель. Одну ссылку нельзя добавить одним ключом дважды (`409`), лимит — 500 мониторов на ключ. Если ключ отозвать, его мониторы останавливаются.
+
 ### Пример на Python
 
 ```python
@@ -155,7 +209,8 @@ import requests
 API_URL = "http://localhost:8004"
 
 response = requests.post(
-    f"{API_URL}/parse",
+    f"{API_URL}/v1/parse",
+    headers={"X-API-Key": "ваш-ключ"},
     json={"url": "https://www.wildberries.ru/catalog/17386348/detail.aspx"},
 )
 

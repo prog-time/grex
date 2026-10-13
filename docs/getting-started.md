@@ -56,7 +56,7 @@ python3 --version
 | URL | Описание |
 |-----|----------|
 | `http://localhost:8004/` | Корневой эндпоинт |
-| `http://localhost:8004/health` | Статус сервиса |
+| `http://localhost:8004/v1/health` | Статус сервиса |
 | `http://localhost:8004/docs` | Swagger UI (только при `debug.active: true`) |
 | `http://localhost:8004/admin` | Админ-панель |
 
@@ -75,7 +75,8 @@ app:
   host: "localhost"
   port: 8004
 
-# API-ключ для /parse эндпоинтов
+# Начальный API-ключ: при первом запуске переносится в базу.
+# Дальше ключи создаются и отзываются в админке: Настройки → API-ключи.
 security:
   api_key: "замените-на-свой-ключ"
 
@@ -161,12 +162,12 @@ redis-cli ping
 
 ## 6. Использование API
 
-Все запросы к `/parse` и `/parse/batch` требуют заголовок `X-API-Key`.
+Все пути API начинаются с `/v1` (старые пути без версии устарели). Запросы к `/v1/parse`, `/v1/parse/batch` и `/v1/jobs` требуют заголовок `X-API-Key`. Ключ создаётся в админке: **Настройки → API-ключи → Создать ключ**. Ключ показывается один раз — сразу скопируйте его.
 
 ### Парсинг одного товара
 
 ```bash
-curl -X POST http://localhost:8004/parse \
+curl -X POST http://localhost:8004/v1/parse \
   -H "X-API-Key: ваш-ключ" \
   -H "Content-Type: application/json" \
   -d '{"url": "https://www.wildberries.ru/catalog/17386348/detail.aspx"}'
@@ -175,7 +176,7 @@ curl -X POST http://localhost:8004/parse \
 ### Пакетный парсинг
 
 ```bash
-curl -X POST http://localhost:8004/parse/batch \
+curl -X POST http://localhost:8004/v1/parse/batch \
   -H "X-API-Key: ваш-ключ" \
   -H "Content-Type: application/json" \
   -d '{
@@ -190,13 +191,13 @@ curl -X POST http://localhost:8004/parse/batch \
 ### Определить маркетплейс по URL
 
 ```bash
-curl "http://localhost:8004/parse/detect?url=https://ozon.ru/product/example-123456"
+curl "http://localhost:8004/v1/parse/detect?url=https://ozon.ru/product/example-123456"
 ```
 
 ### Список поддерживаемых маркетплейсов
 
 ```bash
-curl http://localhost:8004/marketplaces
+curl http://localhost:8004/v1/marketplaces
 ```
 
 Поддерживаемые маркетплейсы: **Wildberries**, **Ozon**, **Яндекс Маркет**, **MegaMarket**.
