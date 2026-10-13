@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 import traceback
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
@@ -112,8 +113,16 @@ class ParsingService:
             )
 
     async def parse_products_batch(
-        self, urls: list[str], concurrency: int | None = None
+        self,
+        urls: list[str],
+        concurrency: int | None = None,
+        on_result: Callable[[int, BatchItemResult], Awaitable[None]] | None = None,
     ) -> list[BatchItemResult]:
+        """Parse *urls* concurrently; results keep the order of *urls*.
+
+        *on_result*, if given, is awaited with ``(index, result)`` as soon as
+        each URL finishes — used by async API jobs to persist progress.
+        """
         # Resolve effective concurrency: request value, else batch.concurrency
         # from settings; clamped to batch.max_concurrency.
         batch_cfg = settings.get("batch", {})
@@ -124,7 +133,13 @@ class ParsingService:
         logger.debug(f"Batch parse: concurrency={effective} (cap {max_conc})")
         semaphore = asyncio.Semaphore(effective)
 
-        async def parse_one(url: str) -> BatchItemResult:
+        async def parse_one(index: int, url: str) -> BatchItemResult:
+            result = await parse_item(url)
+            if on_result is not None:
+                await on_result(index, result)
+            return result
+
+        async def parse_item(url: str) -> BatchItemResult:
             async with semaphore:
                 item_start = datetime.now()
                 try:
@@ -159,7 +174,7 @@ class ParsingService:
                         processing_time=processing_time,
                     )
 
-        tasks = [parse_one(url) for url in urls]
+        tasks = [parse_one(i, url) for i, url in enumerate(urls)]
         return await asyncio.gather(*tasks)
 
     def get_uptime(self) -> float:

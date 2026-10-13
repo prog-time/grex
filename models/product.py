@@ -64,6 +64,20 @@ class HealthResponse(BaseModel):
     supported_marketplaces: List[str]
 
 
+def _validate_marketplace_urls(urls):
+    from core.exceptions import UnsupportedMarketplaceError  # noqa: PLC0415
+    from crawlers.registry import CrawlerRegistry  # noqa: PLC0415
+    for url in urls:
+        try:
+            CrawlerRegistry.detect_marketplace(str(url))
+        except UnsupportedMarketplaceError:
+            supported = ', '.join(sorted(CrawlerRegistry.all().keys()))
+            raise ValueError(
+                f"Unsupported marketplace URL: {url}. Supported: {supported}"
+            )
+    return urls
+
+
 class BatchParseRequest(BaseModel):
     urls: List[HttpUrl] = Field(..., min_length=1, max_length=100)
     # None → use batch.concurrency from settings. Capped to batch.max_concurrency
@@ -72,17 +86,16 @@ class BatchParseRequest(BaseModel):
 
     @field_validator('urls')
     def validate_marketplace_urls(cls, v):
-        from core.exceptions import UnsupportedMarketplaceError  # noqa: PLC0415
-        from crawlers.registry import CrawlerRegistry  # noqa: PLC0415
-        for url in v:
-            try:
-                CrawlerRegistry.detect_marketplace(str(url))
-            except UnsupportedMarketplaceError:
-                supported = ', '.join(sorted(CrawlerRegistry.all().keys()))
-                raise ValueError(
-                    f"Unsupported marketplace URL: {url}. Supported: {supported}"
-                )
-        return v
+        return _validate_marketplace_urls(v)
+
+
+class JobCreateRequest(BaseModel):
+    urls: List[HttpUrl] = Field(..., min_length=1, max_length=1000)
+    concurrency: Optional[int] = Field(default=None, ge=1, le=200)
+
+    @field_validator('urls')
+    def validate_marketplace_urls(cls, v):
+        return _validate_marketplace_urls(v)
 
 
 class BatchItemResult(BaseModel):
@@ -100,3 +113,25 @@ class BatchParseResponse(BaseModel):
     failed: int
     processing_time: float
     results: List[BatchItemResult]
+
+
+class JobSummary(BaseModel):
+    id: str
+    status: str  # pending | running | completed | failed
+    total: int
+    done: int
+    succeeded: int
+    failed: int
+    error: Optional[str] = None
+    created_at: Optional[str] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+
+
+class JobResponse(JobSummary):
+    # Finished URLs so far, in request order.
+    results: List[BatchItemResult] = []
+
+
+class JobListResponse(BaseModel):
+    jobs: List[JobSummary]
