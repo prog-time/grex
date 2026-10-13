@@ -2,8 +2,11 @@ app:
   host: "localhost"
   port: 8004
 
+# Leave api_key empty: API keys are created in the admin panel
+# (Настройки → API-ключи). A non-empty value is imported there once on
+# startup — only to carry over the key of an older installation.
 security:
-  api_key: "4353456dfvbdfg34"
+  api_key: ""
 
 admin:
   secret_key: "change-me-in-production-secret-key"
