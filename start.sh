@@ -24,9 +24,14 @@ cd "$(dirname "$0")"
 info "Проверка Python..."
 
 PYTHON=""
-for cmd in python3.12 python3 python; do
+# py — the Python launcher on Windows.
+for cmd in python3.12 python3 python py; do
     if command -v "$cmd" &>/dev/null; then
-        VERSION=$("$cmd" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+')
+        # `|| true`: on Windows python3/python may be the Microsoft Store alias,
+        # which prints an install hint instead of a version and exits non-zero —
+        # without it `set -e` would end the script here with no message.
+        VERSION=$("$cmd" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+' | head -1 || true)
+        [ -z "$VERSION" ] && continue
         MAJOR=$(echo "$VERSION" | cut -d. -f1)
         MINOR=$(echo "$VERSION" | cut -d. -f2)
         if [ "$MAJOR" -ge 3 ] && [ "$MINOR" -ge 12 ]; then
@@ -37,7 +42,11 @@ for cmd in python3.12 python3 python; do
 done
 
 if [ -z "$PYTHON" ]; then
-    fail "Python 3.12+ не найден. Установите: brew install python@3.12"
+    echo "         macOS:   brew install python@3.12"
+    echo "         Windows: установите с python.org, отметив «Add python.exe to PATH»,"
+    echo "                  и отключите псевдонимы python/python3 в «Параметры → Приложения →"
+    echo "                  Дополнительные параметры приложений → Псевдонимы выполнения приложений»"
+    fail "Python 3.12+ не найден"
 fi
 ok "Используется $($PYTHON --version)"
 
