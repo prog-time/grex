@@ -31,13 +31,6 @@ class LinksRouter:
                     status_code=422,
                 )
 
-            from services.license import is_marketplace_allowed  # noqa: PLC0415
-            if not is_marketplace_allowed(marketplace):
-                return JSONResponse(
-                    {"ok": False, "error": f"Источник '{marketplace}' не разрешён вашей лицензией"},
-                    status_code=403,
-                )
-
             crawler_cls = CrawlerRegistry.get(marketplace)
             crawler = crawler_cls()
 
