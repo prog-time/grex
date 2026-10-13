@@ -22,7 +22,9 @@ class UsersRouter:
     async def update_user(request: Request) -> JSONResponse:
         try:
             import os  # noqa: PLC0415
+
             import yaml  # noqa: PLC0415
+
             from config import settings  # noqa: PLC0415
 
             body = await request.json()
@@ -63,6 +65,7 @@ class UsersRouter:
 
 def register_users_routes(app) -> None:  # type: ignore[no-untyped-def]
     from fastapi import Depends  # noqa: PLC0415
+
     from admin.resources.auth import require_admin  # noqa: PLC0415
     _auth = [Depends(require_admin)]
     router = UsersRouter()
