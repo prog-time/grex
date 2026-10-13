@@ -94,8 +94,15 @@ info "Проверка директории data/..."
 mkdir -p data
 ok "data/ готова"
 
+# settings.yml is not in git (it holds local secrets); a fresh clone has only
+# the example, and the app cannot start without the real file.
 if [ ! -f "data/settings.yml" ]; then
-    warn "data/settings.yml не найден — используются значения по умолчанию"
+    if [ -f "data/settings.yml.example" ]; then
+        cp data/settings.yml.example data/settings.yml
+        ok "data/settings.yml создан из примера (data/settings.yml.example)"
+    else
+        fail "Нет ни data/settings.yml, ни data/settings.yml.example — сервис не сможет запуститься"
+    fi
 fi
 
 if [ ! -f "data/ozon_cookies.json" ]; then
