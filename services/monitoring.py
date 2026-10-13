@@ -92,13 +92,24 @@ def compute_next_run(now: datetime, interval_seconds: int, jitter_seconds: int =
 # DB operations
 # ---------------------------------------------------------------------------
 
-async def _previous_price(session, url: str) -> float | None:
+async def _previous_price(session, target: dict) -> float | None:
+    """Last recorded price for *target*, from its owner's history only.
+
+    Admin targets share history by URL (a re-added URL continues its chart);
+    API monitors use their own target's history, so two owners watching the
+    same URL never compare against each other's snapshots.
+    """
     from sqlalchemy import select  # noqa: PLC0415
 
+    from models.parse_target import not_api_owned  # noqa: PLC0415
     from models.price_snapshot import PriceSnapshot  # noqa: PLC0415
+    if target.get("api_key_id"):
+        scope = PriceSnapshot.target_id == target["id"]
+    else:
+        scope = (PriceSnapshot.url == target["url"]) & not_api_owned(PriceSnapshot.target_id)
     row = (await session.execute(
         select(PriceSnapshot.current_price)
-        .where(PriceSnapshot.url == url)
+        .where(scope)
         .order_by(PriceSnapshot.parsed_at.desc())
         .limit(1)
     )).first()
@@ -152,7 +163,8 @@ async def _due_targets(session, limit: int) -> list[dict]:
     )).scalars().all()
     # Detach to plain dicts so we don't hold ORM objects across the parse.
     return [
-        {"id": t.id, "url": t.url, "marketplace": t.marketplace, "interval_seconds": t.interval_seconds}
+        {"id": t.id, "url": t.url, "marketplace": t.marketplace,
+         "interval_seconds": t.interval_seconds, "api_key_id": t.api_key_id}
         for t in rows
     ]
 
@@ -189,7 +201,7 @@ async def _check_one(target: dict) -> str:
     try:
         # Capture the previous price BEFORE the new parse overwrites state.
         async with async_session() as session:
-            prev = await _previous_price(session, url)
+            prev = await _previous_price(session, target)
 
         product = await ParsingService().parse_product(url)
         data = product.to_dict()
@@ -197,13 +209,16 @@ async def _check_one(target: dict) -> str:
         orig_price = float(data["original_price"]) if data.get("original_price") else None
 
         # Reuse the targets upsert so the "latest product" view stays in sync.
-        import json as _json  # noqa: PLC0415
+        # API monitors are skipped: their products must not appear in the
+        # admin panel — API clients read prices from snapshots instead.
+        if not target.get("api_key_id"):
+            import json as _json  # noqa: PLC0415
 
-        from admin.resources.targets import _upsert_parsed_product  # noqa: PLC0415
-        await _upsert_parsed_product(
-            session_id=None, target_id=target["id"], url=url,
-            marketplace=target["marketplace"], data=data, json_module=_json,
-        )
+            from admin.resources.targets import _upsert_parsed_product  # noqa: PLC0415
+            await _upsert_parsed_product(
+                session_id=None, target_id=target["id"], url=url,
+                marketplace=target["marketplace"], data=data, json_module=_json,
+            )
 
         async with async_session() as session:
             await _record_snapshot(

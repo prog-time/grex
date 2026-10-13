@@ -115,8 +115,8 @@ class TestSnapshotAndAlert:
                                      current_price=100.0, original_price=120.0)
             await s.commit()
         async with db() as s:
-            assert await M._previous_price(s, "u1") == 100.0
-            assert await M._previous_price(s, "missing") is None
+            assert await M._previous_price(s, {"id": "t1", "url": "u1"}) == 100.0
+            assert await M._previous_price(s, {"id": "t9", "url": "missing"}) is None
 
     async def test_alert_logged_on_drop(self, db):
         from sqlalchemy import select

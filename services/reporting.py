@@ -84,7 +84,7 @@ async def _collect_report_data(period_days: int) -> dict:
     from sqlalchemy import select  # noqa: PLC0415
 
     from models.job import async_session  # noqa: PLC0415
-    from models.parse_target import ParseTarget  # noqa: PLC0415
+    from models.parse_target import ParseTarget, admin_owned, not_api_owned  # noqa: PLC0415
     from models.parsed_product import ParsedProduct  # noqa: PLC0415
     from models.price_snapshot import PriceAlert, PriceSnapshot  # noqa: PLC0415
 
@@ -95,7 +95,7 @@ async def _collect_report_data(period_days: int) -> dict:
     cutoff = datetime.utcnow() - timedelta(days=period_days)
     async with async_session() as session:
         targets = (await session.execute(
-            select(ParseTarget).where(ParseTarget.monitor_enabled.is_(True))
+            select(ParseTarget).where(ParseTarget.monitor_enabled.is_(True), admin_owned())
             .order_by(ParseTarget.created_at.asc())
         )).scalars().all()
         # Latest parsed product per URL — order ascending so the newest wins.
@@ -107,13 +107,13 @@ async def _collect_report_data(period_days: int) -> dict:
         snaps = (await session.execute(
             select(PriceSnapshot.url, PriceSnapshot.marketplace, PriceSnapshot.current_price,
                    PriceSnapshot.original_price, PriceSnapshot.available, PriceSnapshot.parsed_at)
-            .where(PriceSnapshot.parsed_at >= cutoff)
+            .where(PriceSnapshot.parsed_at >= cutoff, not_api_owned(PriceSnapshot.target_id))
             .order_by(PriceSnapshot.parsed_at.asc())
         )).all()
         alerts = (await session.execute(
             select(PriceAlert.title, PriceAlert.url, PriceAlert.marketplace, PriceAlert.kind,
                    PriceAlert.old_price, PriceAlert.new_price, PriceAlert.change_pct, PriceAlert.created_at)
-            .where(PriceAlert.created_at >= cutoff)
+            .where(PriceAlert.created_at >= cutoff, not_api_owned(PriceAlert.target_id))
             .order_by(PriceAlert.created_at.desc())
         )).all()
 
