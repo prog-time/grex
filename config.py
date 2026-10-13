@@ -16,5 +16,5 @@ def load_config(file_path) -> dict:
 settings = load_config("settings.yml")
 
 settings.update({
-    "soft_version": "1.0.0",
+    "soft_version": "1.0.2",
 })
