@@ -9,11 +9,12 @@ from __future__ import annotations
 import json
 import os
 import re
+
+import yaml
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from loguru import logger
 
-import yaml
 from config import data_path, settings
 
 _SETTINGS_FILE = os.path.join(data_path, "settings.yml")
@@ -258,6 +259,7 @@ class ProxiesRouter:
 def register_proxies_routes(app) -> None:  # type: ignore[no-untyped-def]
     """Attach proxy management endpoints to *app*."""
     from fastapi import Depends  # noqa: PLC0415
+
     from admin.resources.auth import require_admin  # noqa: PLC0415
     _auth = [Depends(require_admin)]
     router = ProxiesRouter()

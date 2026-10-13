@@ -382,6 +382,7 @@ class WildberriesCrawler(BaseCrawler):
                     )
                     response = await self.session.get(api_url, headers=self._build_headers(), proxy=self.proxy)
                     if response.status_code != 200:
+                        logger.warning(f"WB seller {supplier_id}: catalog API HTTP {response.status_code} on page {page}")
                         break
                     data = response.json()
                     products = data.get("data", {}).get("products", [])
@@ -395,9 +396,13 @@ class WildberriesCrawler(BaseCrawler):
                 except Exception as e:
                     logger.warning(f"WB seller links page {page} failed: {e}")
                     break
-            return links
+            if links:
+                return links
+            # The catalog API answers 403 without WB's anti-bot token; the
+            # seller page itself renders fine in a real browser.
+            logger.info(f"WB seller {supplier_id}: API returned no links, falling back to browser")
 
-        # Fallback: browser-based extraction for brand/catalog/search pages
+        # Fallback: browser-based extraction for seller/brand/catalog/search pages
         return await self._get_links_via_browser(url)
 
     # ------------------------------------------------------------------

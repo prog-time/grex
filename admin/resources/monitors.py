@@ -22,7 +22,7 @@ class MonitorsRouter:
         from sqlalchemy import select  # noqa: PLC0415
 
         from models.job import async_session  # noqa: PLC0415
-        from models.parse_target import ParseTarget  # noqa: PLC0415
+        from models.parse_target import ParseTarget, admin_owned  # noqa: PLC0415
         from models.parsed_product import ParsedProduct  # noqa: PLC0415
         from services.monitoring import cfg, effective_interval  # noqa: PLC0415
 
@@ -30,7 +30,7 @@ class MonitorsRouter:
             return JSONResponse({"total": 0, "monitors": [], "default_interval_seconds": 3600})
 
         async with async_session() as session:
-            targets = (await session.execute(select(ParseTarget))).scalars().all()
+            targets = (await session.execute(select(ParseTarget).where(admin_owned()))).scalars().all()
             prices = (await session.execute(
                 select(ParsedProduct.url, ParsedProduct.current_price,
                        ParsedProduct.original_price, ParsedProduct.title)
@@ -74,7 +74,7 @@ class MonitorsRouter:
         from sqlalchemy import select  # noqa: PLC0415
 
         from models.job import async_session  # noqa: PLC0415
-        from models.parse_target import ParseTarget  # noqa: PLC0415
+        from models.parse_target import ParseTarget, admin_owned  # noqa: PLC0415
         from services.monitoring import cfg  # noqa: PLC0415
 
         body = await request.json()
@@ -99,7 +99,7 @@ class MonitorsRouter:
 
         async with async_session() as session:
             target = (await session.execute(
-                select(ParseTarget).where(ParseTarget.id == target_id)
+                select(ParseTarget).where(ParseTarget.id == target_id, admin_owned())
             )).scalar_one_or_none()
             if target is None:
                 return JSONResponse({"error": "target not found"}, status_code=404)
@@ -128,7 +128,7 @@ class MonitorsRouter:
         from sqlalchemy import select  # noqa: PLC0415
 
         from models.job import async_session  # noqa: PLC0415
-        from models.parse_target import ParseTarget  # noqa: PLC0415
+        from models.parse_target import ParseTarget, admin_owned  # noqa: PLC0415
         from services.monitoring import cfg  # noqa: PLC0415
 
         body = await request.json()
@@ -165,7 +165,7 @@ class MonitorsRouter:
         now = datetime.utcnow()
         async with async_session() as session:
             targets = (await session.execute(
-                select(ParseTarget).where(ParseTarget.id.in_(ids))
+                select(ParseTarget).where(ParseTarget.id.in_(ids), admin_owned())
             )).scalars().all()
             for t in targets:
                 if set_enabled:
@@ -185,7 +185,7 @@ class MonitorsRouter:
         from sqlalchemy import select  # noqa: PLC0415
 
         from models.job import async_session  # noqa: PLC0415
-        from models.parse_target import ParseTarget  # noqa: PLC0415
+        from models.parse_target import ParseTarget, admin_owned, not_api_owned  # noqa: PLC0415
         from models.price_snapshot import PriceSnapshot  # noqa: PLC0415
 
         target_id = request.query_params.get("target_id")
@@ -201,14 +201,14 @@ class MonitorsRouter:
 
         async with async_session() as session:
             target = (await session.execute(
-                select(ParseTarget.url).where(ParseTarget.id == target_id)
+                select(ParseTarget.url).where(ParseTarget.id == target_id, admin_owned())
             )).scalar_one_or_none()
             if target is None:
                 return JSONResponse({"error": "target not found"}, status_code=404)
 
             rows = (await session.execute(
                 select(PriceSnapshot.parsed_at, PriceSnapshot.current_price, PriceSnapshot.original_price)
-                .where(PriceSnapshot.url == target)
+                .where(PriceSnapshot.url == target, not_api_owned(PriceSnapshot.target_id))
                 .order_by(PriceSnapshot.parsed_at.desc())
                 .limit(limit)
             )).all()
@@ -225,6 +225,7 @@ class MonitorsRouter:
         from sqlalchemy import select  # noqa: PLC0415
 
         from models.job import async_session  # noqa: PLC0415
+        from models.parse_target import not_api_owned  # noqa: PLC0415
         from models.price_snapshot import PriceAlert  # noqa: PLC0415
 
         try:
@@ -237,9 +238,47 @@ class MonitorsRouter:
 
         async with async_session() as session:
             rows = (await session.execute(
-                select(PriceAlert).order_by(PriceAlert.created_at.desc()).limit(limit)
+                select(PriceAlert).where(not_api_owned(PriceAlert.target_id))
+                .order_by(PriceAlert.created_at.desc()).limit(limit)
             )).scalars().all()
         return JSONResponse({"total": len(rows), "alerts": [a.to_dict() for a in rows]})
+
+    @staticmethod
+    async def clear_all(request: Request) -> JSONResponse:
+        """Reset monitoring of the admin panel to a clean state.
+
+        Turns monitoring off on every admin target, resets their interval and
+        schedule, and deletes their price history and alerts. Targets themselves
+        and API-owned monitors (/v1/monitors) are left untouched.
+        """
+        from sqlalchemy import delete, update  # noqa: PLC0415
+
+        from models.job import async_session  # noqa: PLC0415
+        from models.parse_target import ParseTarget, admin_owned, not_api_owned  # noqa: PLC0415
+        from models.price_snapshot import PriceAlert, PriceSnapshot  # noqa: PLC0415
+
+        if async_session is None:
+            return JSONResponse({"error": "DB not initialised"}, status_code=503)
+
+        async with async_session() as session:
+            disabled = await session.execute(
+                update(ParseTarget).where(admin_owned()).values(
+                    monitor_enabled=False, interval_seconds=None, next_run_at=None,
+                    last_checked_at=None, last_status=None,
+                )
+            )
+            snapshots = await session.execute(delete(PriceSnapshot).where(not_api_owned(PriceSnapshot.target_id)))
+            alerts = await session.execute(delete(PriceAlert).where(not_api_owned(PriceAlert.target_id)))
+            await session.commit()
+
+        result = {
+            "ok": True,
+            "targets": disabled.rowcount or 0,  # type: ignore[attr-defined]
+            "snapshots": snapshots.rowcount or 0,  # type: ignore[attr-defined]
+            "alerts": alerts.rowcount or 0,  # type: ignore[attr-defined]
+        }
+        logger.info(f"Monitoring cleared: {result}")
+        return JSONResponse(result)
 
     @staticmethod
     async def run_now(request: Request) -> JSONResponse:
@@ -267,3 +306,4 @@ def register_monitors_routes(app) -> None:  # type: ignore[no-untyped-def]
     app.add_api_route("/admin/monitors/history", router.history, methods=["GET"], tags=["admin"], dependencies=_auth)
     app.add_api_route("/admin/monitors/alerts", router.alerts, methods=["GET"], tags=["admin"], dependencies=_auth)
     app.add_api_route("/admin/monitors/run", router.run_now, methods=["POST"], tags=["admin"], dependencies=_auth)
+    app.add_api_route("/admin/monitors/clear", router.clear_all, methods=["POST"], tags=["admin"], dependencies=_auth)

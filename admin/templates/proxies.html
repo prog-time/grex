@@ -2,14 +2,10 @@
 
 {% block header %}
 <div class="d-flex justify-content-between align-items-center">
-  <h1>Прокси</h1>
+  <h1 class="mb-0">Прокси</h1>
   <div class="d-flex align-items-center gap-3">
     <input id="proxyFileInput" type="file" accept=".txt,text/plain" style="display:none" onchange="onProxyFileSelected(this)">
     <button class="btn btn-outline-secondary" onclick="document.getElementById('proxyFileInput').click()">Загрузить из файла</button>
-    <ol class="breadcrumb mb-0">
-      <li class="breadcrumb-item"><a href="{{ url_for(__name__ ~ ':index') }}">Админ</a></li>
-      <li class="breadcrumb-item active">Прокси</li>
-    </ol>
   </div>
 </div>
 {% endblock %}

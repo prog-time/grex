@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, or_, select
 
 from models.job import Base
 
@@ -29,6 +29,12 @@ class ParseTarget(Base):
     last_checked_at = Column(DateTime, nullable=True)
     last_status = Column(String(16), nullable=True)    # "ok" | "failed" | None
 
+    # Owner: NULL for targets of the admin panel; the API key id for monitors
+    # created through the public API (/v1/monitors). API-owned targets must
+    # never show up in admin views or reports — use admin_owned() and
+    # not_api_owned() in every query that lists targets, snapshots or alerts.
+    api_key_id = Column(String(36), nullable=True, index=True)
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
@@ -43,3 +49,18 @@ class ParseTarget(Base):
             "last_checked_at": self.last_checked_at.isoformat() if self.last_checked_at else None,
             "last_status": self.last_status,
         }
+
+
+def admin_owned():  # type: ignore[no-untyped-def]
+    """Filter for targets that belong to the admin panel (not to an API key)."""
+    return ParseTarget.api_key_id.is_(None)
+
+
+def not_api_owned(target_id_column):  # type: ignore[no-untyped-def]
+    """Filter for snapshot/alert rows that don't belong to an API-owned target.
+
+    *target_id_column* is ``PriceSnapshot.target_id`` or ``PriceAlert.target_id``.
+    Rows without a target (legacy data) count as admin-owned.
+    """
+    api_target_ids = select(ParseTarget.id).where(ParseTarget.api_key_id.is_not(None))
+    return or_(target_id_column.is_(None), target_id_column.not_in(api_target_ids))

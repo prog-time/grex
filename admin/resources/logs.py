@@ -62,6 +62,7 @@ async def logs_stream(
 def register_logs_routes(app) -> None:  # type: ignore[no-untyped-def]
     """Attach the SSE log stream endpoint to *app*."""
     from fastapi import Depends  # noqa: PLC0415
+
     from admin.resources.auth import require_admin  # noqa: PLC0415
     app.add_api_route(
         "/admin/logs/stream",

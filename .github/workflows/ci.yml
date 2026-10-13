@@ -11,35 +11,84 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Every job installs exact versions from requirements-ci.txt (regenerate with
+# scripts/lock_requirements.py), so a new upstream release can't break CI —
+# Dependabot proposes version bumps as separate PRs instead.
 jobs:
   lint:
     name: Lint (ruff)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: requirements-ci.txt
       - name: Install ruff
-        run: pip install ruff
+        run: pip install "$(grep '^ruff==' requirements-ci.txt)"
       - name: ruff check
         run: ruff check .
 
   test:
     name: Tests (pytest)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: requirements-ci.txt
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
+          pip install -r requirements-ci.txt
       - name: Prepare test config
         run: cp data/settings.yml.example data/settings.yml
       - name: Run test suite
         run: pytest
+
+  smoke:
+    name: Smoke (app startup)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-ci.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-ci.txt
+      - name: Prepare config
+        run: cp data/settings.yml.example data/settings.yml
+      - name: Start server
+        run: |
+          python api.py > server.log 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -sf http://localhost:8004/v1/health > /dev/null; then
+              echo "Server is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Server did not start within 60s"
+          cat server.log
+          exit 1
+      - name: Run smoke checks
+        run: python scripts/smoke_test.py
+      - name: Show server log
+        if: failure()
+        run: cat server.log

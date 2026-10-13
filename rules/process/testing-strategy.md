@@ -92,7 +92,7 @@ async def test_wildberries():
 
 ## 5. Test data rules
 
-- Use fixture URLs confirmed in the codebase (see `api.py` `example_urls`)
+- Use fixture URLs confirmed in the codebase (see the URLs already used in `tests/`)
 - Build `ProductCard` instances explicitly in tests — do not rely on external state
 - Reset any class-level state before tests: `ProxyManager.proxies = []`
 - Do not use real cookies or proxy credentials in test fixtures

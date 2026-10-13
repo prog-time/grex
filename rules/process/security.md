@@ -15,14 +15,17 @@ Security is not optional or deferred.
 
 ## 2. API key authentication rules
 
-This project uses a static API key in the `X-API-Key` header, validated by the `verify_api_key` FastAPI dependency.
+Clients send an API key in the `X-API-Key` header, validated by the `verify_api_key` FastAPI dependency. Keys are managed in the admin panel (Настройки → API-ключи) and stored in the `api_keys` table — see `services/api_keys.py`.
 
 ```python
-# ✅ Correct — key compared against settings, errors are explicit
+# ✅ Correct — key looked up via the service, errors are explicit
 async def verify_api_key(api_key: str = Depends(X_API_KEY)) -> str:
     if not api_key:
         raise HTTPException(status_code=401, detail="API key is required...")
-    if api_key != settings.get("security", {}).get("api_key"):
+    valid = await verify_key(api_key)   # None → key storage (DB) unavailable
+    if valid is None:
+        raise HTTPException(status_code=503, detail="API key storage is unavailable")
+    if not valid:
         raise HTTPException(status_code=403, detail="Invalid API key")
     return api_key
 
@@ -33,10 +36,13 @@ if api_key != VALID_KEY:
 ```
 
 **Rules:**
-- The API key must always come from `settings.security.api_key` (loaded from `data/settings.yml`)
-- The `settings.yml` file with a real key must never be committed to version control
+- Keys are generated server-side (`grx_` + `secrets.token_urlsafe(32)`); manual key entry is intentionally not supported
+- Only the SHA-256 hash of a key is stored; the plaintext is returned once, by `POST /admin/api-keys/create`, and never logged
+- Revoked keys must fail immediately — never cache verification results
+- Key verification fails closed: if the DB is unavailable the API returns `503`, it never falls back to `settings.security.api_key`
+- `settings.security.api_key` is only a one-time seed: on startup it is imported into `api_keys` unless a row with its hash already exists (so revoking it sticks)
 - Authentication is enforced via `dependencies=[Depends(verify_api_key)]` at the route level — never inside the handler body
-- `POST /parse` is the only endpoint requiring authentication — this is intentional by design
+- `POST /parse` and `POST /parse/batch` are the only endpoints requiring an API key — this is intentional by design
 
 ## 3. Input validation rules
 
@@ -65,17 +71,17 @@ async def parse_product(url: str):
 ## 4. Secrets management rules
 
 ```python
-# ✅ Correct — key loaded from settings file
-api_key = settings.get("security", {}).get("api_key")
+# ✅ Correct — secret loaded from settings file
+password = settings.get("admin", {}).get("password")
 
 # ❌ Incorrect — hardcoded secret
-api_key = "4353456dfvbdfg34"
+password = "admin"
 ```
 
-- All secrets (`api_key`, proxy credentials) must be stored in `data/settings.yml` or `data/proxy.txt`
+- Config secrets (admin credentials, proxy credentials) must be stored in `data/settings.yml` or `data/proxy.txt`
 - These files must be listed in `.gitignore` or equivalent
-- Never commit `data/settings.yml` with a real API key to version control
-- The `data/settings.yml` file in the repo currently contains a placeholder key — replace it before production deployment
+- Never commit `data/settings.yml` with real secrets to version control
+- The default API key from `settings.yml.example` is public — it is flagged as insecure in the admin panel and logged as a warning on startup while active; revoke it before production deployment
 
 ## 5. Cookie security rules
 

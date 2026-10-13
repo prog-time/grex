@@ -13,6 +13,8 @@ from starlette_admin.contrib.sqla import Admin
 from starlette_admin.exceptions import FormValidationError
 
 import models.alert_source  # noqa: F401  — registers AlertSource in Base.metadata
+import models.api_job  # noqa: F401  — registers ApiJob, ApiJobItem in Base.metadata
+import models.api_key  # noqa: F401  — registers ApiKey in Base.metadata
 import models.parse_target  # noqa: F401 — registers ParseTarget in Base.metadata
 import models.parsed_product  # noqa: F401  — registers ParseSession, ParsedProduct in Base.metadata
 import models.price_snapshot  # noqa: F401  — registers PriceSnapshot, PriceAlert in Base.metadata
@@ -103,6 +105,16 @@ class UsersView(CustomView):
         return templates.TemplateResponse("users.html", {"request": request})
 
 
+class ApiKeysView(CustomView):
+    async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
+        return templates.TemplateResponse("api_keys.html", {"request": request})
+
+
+class ThanksView(CustomView):
+    async def render(self, request: Request, templates) -> Response:  # type: ignore[override]
+        return templates.TemplateResponse("thanks.html", {"request": request})
+
+
 # ---------------------------------------------------------------------------
 # Setup / teardown
 # ---------------------------------------------------------------------------
@@ -121,6 +133,11 @@ async def setup_admin(app: FastAPI) -> None:
     from models.job import engine  # noqa: PLC0415
 
     assert engine is not None, "Database engine was not initialised by init_db"
+
+    from services.api_keys import import_legacy_key, warn_if_default_key_active  # noqa: PLC0415
+
+    await import_legacy_key(settings.get("security", {}).get("api_key"))
+    await warn_if_default_key_active()
 
     templates_dir = os.path.join(os.path.dirname(__file__), "templates")
 
@@ -156,6 +173,11 @@ async def setup_admin(app: FastAPI) -> None:
         "История задач", icon="fa fa-list",
         path="/jobs", template_path="jobs.html", name="jobs",
     ))
+    # Outside «Настройки»: thanking the author is not a setting.
+    admin.add_view(ThanksView(
+        "Поблагодарить автора", icon="fa fa-heart",
+        path="/thanks", template_path="thanks.html", name="thanks",
+    ))
     admin.add_view(DropDown(
         "Настройки",
         icon="fa fa-sliders",
@@ -173,12 +195,17 @@ async def setup_admin(app: FastAPI) -> None:
                 "Пользователи", icon="fa fa-users",
                 path="/users", template_path="users.html", name="users",
             ),
+            ApiKeysView(
+                "API-ключи", icon="fa fa-key",
+                path="/api-keys", template_path="api_keys.html", name="api_keys",
+            ),
         ],
     ))
 
     # Register all auxiliary API routes BEFORE mounting starlette-admin so that
     # FastAPI's exact Route entries take priority over the admin Mount prefix.
     from admin.resources.alert_sources import register_alert_sources_routes  # noqa: PLC0415
+    from admin.resources.api_keys import register_api_keys_routes  # noqa: PLC0415
     from admin.resources.jobs import register_jobs_routes  # noqa: PLC0415
     from admin.resources.links import register_links_routes  # noqa: PLC0415
     from admin.resources.monitors import register_monitors_routes  # noqa: PLC0415
@@ -195,6 +222,7 @@ async def setup_admin(app: FastAPI) -> None:
     register_users_routes(app)
     register_monitors_routes(app)
     register_alert_sources_routes(app)
+    register_api_keys_routes(app)
 
     # Stats reset endpoint
     from fastapi import Depends  # noqa: PLC0415
@@ -213,6 +241,7 @@ async def setup_admin(app: FastAPI) -> None:
     app.add_api_route(
         "/admin/api/stats/reset", stats_reset,
         methods=["POST"], tags=["admin"], dependencies=[Depends(require_admin)],
+        response_model=None,
     )
 
     logger.info("Admin API routes registered")
