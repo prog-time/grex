@@ -100,13 +100,6 @@ async def _run_all_background(session_id: str, targets: list[dict]) -> None:
 
         for tgt in targets:
             try:
-                from services.license import is_marketplace_allowed  # noqa: PLC0415
-                if not is_marketplace_allowed(tgt["marketplace"]):
-                    logger.warning(f"bg-parse SKIP (license): {tgt['url']} [{tgt['marketplace']}]")
-                    failed_count += 1
-                    await _update_session(succeeded=succeeded, failed_count=failed_count)
-                    continue
-
                 product = await svc.parse_product(tgt["url"])
                 data = product.to_dict()
 
@@ -144,14 +137,14 @@ class TargetsRouter:
             from sqlalchemy import select  # noqa: PLC0415
 
             from models.job import async_session  # noqa: PLC0415
-            from models.parse_target import ParseTarget  # noqa: PLC0415
+            from models.parse_target import ParseTarget, admin_owned  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
 
             async with async_session() as session:
                 rows = (await session.execute(
-                    select(ParseTarget).order_by(ParseTarget.created_at.desc())
+                    select(ParseTarget).where(admin_owned()).order_by(ParseTarget.created_at.desc())
                 )).scalars().all()
 
             targets = [r.to_dict() for r in rows]
@@ -185,13 +178,6 @@ class TargetsRouter:
                 return JSONResponse(
                     {"error": f"Cannot detect marketplace for URL: {url}"},
                     status_code=422,
-                )
-
-            from services.license import is_marketplace_allowed  # noqa: PLC0415
-            if not is_marketplace_allowed(marketplace):
-                return JSONResponse(
-                    {"error": f"Источник '{marketplace}' не разрешён вашей лицензией"},
-                    status_code=403,
                 )
 
             target = ParseTarget(
@@ -286,7 +272,7 @@ class TargetsRouter:
             from core.exceptions import UnsupportedMarketplaceError  # noqa: PLC0415
             from crawlers.registry import CrawlerRegistry  # noqa: PLC0415
             from models.job import async_session  # noqa: PLC0415
-            from models.parse_target import ParseTarget  # noqa: PLC0415
+            from models.parse_target import ParseTarget, admin_owned  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -299,7 +285,7 @@ class TargetsRouter:
             # Load existing URLs to detect duplicates
             async with async_session() as session:
                 existing_urls: set[str] = set(
-                    (await session.execute(select(ParseTarget.url))).scalars().all()
+                    (await session.execute(select(ParseTarget.url).where(admin_owned()))).scalars().all()
                 )
 
             added = 0
@@ -321,11 +307,6 @@ class TargetsRouter:
                         marketplace = CrawlerRegistry.detect_marketplace(url)
                     except UnsupportedMarketplaceError:
                         errors.append({"url": url, "reason": "Неизвестный маркетплейс"})
-                        continue
-
-                    from services.license import is_marketplace_allowed  # noqa: PLC0415
-                    if not is_marketplace_allowed(marketplace):
-                        errors.append({"url": url, "reason": f"Источник '{marketplace}' не разрешён лицензией"})
                         continue
 
                     target = ParseTarget(
@@ -359,13 +340,13 @@ class TargetsRouter:
             from sqlalchemy import delete  # noqa: PLC0415
 
             from models.job import async_session  # noqa: PLC0415
-            from models.parse_target import ParseTarget  # noqa: PLC0415
+            from models.parse_target import ParseTarget, admin_owned  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
 
             async with async_session() as session:
-                result = await session.execute(delete(ParseTarget))
+                result = await session.execute(delete(ParseTarget).where(admin_owned()))
                 await session.commit()
 
             deleted = result.rowcount  # type: ignore[attr-defined]
@@ -382,7 +363,7 @@ class TargetsRouter:
             from sqlalchemy import delete  # noqa: PLC0415
 
             from models.job import async_session  # noqa: PLC0415
-            from models.parse_target import ParseTarget  # noqa: PLC0415
+            from models.parse_target import ParseTarget, admin_owned  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -394,7 +375,7 @@ class TargetsRouter:
 
             async with async_session() as session:
                 result = await session.execute(
-                    delete(ParseTarget).where(ParseTarget.id == target_id)
+                    delete(ParseTarget).where(ParseTarget.id == target_id, admin_owned())
                 )
                 await session.commit()
 
@@ -413,7 +394,7 @@ class TargetsRouter:
             from sqlalchemy import select  # noqa: PLC0415
 
             from models.job import async_session  # noqa: PLC0415
-            from models.parse_target import ParseTarget  # noqa: PLC0415
+            from models.parse_target import ParseTarget, admin_owned  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -425,7 +406,7 @@ class TargetsRouter:
 
             async with async_session() as session:
                 row = (await session.execute(
-                    select(ParseTarget).where(ParseTarget.id == target_id)
+                    select(ParseTarget).where(ParseTarget.id == target_id, admin_owned())
                 )).scalar_one_or_none()
 
                 if row is None:
@@ -448,7 +429,7 @@ class TargetsRouter:
             from sqlalchemy import update  # noqa: PLC0415
 
             from models.job import async_session  # noqa: PLC0415
-            from models.parse_target import ParseTarget  # noqa: PLC0415
+            from models.parse_target import ParseTarget, admin_owned  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -464,7 +445,7 @@ class TargetsRouter:
 
             async with async_session() as session:
                 result = await session.execute(
-                    update(ParseTarget).where(ParseTarget.id.in_(ids)).values(enabled=enabled)
+                    update(ParseTarget).where(ParseTarget.id.in_(ids), admin_owned()).values(enabled=enabled)
                 )
                 await session.commit()
             return JSONResponse({"ok": True, "updated": result.rowcount or 0, "enabled": enabled})  # type: ignore[attr-defined]
@@ -479,7 +460,7 @@ class TargetsRouter:
             from sqlalchemy import delete  # noqa: PLC0415
 
             from models.job import async_session  # noqa: PLC0415
-            from models.parse_target import ParseTarget  # noqa: PLC0415
+            from models.parse_target import ParseTarget, admin_owned  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -491,7 +472,7 @@ class TargetsRouter:
             ids = [str(i) for i in ids]
 
             async with async_session() as session:
-                result = await session.execute(delete(ParseTarget).where(ParseTarget.id.in_(ids)))
+                result = await session.execute(delete(ParseTarget).where(ParseTarget.id.in_(ids), admin_owned()))
                 await session.commit()
             return JSONResponse({"deleted": result.rowcount or 0})  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001
@@ -506,7 +487,7 @@ class TargetsRouter:
             from sqlalchemy import select  # noqa: PLC0415
 
             from models.job import async_session  # noqa: PLC0415
-            from models.parse_target import ParseTarget  # noqa: PLC0415
+            from models.parse_target import ParseTarget, admin_owned  # noqa: PLC0415
             from models.parsed_product import ParseSession  # noqa: PLC0415
 
             if async_session is None:
@@ -520,7 +501,7 @@ class TargetsRouter:
 
             async with async_session() as session:
                 rows = (await session.execute(
-                    select(ParseTarget).where(ParseTarget.id.in_(ids))
+                    select(ParseTarget).where(ParseTarget.id.in_(ids), admin_owned())
                 )).scalars().all()
             if not rows:
                 return JSONResponse({"error": "no matching targets"}, status_code=404)
@@ -549,7 +530,7 @@ class TargetsRouter:
             from sqlalchemy import select  # noqa: PLC0415
 
             from models.job import async_session  # noqa: PLC0415
-            from models.parse_target import ParseTarget  # noqa: PLC0415
+            from models.parse_target import ParseTarget, admin_owned  # noqa: PLC0415
             from services.parsing import ParsingService  # noqa: PLC0415
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -561,18 +542,11 @@ class TargetsRouter:
 
             async with async_session() as session:
                 row = (await session.execute(
-                    select(ParseTarget).where(ParseTarget.id == target_id)
+                    select(ParseTarget).where(ParseTarget.id == target_id, admin_owned())
                 )).scalar_one_or_none()
 
             if row is None:
                 return JSONResponse({"error": "Target not found"}, status_code=404)
-
-            from services.license import is_marketplace_allowed  # noqa: PLC0415
-            if not is_marketplace_allowed(str(row.marketplace)):
-                return JSONResponse(
-                    {"error": f"Источник '{row.marketplace}' не разрешён вашей лицензией"},
-                    status_code=403,
-                )
 
             logger.info(f"Running parse for target {target_id}: {row.url}")
             svc = ParsingService()
@@ -609,7 +583,7 @@ class TargetsRouter:
             from sqlalchemy import select  # noqa: PLC0415
 
             from models.job import async_session  # noqa: PLC0415
-            from models.parse_target import ParseTarget  # noqa: PLC0415
+            from models.parse_target import ParseTarget, admin_owned  # noqa: PLC0415
             from models.parsed_product import ParseSession  # noqa: PLC0415
 
             if async_session is None:
@@ -618,7 +592,7 @@ class TargetsRouter:
             async with async_session() as session:
                 rows = (await session.execute(
                     select(ParseTarget)
-                    .where(ParseTarget.enabled.is_(True))
+                    .where(ParseTarget.enabled.is_(True), admin_owned())
                     .order_by(ParseTarget.created_at.asc())
                 )).scalars().all()
 
