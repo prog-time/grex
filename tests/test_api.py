@@ -17,13 +17,25 @@ from fastapi.testclient import TestClient
 import api
 from models.product import ProductCard
 
-_API_KEY = "4353456dfvbdfg34"   # from data/settings.yml
+_API_KEY = "grx_test-key"
+_API_KEY_ID = "test-key-id"
 _AUTH_HEADERS = {"X-API-Key": _API_KEY}
 
 
 # ---------------------------------------------------------------------------
-# Shared TestClient fixture
+# Shared fixtures
 # ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _api_keys():
+    """Accept only _API_KEY — the TestClient doesn't run the lifespan, so there
+    is no DB to look keys up in. Key storage is covered in test_api_keys.py."""
+    async def fake_verify(key: str) -> str | None:
+        return _API_KEY_ID if key == _API_KEY else None
+
+    with patch("services.api_keys.verify_key", new=fake_verify):
+        yield
+
 
 @pytest.fixture()
 def client() -> TestClient:
@@ -114,10 +126,9 @@ class TestMarketplacesEndpoint:
         for expected in ("wildberries", "ozon", "yandex_market", "megamarket"):
             assert expected in names
 
-    def test_response_contains_example_urls(self, client):
+    def test_response_has_no_example_urls(self, client):
         r = client.get("/marketplaces")
-        assert "example_urls" in r.json()
-        assert len(r.json()["example_urls"]) > 0
+        assert "example_urls" not in r.json()
 
 
 # ---------------------------------------------------------------------------
@@ -161,11 +172,10 @@ class TestDetectMarketplaceEndpoint:
         r = client.get("/parse/detect?url=not-a-valid-url")
         assert r.status_code == 422
 
-    def test_returns_non_200_for_unsupported_marketplace(self, client):
-        """An unsupported marketplace URL triggers UnsupportedMarketplaceError.
-        The general exception handler returns 500 in this application."""
+    def test_returns_400_for_unsupported_marketplace(self, client):
         r = client.get("/parse/detect?url=https://amazon.com/dp/B08N5WRWNW")
-        assert r.status_code in (400, 500)  # handler converts ValueError → 400 or falls back to 500
+        assert r.status_code == 400
+        assert "Unsupported marketplace URL" in r.json()["detail"]
 
 
 # ---------------------------------------------------------------------------
@@ -196,6 +206,17 @@ class TestParseAuthenticationEndpoint:
             headers={"X-API-Key": "totally-wrong-key"},
         )
         assert "Invalid" in r.json().get("detail", "")
+
+    def test_returns_503_when_key_storage_is_unavailable(self, client):
+        from services.api_keys import KeyStorageUnavailable
+
+        with patch("services.api_keys.verify_key", new=AsyncMock(side_effect=KeyStorageUnavailable())):
+            r = client.post(
+                "/parse",
+                json={"url": "https://ozon.ru/product/test"},
+                headers=_AUTH_HEADERS,
+            )
+        assert r.status_code == 503
 
 
 # ---------------------------------------------------------------------------
