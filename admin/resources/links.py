@@ -13,8 +13,8 @@ class LinksRouter:
     @staticmethod
     async def extract_links(request: Request) -> JSONResponse:
         try:
-            from crawlers.registry import CrawlerRegistry  # noqa: PLC0415
             from core.exceptions import UnsupportedMarketplaceError  # noqa: PLC0415
+            from crawlers.registry import CrawlerRegistry  # noqa: PLC0415
 
             body = await request.json()
             url: str = (body.get("url") or "").strip()
@@ -56,7 +56,7 @@ class LinksRouter:
     async def download_excel(request: Request):
         try:
             import openpyxl  # noqa: PLC0415
-            from openpyxl.styles import Font, PatternFill, Alignment  # noqa: PLC0415
+            from openpyxl.styles import Alignment, Font, PatternFill  # noqa: PLC0415
 
             body = await request.json()
             links: list[str] = body.get("links") or []
@@ -128,6 +128,7 @@ class LinksRouter:
 
 def register_links_routes(app) -> None:  # type: ignore[no-untyped-def]
     from fastapi import Depends  # noqa: PLC0415
+
     from admin.resources.auth import require_admin  # noqa: PLC0415
     _auth = [Depends(require_admin)]
     router = LinksRouter()

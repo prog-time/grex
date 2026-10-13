@@ -26,8 +26,9 @@ class JobsRouter:
         page_size: int = 50,
     ) -> JSONResponse:
         try:
-            from models.job import async_session, Job  # noqa: PLC0415
-            from sqlalchemy import select, func  # noqa: PLC0415
+            from sqlalchemy import func, select  # noqa: PLC0415
+
+            from models.job import Job, async_session  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -59,8 +60,9 @@ class JobsRouter:
     @staticmethod
     async def delete_job(request: Request) -> JSONResponse:
         try:
-            from models.job import async_session, Job  # noqa: PLC0415
             from sqlalchemy import delete  # noqa: PLC0415
+
+            from models.job import Job, async_session  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -94,8 +96,9 @@ class JobsRouter:
         id_list: list[str] = [str(i) for i in (body.get("ids") or []) if i]
 
         try:
-            from models.job import async_session, Job  # noqa: PLC0415
             from sqlalchemy import select  # noqa: PLC0415
+
+            from models.job import Job, async_session  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -158,8 +161,9 @@ class JobsRouter:
     @staticmethod
     async def clear_all(request: Request) -> JSONResponse:
         try:
-            from models.job import async_session, Job  # noqa: PLC0415
             from sqlalchemy import delete  # noqa: PLC0415
+
+            from models.job import Job, async_session  # noqa: PLC0415
 
             if async_session is None:
                 return JSONResponse({"error": "DB not initialised"}, status_code=503)
@@ -177,6 +181,7 @@ class JobsRouter:
 
 def register_jobs_routes(app) -> None:  # type: ignore[no-untyped-def]
     from fastapi import Depends  # noqa: PLC0415
+
     from admin.resources.auth import require_admin  # noqa: PLC0415
     _auth = [Depends(require_admin)]
     router = JobsRouter()
