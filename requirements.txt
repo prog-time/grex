@@ -8,7 +8,7 @@ fastapi==0.116.1
 aiofiles==24.1.0
 pydantic
 redis>=5.0.0
-starlette-admin>=0.14.0,<1.0.0
+starlette-admin>=1.0.2,<2.0.0
 sqlalchemy[asyncio]>=2.0.0,<2.1  # starlette-admin 0.x imports ScalarObjectAttributeImpl, removed in 2.1
 aiosqlite>=0.20.0
 itsdangerous>=2.0.0
