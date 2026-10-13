@@ -1,0 +1,200 @@
+{% extends "layout.html" %}
+
+{% block header %}
+<div class="d-flex justify-content-between align-items-center">
+  <h1 class="mb-0">API-ключи</h1>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="container-xl">
+
+  <!-- Новый ключ: показывается один раз -->
+  <div id="newKeyCard" class="card mb-3 border-success" style="display:none;">
+    <div class="card-header"><h3 class="card-title">Ключ «<span id="newKeyName"></span>» создан</h3></div>
+    <div class="card-body" style="max-width:720px;">
+      <div class="input-group">
+        <input id="newKeyValue" type="text" readonly class="form-control font-monospace">
+        <button class="btn btn-primary" id="copyBtn" onclick="copyKey()">Копировать</button>
+      </div>
+      <div class="form-hint text-warning mt-2">
+        Скопируйте ключ сейчас — он больше не будет показан. Если потеряете, создайте новый.
+      </div>
+    </div>
+  </div>
+
+  <!-- Создание ключа -->
+  <div class="card mb-3">
+    <div class="card-header"><h3 class="card-title">Новый ключ</h3></div>
+    <div class="card-body" style="max-width:600px;">
+      <label class="form-label">Название</label>
+      <div class="input-group">
+        <input id="nameInput" type="text" maxlength="100" class="form-control" placeholder="Например: сайт, 1С, скрипт выгрузки"
+               onkeydown="if (event.key === 'Enter') createKey(document.getElementById('createBtn'))">
+        <button class="btn btn-primary" id="createBtn" onclick="createKey(this)">Создать ключ</button>
+      </div>
+      <div id="createError" class="text-danger small mt-2" style="display:none;"></div>
+    </div>
+  </div>
+
+  <div id="insecureAlert" class="alert alert-danger" style="display:none;">
+    Активен ключ по умолчанию из <code>settings.yml.example</code> — он опубликован в репозитории.
+    Создайте новый ключ, обновите его у своих интеграций и отзовите ключ по умолчанию.
+  </div>
+
+  <!-- Список ключей -->
+  <div class="card">
+    <div class="card-header"><h3 class="card-title">Ключи</h3></div>
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table">
+        <thead>
+          <tr>
+            <th>Название</th>
+            <th style="width:140px">Ключ</th>
+            <th style="width:160px">Создан</th>
+            <th style="width:160px">Посл. использование</th>
+            <th style="width:120px">Статус</th>
+            <th style="width:110px"></th>
+          </tr>
+        </thead>
+        <tbody id="keysBody">
+          <tr><td colspan="6" class="text-center text-muted py-3">
+            <span class="spinner-border spinner-border-sm me-2"></span>Загрузка…
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <p class="text-muted small mt-2">
+    Хранится только хеш ключа, поэтому посмотреть ключ после создания нельзя. Отозванный ключ
+    перестаёт работать сразу, а его мониторы цен останавливаются. Удаление записи о ключе удаляет
+    и всё, что создано через него: мониторы с историей цен и задачи.
+  </p>
+</div>
+
+<script>
+var _keysById = {};
+
+async function loadKeys() {
+  const tbody = document.getElementById('keysBody');
+  let d;
+  try {
+    const res = await fetch('/admin/api-keys/api');
+    if (!res.ok) throw new Error('http ' + res.status);
+    d = await res.json();
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-danger text-center py-3">Не удалось загрузить ключи.</td></tr>';
+    return;
+  }
+  const rows = d.keys || [];
+  _keysById = {};
+  rows.forEach(function(k) { _keysById[k.id] = k; });
+  document.getElementById('insecureAlert').style.display =
+    rows.some(function(k) { return k.insecure && !k.revoked_at; }) ? '' : 'none';
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center py-3">Ключей пока нет — API недоступен. Создайте первый ключ.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(function(k) {
+    const revoked = !!k.revoked_at;
+    const status = revoked
+      ? '<span class="badge bg-secondary text-white">Отозван</span>'
+      : (k.insecure
+          ? '<span class="badge bg-danger text-white">Небезопасный</span>'
+          : '<span class="badge bg-green text-white">Активен</span>');
+    const action = revoked
+      ? '<button class="btn btn-sm btn-outline-secondary" onclick="deleteKey(\'' + k.id + '\')" title="Удалить запись">Удалить</button>'
+      : '<button class="btn btn-sm btn-outline-danger" onclick="revokeKey(\'' + k.id + '\')">Отозвать</button>';
+    return '<tr' + (revoked ? ' class="text-muted"' : '') + '>'
+      + '<td>' + esc(k.name) + '</td>'
+      + '<td><code>' + esc(k.prefix) + '…</code></td>'
+      + '<td class="text-muted small">' + fmtDate(k.created_at) + '</td>'
+      + '<td class="text-muted small">' + fmtDate(k.last_used_at) + '</td>'
+      + '<td>' + status + '</td>'
+      + '<td class="text-end">' + action + '</td>'
+      + '</tr>';
+  }).join('');
+}
+
+async function createKey(btn) {
+  const input = document.getElementById('nameInput');
+  const errEl = document.getElementById('createError');
+  const name = input.value.trim();
+  errEl.style.display = 'none';
+  if (!name) { showCreateError('Укажите название ключа'); return; }
+  btn.disabled = true;
+  try {
+    const res = await fetch('/admin/api-keys/create', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: name}),
+    });
+    const d = await res.json();
+    if (!res.ok || d.error) {
+      showCreateError(d.error || ('Ошибка ' + res.status));
+    } else {
+      input.value = '';
+      document.getElementById('newKeyName').textContent = d.api_key.name;
+      document.getElementById('newKeyValue').value = d.key;
+      document.getElementById('copyBtn').textContent = 'Копировать';
+      document.getElementById('newKeyCard').style.display = '';
+      document.getElementById('newKeyValue').select();
+      loadKeys();
+    }
+  } catch (e) {
+    showCreateError(String(e));
+  }
+  btn.disabled = false;
+}
+
+function showCreateError(msg) {
+  const errEl = document.getElementById('createError');
+  errEl.textContent = msg;
+  errEl.style.display = '';
+}
+
+async function copyKey() {
+  const input = document.getElementById('newKeyValue');
+  try {
+    await navigator.clipboard.writeText(input.value);
+  } catch (e) {
+    input.select();
+    document.execCommand('copy');
+  }
+  document.getElementById('copyBtn').textContent = 'Скопировано';
+}
+
+async function revokeKey(id) {
+  const name = (_keysById[id] || {}).name || '';
+  if (!confirm('Отозвать ключ «' + name + '»? Интеграции, которые им пользуются, сразу перестанут работать, его мониторы цен остановятся.')) return;
+  try {
+    await fetch('/admin/api-keys/revoke', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: id}),
+    });
+  } catch (e) { /* ignore */ }
+  loadKeys();
+}
+
+async function deleteKey(id) {
+  if (!confirm('Удалить запись об отозванном ключе? Вместе с ней удалятся его мониторы, история цен и задачи.')) return;
+  try {
+    await fetch('/admin/api-keys/delete', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: id}),
+    });
+  } catch (e) { /* ignore */ }
+  loadKeys();
+}
+
+function fmtDate(s) {
+  if (!s) return '—';
+  if (s && !/[zZ]$|[+\-]\d{2}:?\d{2}$/.test(s)) s += 'Z';
+  var d = new Date(s);
+  return isNaN(d) ? '—' : d.toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
+}
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+loadKeys();
+</script>
+{% endblock %}
