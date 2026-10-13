@@ -81,7 +81,8 @@ password = "admin"
 - Config secrets (admin credentials, proxy credentials) must be stored in `data/settings.yml` or `data/proxy.txt`
 - These files must be listed in `.gitignore` or equivalent
 - Never commit `data/settings.yml` with real secrets to version control
-- The default API key from `settings.yml.example` is public — it is flagged as insecure in the admin panel and logged as a warning on startup while active; revoke it before production deployment
+- `settings.yml.example` ships `security.api_key: ""`, so a fresh install has no API key until one is created in the admin panel — never put a real or default key back into the example
+- The key older examples shipped (`DEFAULT_LEGACY_KEY` in `services/api_keys.py`) is public — on installations that imported it, it is flagged as insecure in the admin panel and logged as a warning on startup while active; revoke it before production deployment
 
 ## 5. Cookie security rules
 
