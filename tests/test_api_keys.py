@@ -8,9 +8,11 @@ can't leak into other test modules.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
+import yaml
 from sqlalchemy import select
 
 from admin.resources.api_keys import ApiKeysRouter
@@ -131,6 +133,17 @@ class TestImportLegacyKey:
     async def test_empty_value_is_ignored(self, db):
         await api_keys.import_legacy_key("")
         await api_keys.import_legacy_key(None)
+        _, body = _payload(await ApiKeysRouter.list_keys(FakeRequest()))
+        assert body["total"] == 0
+
+    async def test_settings_example_seeds_no_key(self, db):
+        # A fresh install copies settings.yml.example; it must not create a
+        # working key that everyone knows from the public repository.
+        example = Path(__file__).resolve().parent.parent / "data" / "settings.yml.example"
+        seed = yaml.safe_load(example.read_text(encoding="utf-8"))["security"]["api_key"]
+        assert not seed
+
+        await api_keys.import_legacy_key(seed)
         _, body = _payload(await ApiKeysRouter.list_keys(FakeRequest()))
         assert body["total"] == 0
 

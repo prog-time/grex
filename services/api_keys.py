@@ -13,7 +13,8 @@ from datetime import datetime, timedelta
 from loguru import logger
 
 KEY_PREFIX = "grx_"
-# The key shipped in settings.yml.example — public, so never safe to use.
+# The key settings.yml.example used to ship — public, so never safe to use.
+# Older installations may still have it imported; the admin panel flags it.
 DEFAULT_LEGACY_KEY = "4353456dfvbdfg34"
 LEGACY_KEY_NAME = "Ключ из settings.yml"
 # last_used_at is refreshed at most this often to avoid a DB write per request.
