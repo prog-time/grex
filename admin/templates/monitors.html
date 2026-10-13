@@ -2,13 +2,10 @@
 
 {% block header %}
 <div class="d-flex justify-content-between align-items-center">
-  <h1>Мониторинг</h1>
+  <h1 class="mb-0">Мониторинг</h1>
   <div class="d-flex align-items-center gap-3">
+    <button class="btn btn-outline-danger" id="clearAllBtn" onclick="clearMonitoring(this)">Очистить мониторинг</button>
     <button class="btn btn-outline-primary" id="runNowBtn" onclick="runNow(this)">Запустить сейчас</button>
-    <ol class="breadcrumb mb-0">
-      <li class="breadcrumb-item"><a href="{{ url_for(__name__ ~ ':index') }}">Admin</a></li>
-      <li class="breadcrumb-item active">Мониторинг</li>
-    </ol>
   </div>
 </div>
 {% endblock %}
@@ -364,6 +361,26 @@ async function runNow(btn) {
     if (res.ok) alert('Проверено ' + (d.checked || 0) + ' (' + (d.ok || 0) + ' ок, ' + (d.failed || 0) + ' ошибок)');
     else alert(d.error || 'Ошибка запуска');
   } catch (e) { alert('Ошибка запуска'); }
+  setBtnLoading(btn, false);
+  loadMonitors();
+  loadAlerts();
+}
+
+async function clearMonitoring(btn) {
+  if (!confirm('Очистить мониторинг полностью?\n\n'
+      + 'Мониторинг будет выключен у всех целей, интервалы сброшены, '
+      + 'а вся история цен и изменения цены удалены. Сами цели останутся.\n\n'
+      + 'Это действие нельзя отменить.')) return;
+  setBtnLoading(btn, true);
+  try {
+    const res = await fetch('/admin/monitors/clear', {method: 'POST'});
+    const d = await res.json().catch(function(){return {};});
+    if (res.ok) {
+      hideChart();
+      alert('Мониторинг очищен: выключен у ' + (d.targets || 0) + ' целей, удалено '
+        + (d.snapshots || 0) + ' записей истории и ' + (d.alerts || 0) + ' изменений цены');
+    } else alert(d.error || 'Ошибка очистки (HTTP ' + res.status + ')');
+  } catch (e) { alert('Ошибка очистки'); }
   setBtnLoading(btn, false);
   loadMonitors();
   loadAlerts();
