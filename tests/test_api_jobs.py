@@ -142,6 +142,34 @@ class TestJobService:
         await api_jobs.create_job(_OTHER_KEY, [_WB.format(1)], None, FakeParsingService(gate))
         gate.set()
 
+    async def test_active_job_limit_holds_for_concurrent_requests(self, db):
+        gate = asyncio.Event()
+        results = await asyncio.gather(
+            *[api_jobs.create_job(_KEY, [_WB.format(i)], None, FakeParsingService(gate)) for i in range(20)],
+            return_exceptions=True,
+        )
+        created = [r for r in results if not isinstance(r, Exception)]
+        rejected = [r for r in results if isinstance(r, api_jobs.TooManyActiveJobs)]
+        assert len(created) == api_jobs.MAX_ACTIVE_JOBS_PER_KEY
+        assert len(rejected) == 20 - api_jobs.MAX_ACTIVE_JOBS_PER_KEY
+        gate.set()
+
+    async def test_cancel_jobs_for_key_stops_running_jobs(self, db):
+        gate = asyncio.Event()  # never set: the jobs would run forever
+        mine = await api_jobs.create_job(_KEY, [_WB.format(1)], None, FakeParsingService(gate))
+        other = await api_jobs.create_job(_OTHER_KEY, [_WB.format(2)], None, FakeParsingService(gate))
+        await asyncio.sleep(0.05)
+        assert (await api_jobs.get_job(_KEY, mine["id"]))["status"] == "running"
+
+        assert await api_jobs.cancel_jobs_for_key(_KEY) == 1
+
+        job = await api_jobs.get_job(_KEY, mine["id"])
+        assert job["status"] == "failed" and job["error"] == api_jobs.REVOKED_ERROR
+        assert job["finished_at"] is not None
+        # Another key's job is untouched.
+        assert (await api_jobs.get_job(_OTHER_KEY, other["id"]))["status"] == "running"
+        gate.set()
+
     async def test_reset_stale_jobs(self, db):
         gate = asyncio.Event()
         created = await api_jobs.create_job(_KEY, [_WB.format(1)], None, FakeParsingService(gate))
