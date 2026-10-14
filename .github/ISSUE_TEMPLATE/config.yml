@@ -1,6 +1,5 @@
 blank_issues_enabled: false
-# Чтобы предложить внешние ресурсы вместо пустого Issue, добавьте contact_links:
-# contact_links:
-#   - name: Обсуждения
-#     url: https://github.com/OWNER/REPO/discussions
-#     about: Для общих вопросов используйте Discussions.
+contact_links:
+  - name: Telegram-группа Grex Parser
+    url: https://t.me/grex_parser
+    about: Вопросы по установке и использованию, обсуждение идей.
