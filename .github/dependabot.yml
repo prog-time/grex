@@ -11,7 +11,8 @@ updates:
 
   # Bumps the exact pins in requirements-ci.txt (what CI installs) and the
   # ranges in requirements.txt / requirements-dev.txt when a release falls
-  # outside them. Each bump is its own PR, so CI shows whether it is safe.
+  # outside them. Each bump is its own PR, so CI shows whether it is safe —
+  # except fastapi/starlette/sse-starlette, which only upgrade together.
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
@@ -19,3 +20,23 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+    groups:
+      # fastapi pins a starlette range, and sse-starlette needs a recent
+      # starlette: bumped one by one they don't install.
+      fastapi-stack:
+        patterns:
+          - "fastapi"
+          - "starlette"
+          - "sse-starlette"
+    # Temporary: these bumps need code changes first. Remove each rule in the
+    # issue named next to it.
+    ignore:
+      # fastapi==0.116.1 requires starlette<0.48 — #64
+      - dependency-name: "starlette"
+        versions: [">=0.48"]
+      # 1.x changed CustomView (template_path), admin/ must be migrated — #65
+      - dependency-name: "starlette-admin"
+        versions: [">=1.0"]
+      # 2.1 removed ScalarObjectAttributeImpl, used by starlette-admin 0.x — #65
+      - dependency-name: "sqlalchemy"
+        versions: [">=2.1"]
