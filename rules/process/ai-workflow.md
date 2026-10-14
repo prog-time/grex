@@ -114,8 +114,26 @@ Every change must update the relevant `rules/` files. Failure to update document
 | New config key | `rules/database/schema.md` |
 | New file-based state | `rules/database/schema.md` |
 | New proxy behavior | `rules/domain/proxy-management.md` |
+| New or changed table / column | `docs/architecture/erd.md`, `rules/database/schema.md`, `_ADDED_COLUMNS` for a new column of an existing table |
+| New background task, external system or component boundary | `docs/architecture/c4-container.md` (and `c4-context.md` for an external system) |
+| Change in crawler structure or monitoring flow | `docs/architecture/c4-components.md`, `docs/architecture/sequences.md` |
+| New or changed status / lifecycle | `docs/architecture/states.md` |
+| Decision that shapes the architecture or the stack | New ADR in `docs/adr/` |
+| Anything a user or API client notices | `CHANGELOG.md` → `Unreleased`, `README.md` if usage changes |
 
-## 8. Forbidden behaviors
+## 8. Documentation sync checklist
+
+Answer these before opening a PR; every "yes" means a document changes in the same PR:
+
+1. Does a component boundary change — a new module with its own responsibility, a new background task, a moved responsibility? → C4 container / component
+2. Is there a new dependency, external system or integration? → C4 context / container, stack table in `rules/README.md`, ADR
+3. Does the data model change — a table, a column, a relation, a stored file, a Redis key? → ERD, `rules/database/schema.md`
+4. Does a scenario from `docs/architecture/sequences.md` or a lifecycle from `states.md` change? → that diagram
+5. Was a decision made that someone could later want to "fix" — a trade-off, a workaround for a marketplace, a constraint? → ADR
+6. Does the user or API client notice the change? → `CHANGELOG.md` `Unreleased`, README
+7. Did the task reveal something non-obvious about a marketplace or the runtime? → `rules/domain/` or `RUNBOOK.md`
+
+## 9. Forbidden behaviors
 
 - ❌ Generating entire applications from scratch
 - ❌ Editing files without reading them first
@@ -135,5 +153,6 @@ Every change must update the relevant `rules/` files. Failure to update document
 - [ ] Tests added or updated
 - [ ] Syntax verified (`py_compile`)
 - [ ] Documentation updated
+- [ ] Documentation sync checklist (section 8) answered
 - [ ] No hallucinated API endpoints or field names introduced
 - [ ] No hardcoded credentials
