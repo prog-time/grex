@@ -7,6 +7,7 @@ with the monitor service patched.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, patch
@@ -120,6 +121,26 @@ class TestCreate:
         assert e.value.status == 429
 
 
+class TestConcurrentCreate:
+    async def test_same_url_in_parallel_creates_one_monitor(self, db):
+        results = await asyncio.gather(
+            *[api_monitors.create_monitor(_KEY, _URL, None, None) for _ in range(10)], return_exceptions=True,
+        )
+        assert len([r for r in results if isinstance(r, dict)]) == 1
+        assert all(r.status == 409 for r in results if isinstance(r, api_monitors.MonitorError))
+        assert len(await api_monitors.list_monitors(_KEY)) == 1
+
+    async def test_limit_holds_for_parallel_requests(self, db):
+        with patch.object(api_monitors, "MAX_MONITORS_PER_KEY", 3):
+            results = await asyncio.gather(
+                *[api_monitors.create_monitor(_KEY, _URL.replace("17386348", str(i)), None, None)
+                  for i in range(1, 11)],
+                return_exceptions=True,
+            )
+        assert len([r for r in results if isinstance(r, dict)]) == 3
+        assert all(r.status == 429 for r in results if isinstance(r, api_monitors.MonitorError))
+
+
 class TestReadUpdateDelete:
     async def test_list_has_latest_price_and_only_own_monitors(self, db):
         mine = await api_monitors.create_monitor(_KEY, _URL, None, None)
@@ -209,7 +230,9 @@ class TestKeyLifecycle:
         m = await api_monitors.create_monitor(key["id"], _URL, None, None)
         await _add(db, _snapshot(m["id"], 100.0), ApiJob(api_key_id=key["id"], total=1))
 
-        await ApiKeysRouter.revoke_key(FakeRequest({"id": key["id"]}))
+        with patch("services.api_jobs.cancel_jobs_for_key", new=AsyncMock(return_value=0)) as cancel:
+            await ApiKeysRouter.revoke_key(FakeRequest({"id": key["id"]}))
+        cancel.assert_awaited_once_with(key["id"])
         assert (await api_monitors.get_monitor(key["id"], m["id"]))["active"] is False
 
         status, _ = _payload(await ApiKeysRouter.delete_key(FakeRequest({"id": key["id"]})))

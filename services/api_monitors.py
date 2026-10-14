@@ -12,6 +12,8 @@ from datetime import datetime
 
 from loguru import logger
 
+from utils.locks import key_lock
+
 # Monitors one API key may own — every monitor spends the marketplace's rate
 # limit, which the admin panel's own monitoring shares.
 MAX_MONITORS_PER_KEY = 500
@@ -108,7 +110,8 @@ async def create_monitor(api_key_id: str, url: str, interval_seconds: int | None
     marketplace = CrawlerRegistry.detect_marketplace(url)
     url = CrawlerRegistry.get(marketplace).normalize_url(url)
 
-    async with _session_factory()() as session:
+    # The duplicate/limit checks and the insert must not interleave between requests of one key.
+    async with key_lock("api_monitors", api_key_id), _session_factory()() as session:
         existing = (await session.execute(
             select(ParseTarget.id).where(ParseTarget.api_key_id == api_key_id, ParseTarget.url == url)
         )).scalar_one_or_none()
