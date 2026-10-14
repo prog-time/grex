@@ -100,9 +100,35 @@ if [ ! -f "data/settings.yml" ]; then
     if [ -f "data/settings.yml.example" ]; then
         cp data/settings.yml.example data/settings.yml
         ok "data/settings.yml создан из примера (data/settings.yml.example)"
+        # The example's secret_key and admin/admin password are public. Replace
+        # them now, while nothing is encrypted with the key yet: secret_key also
+        # encrypts the saved Telegram bot token (services/secrets.py).
+        ADMIN_PASSWORD=$("$VENV_PYTHON" - <<'PY'
+import re
+import secrets
+
+path = "data/settings.yml"
+text = open(path, encoding="utf-8").read()
+password = secrets.token_urlsafe(12)
+text = re.sub(r'^(\s+secret_key:\s*).*$', lambda m: f'{m.group(1)}"{secrets.token_urlsafe(32)}"', text, count=1, flags=re.M)
+text = re.sub(r'^(\s+password:\s*).*$', lambda m: f'{m.group(1)}"{password}"', text, count=1, flags=re.M)
+open(path, "w", encoding="utf-8").write(text)
+print(password)
+PY
+)
+        ok "Сгенерированы secret_key и пароль администратора"
+        echo ""
+        echo -e "${YELLOW}  Вход в панель: логин admin, пароль ${ADMIN_PASSWORD}${NC}"
+        echo -e "${YELLOW}  Пароль сохранён в data/settings.yml (admin.password), сменить его можно в «Настройки → Пользователи».${NC}"
+        echo ""
     else
         fail "Нет ни data/settings.yml, ни data/settings.yml.example — сервис не сможет запуститься"
     fi
+elif grep -q 'change-me-in-production-secret-key' data/settings.yml; then
+    # Not replaced automatically: a new key makes the saved Telegram bot token unreadable.
+    warn "В data/settings.yml стандартный admin.secret_key — с ним можно войти в панель без пароля."
+    echo "         Замените его на случайную строку и перезапустите сервис. После этого токен"
+    echo "         Telegram-бота придётся заново ввести в «Настройки → Параметры мониторинга»."
 fi
 
 if [ ! -f "data/ozon_cookies.json" ]; then
