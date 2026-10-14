@@ -3,6 +3,7 @@ import json
 import os
 import re
 import time
+import weakref
 from decimal import Decimal
 from multiprocessing import Queue
 from typing import ClassVar
@@ -23,6 +24,20 @@ class WildberriesCrawler(BaseCrawler):
     url_pattern: ClassVar[str] = r"wildberries\.(ru|by|kz)"
 
     upstreams_file_path = os.path.join(data_path, "wb_upstreams.json")
+
+    # Since October 2026 WB answers 403 on its public JSON APIs (card.wb.ru,
+    # search.wb.ru, catalog.wb.ru). The site itself uses
+    # www.wildberries.ru/__internal/..., which works for plain HTTP requests that
+    # carry the anti-bot cookie (x_wbaas_token) and the headers of a real browser
+    # session. A browser is opened once to obtain them; they are cached in memory
+    # and in this file, and refreshed when WB answers 403/498.
+    api_session_file_path = os.path.join(data_path, "wb_api_session.json")
+    _INTERNAL_API = "https://www.wildberries.ru/__internal"
+    _API_SESSION_PAGE = "https://www.wildberries.ru/catalog/273059631/detail.aspx"
+    _api_session: ClassVar[dict | None] = None
+    # One token refresh at a time (per event loop): a batch of parses must not
+    # open a browser per request.
+    _api_session_locks: ClassVar[weakref.WeakKeyDictionary] = weakref.WeakKeyDictionary()
 
     def __init__(self) -> None:
         super().__init__()
@@ -236,8 +251,118 @@ class WildberriesCrawler(BaseCrawler):
             return Decimal(0), Decimal(0)
 
     # ------------------------------------------------------------------
+    # Internal API (www.wildberries.ru/__internal) with the anti-bot token
+    # ------------------------------------------------------------------
+
+    def _load_api_session(self) -> dict | None:
+        if WildberriesCrawler._api_session is None and os.path.exists(self.api_session_file_path):
+            try:
+                with open(self.api_session_file_path, encoding="utf-8") as f:
+                    WildberriesCrawler._api_session = json.load(f)
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"WB API session file unreadable: {e}")
+        return WildberriesCrawler._api_session
+
+    async def _refresh_api_session(self, stale: dict | None) -> dict | None:
+        """Get a new token through the browser, unless another request just did."""
+        loop = asyncio.get_running_loop()
+        lock = WildberriesCrawler._api_session_locks.setdefault(loop, asyncio.Lock())
+        async with lock:
+            current = WildberriesCrawler._api_session
+            if current is not None and current is not stale:
+                return current  # refreshed by a concurrent request while we waited
+            logger.info("WB: getting an anti-bot token through the browser")
+            result = await self._run_in_process(
+                self._process_get_api_session, (self._API_SESSION_PAGE,), timeout=90,
+            )
+            if not result or not result.get("success"):
+                logger.warning(f"WB: could not get an anti-bot token: {(result or {}).get('error')}")
+                return None
+            session = {"headers": result["headers"], "cookies": result["cookies"], "obtained_at": time.time()}
+            WildberriesCrawler._api_session = session
+            try:
+                with open(self.api_session_file_path, "w", encoding="utf-8") as f:
+                    json.dump(session, f)
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"WB API session not saved: {e}")
+            return session
+
+    async def _internal_get(self, path: str) -> dict | None:
+        """GET www.wildberries.ru/__internal/<path> as the site does; JSON or None."""
+        session = self._load_api_session() or await self._refresh_api_session(None)
+        for attempt in range(2):
+            if session is None:
+                return None
+            try:
+                response = await self.session.get(
+                    f"{self._INTERNAL_API}/{path}",
+                    headers=session["headers"], cookies=session["cookies"], proxy=self.proxy, timeout=20,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"WB internal API {path.split('?')[0]} failed: {e}")
+                return None
+            if response.status_code == 200:
+                return response.json()
+            if response.status_code in (401, 403, 498) and attempt == 0:
+                logger.debug(f"WB internal API HTTP {response.status_code}: token expired, refreshing")
+                session = await self._refresh_api_session(session)
+                continue
+            logger.warning(f"WB internal API {path.split('?')[0]} HTTP {response.status_code}")
+            return None
+        return None
+
+    async def _fetch_prices_internal(self, sku: str) -> tuple[Decimal, Decimal]:
+        """(original, current) price from the internal card API; zeros when unavailable."""
+        data = await self._internal_get(
+            f"u-card/cards/v4/detail?appType=1&curr=rub&dest=-1257786&spp=30&lang=ru&nm={sku}"
+        )
+        for product in (data or {}).get("products", []):
+            if str(product.get("id")) != sku:
+                continue
+            for size in product.get("sizes") or []:
+                price = size.get("price") or {}
+                if price.get("product"):
+                    return Decimal(price.get("basic") or 0) / 100, Decimal(price["product"]) / 100
+        return Decimal(0), Decimal(0)
+
+    # ------------------------------------------------------------------
     # Subprocess targets (run in a separate process via _run_in_process)
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _process_get_api_session(url: str, result_queue: Queue) -> None:
+        """Open a WB page and capture the anti-bot cookie and the headers the site sends to its API."""
+        try:
+            import time as _time
+
+            from patchright.sync_api import sync_playwright
+
+            headers: dict = {}
+            with sync_playwright() as p:
+                context = p.chromium.launch_persistent_context(user_data_dir="", headless=False)
+                page = context.new_page()
+
+                def on_request(request) -> None:  # type: ignore[no-untyped-def]
+                    if "/__internal/" in request.url and not headers and "x-spa-version" in request.headers:
+                        headers.update(request.all_headers())
+
+                page.on("request", on_request)
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                for _ in range(40):
+                    if headers and any(c["name"] == "x_wbaas_token" for c in context.cookies()):
+                        break
+                    _time.sleep(0.5)
+                cookies = {c["name"]: c["value"] for c in context.cookies() if "wildberries" in c["domain"]}
+                context.close()
+
+            if "x_wbaas_token" not in cookies or not headers:
+                result_queue.put({"success": False, "error": "anti-bot token or API headers not found"})
+                return
+            skip = {"cookie", "host", "content-length"}
+            clean = {k: v for k, v in headers.items() if not k.startswith(":") and k.lower() not in skip}
+            result_queue.put({"success": True, "headers": clean, "cookies": cookies})
+        except Exception as e:
+            result_queue.put({"success": False, "error": str(e)})
 
     @staticmethod
     def _process_get_prices(url: str, result_queue: Queue) -> None:
@@ -374,6 +499,19 @@ class WildberriesCrawler(BaseCrawler):
         if seller_match:
             supplier_id = seller_match.group(1)
             for page in range(1, max_pages + 1):
+                data = await self._internal_get(
+                    f"catalog/sellers/v4/catalog?appType=1&curr=rub&dest=-1257786&supplier={supplier_id}"
+                    f"&page={page}&sort=popular&spp=30&lang=ru"
+                )
+                products = (data or {}).get("products") or (data or {}).get("data", {}).get("products") or []
+                if not products:
+                    break
+                links += [f"https://www.wildberries.ru/catalog/{p['id']}/detail.aspx" for p in products if p.get("id")]
+                logger.debug(f"WB seller {supplier_id}: internal API page {page}, {len(products)} products")
+            if links:
+                return links
+
+            for page in range(1, max_pages + 1):
                 try:
                     api_url = (
                         f"https://catalog.wb.ru/sellers/catalog"
@@ -443,9 +581,10 @@ class WildberriesCrawler(BaseCrawler):
                 for i in range(int(product_photo_count))
             ]
 
-        # Prices: card API → search API → browser
-        product_details = await self._fetch_product_details(sku=product_sku)
-        prices_extracted = False
+        # Prices: internal API → card API → search API → browser
+        product_original_price, product_current_price = await self._fetch_prices_internal(product_sku)
+        prices_extracted = bool(product_current_price)
+        product_details = None if prices_extracted else await self._fetch_product_details(sku=product_sku)
 
         if product_details:
             try:
