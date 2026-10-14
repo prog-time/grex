@@ -20,6 +20,6 @@ echo "Static analysis (mypy)..."
 bash linting/check_scripts/check_mypy.sh "${ALL_FILE_ARRAY[@]}"
 echo "----------"
 
-echo "Fixing code style (flake8)..."
-bash linting/check_scripts/check_flake8.sh "${ALL_FILE_ARRAY[@]}"
+echo "Lint (ruff)..."
+bash linting/check_scripts/check_ruff.sh "${ALL_FILE_ARRAY[@]}"
 echo "----------"
