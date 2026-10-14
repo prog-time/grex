@@ -1,4 +1,4 @@
-.PHONY: run stop restart help lint-yaml lock
+.PHONY: run stop restart help lint-yaml lock hooks
 
 PORT ?= 8004
 
@@ -9,6 +9,7 @@ help:
 	@echo "  make restart              — перезапустить (stop + run)"
 	@echo "  make lint-yaml            — проверить YAML (yamllint)"
 	@echo "  make lock                 — пересобрать requirements-ci.txt"
+	@echo "  make hooks                — подключить git-хуки из linting/hooks"
 	@echo ""
 
 # ── Запуск ────────────────────────────────────────────────────────────────────
@@ -43,3 +44,7 @@ lint-yaml:
 
 lock:
 	@.venv/bin/python scripts/lock_requirements.py
+
+hooks:
+	@git config core.hooksPath linting/hooks
+	@echo "  ✓ git-хуки подключены: linting/hooks (pre-commit, pre-push, prepare-commit-msg)"
