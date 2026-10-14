@@ -1,0 +1,30 @@
+# Grex Parser with Redis. Start: docker compose up -d
+# Admin panel: http://localhost:8004/admin — the password is printed on first
+# start: docker compose logs grex | grep password
+services:
+  grex:
+    build: .
+    image: grex-parser
+    restart: unless-stopped
+    depends_on:
+      - redis
+    environment:
+      REDIS_HOST: redis
+    ports:
+      - "${GREX_PORT:-8004}:8004"
+    volumes:
+      # A separate volume, not ./data: a local install's settings.yml listens on
+      # localhost only, which is unreachable from outside the container.
+      - grex-data:/app/data
+    # Chromium needs more shared memory than Docker's default 64 MB.
+    shm_size: "1gb"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+
+volumes:
+  grex-data:
+  redis-data:
