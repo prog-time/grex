@@ -1,0 +1,39 @@
+name: ✨ Запрос фичи
+description: Предложить новую возможность
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Есть идея? Опишите, что хотите получить и зачем это нужно.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Проблема
+      description: Какую проблему решает эта возможность?
+      placeholder: Меня расстраивает, когда ...
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Предлагаемое решение
+      description: Как это должно работать с точки зрения пользователя?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Рассмотренные альтернативы
+      description: Другие способы решения или обходные пути, которые вы пробовали.
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Дополнительный контекст
+      description: Макеты, скриншоты, ссылки на похожее в других проектах.
+    validations:
+      required: false

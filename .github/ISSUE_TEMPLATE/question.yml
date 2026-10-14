@@ -1,0 +1,25 @@
+name: ❓ Вопрос
+description: Задать вопрос по проекту
+title: "[Question]: "
+labels:
+  - question
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Перед вопросом загляните в README и существующие Issues —
+        возможно, ответ уже есть.
+  - type: textarea
+    id: question
+    attributes:
+      label: Вопрос
+      description: Сформулируйте вопрос как можно конкретнее.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Контекст
+      description: Что вы уже пробовали или читали по теме?
+    validations:
+      required: false
