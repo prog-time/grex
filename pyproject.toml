@@ -26,8 +26,12 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.12"
+# Checked packages, widened one at a time as their errors are fixed (CI job
+# "Type check (mypy)" and the pre-commit hook run plain `mypy` on this list).
+# Not yet: services (19 errors), admin (15), crawlers (33) — see issue #38.
+files = ["core", "utils", "models"]
 ignore_missing_imports = true
 follow_imports = "silent"
 warn_unused_ignores = false
 no_implicit_optional = false
-exclude = "(^|/)(\\.venv|venv|data|logs)/"
+exclude = "(^|/)(\\.venv|venv|data|logs|dist)/"
