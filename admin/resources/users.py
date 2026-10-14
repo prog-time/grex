@@ -25,6 +25,7 @@ class UsersRouter:
 
             import yaml  # noqa: PLC0415
 
+            import config  # noqa: PLC0415
             from config import settings  # noqa: PLC0415
 
             body = await request.json()
@@ -34,10 +35,8 @@ class UsersRouter:
             if not username:
                 return JSONResponse({"error": "username is required"}, status_code=422)
 
-            settings_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                "data", "settings.yml",
-            )
+            # The same file config.py loaded the settings from.
+            settings_path = os.path.join(config.data_path, "settings.yml")
 
             with open(settings_path, encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
