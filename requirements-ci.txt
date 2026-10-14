@@ -5,6 +5,7 @@ aiofiles==24.1.0
 aiosqlite==0.22.1
 annotated-types==0.8.0
 anyio==4.15.1
+ast_serialize==0.13.0
 beautifulsoup4==4.13.4
 certifi==2026.7.22
 cffi==2.1.1
@@ -21,11 +22,15 @@ idna==3.20
 iniconfig==2.3.1
 itsdangerous==2.2.0
 jinja2==3.1.6
+librt==0.16.0
 loguru==0.7.3
 markupsafe==3.0.4
+mypy==2.4.0
+mypy_extensions==1.1.0
 openpyxl==3.1.5
 packaging==26.3
 patchright==1.52.5
+pathspec==1.1.1
 pluggy==1.6.0
 pycparser==3.11
 pydantic==2.14.1

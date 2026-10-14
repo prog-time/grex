@@ -44,6 +44,7 @@ Triggered on every push or pull request. Must include:
 - Syntax checks: `python -m py_compile **/*.py`
 - Linting: `flake8 .` or `ruff check .`
 - Unit tests: `pytest tests/`
+- Type check: `mypy` on the packages listed in `pyproject.toml` `[tool.mypy] files`. A package is added to the list once its mypy errors are fixed; never remove one to make CI green
 - No secrets committed (scan `data/settings.yml` out of CI)
 
 No merge without CI passing.

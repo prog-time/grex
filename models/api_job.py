@@ -62,7 +62,7 @@ class ApiJobItem(Base):
         return {
             "url": self.url,
             "success": bool(self.success),
-            "data": json.loads(self.data) if self.data else None,
+            "data": json.loads(str(self.data)) if self.data else None,
             "error": self.error,
             "marketplace": self.marketplace,
             "processing_time": self.processing_time,
