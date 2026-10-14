@@ -77,6 +77,10 @@ class ApiKeysRouter:
                 await pause_for_key(session, row.id)
                 await session.commit()
                 logger.info(f"API key revoked: {row.name} ({row.prefix}…)")
+
+                from services.api_jobs import cancel_jobs_for_key  # noqa: PLC0415
+
+                await cancel_jobs_for_key(row.id)
             data = row.to_dict()
         return JSONResponse({"ok": True, "api_key": data})
 

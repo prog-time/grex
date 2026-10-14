@@ -14,6 +14,8 @@ from datetime import datetime
 
 from loguru import logger
 
+from utils.locks import key_lock
+
 # Unfinished jobs one API key may have at a time — keeps a single client from
 # queueing unbounded work.
 MAX_ACTIVE_JOBS_PER_KEY = 5
@@ -21,6 +23,10 @@ _ACTIVE_STATUSES = ("pending", "running")
 
 # Strong references so running jobs aren't garbage-collected mid-flight.
 _running: set[asyncio.Task] = set()
+# Running job tasks per API key, so revoking a key can stop them.
+_tasks_by_key: dict[str, set[asyncio.Task]] = {}
+
+REVOKED_ERROR = "API key revoked"
 
 
 class TooManyActiveJobs(Exception):
@@ -42,7 +48,8 @@ async def create_job(api_key_id: str, urls: list[str], concurrency: int | None, 
     from models.api_job import ApiJob  # noqa: PLC0415
 
     session_factory = _session_factory()
-    async with session_factory() as session:
+    # The limit check and the insert must not interleave between requests of one key.
+    async with key_lock("api_jobs", api_key_id), session_factory() as session:
         active = (await session.execute(
             select(func.count()).select_from(ApiJob).where(
                 ApiJob.api_key_id == api_key_id, ApiJob.status.in_(_ACTIVE_STATUSES)
@@ -64,7 +71,10 @@ async def create_job(api_key_id: str, urls: list[str], concurrency: int | None, 
 
     task = asyncio.create_task(_run_job(job.id, urls, concurrency, parsing_service), name=f"api_job:{job.id}")
     _running.add(task)
+    key_tasks = _tasks_by_key.setdefault(api_key_id, set())
+    key_tasks.add(task)
     task.add_done_callback(_running.discard)
+    task.add_done_callback(key_tasks.discard)
     logger.info(f"API job {job.id} created: {len(urls)} URLs")
     return data
 
@@ -105,6 +115,16 @@ async def _run_job(job_id: str, urls: list[str], concurrency: int | None, parsin
         await parsing_service.parse_products_batch(urls, concurrency=concurrency, on_result=on_result)
         await set_job(status="completed", finished_at=datetime.utcnow())
         logger.info(f"API job {job_id} completed")
+    except asyncio.CancelledError as exc:
+        # Cancelled by cancel_jobs_for_key (the message says why) or by shutdown;
+        # after a shutdown reset_stale_jobs marks the job failed on next start.
+        if exc.args:
+            logger.info(f"API job {job_id} cancelled: {exc.args[0]}")
+            try:
+                await set_job(status="failed", error=str(exc.args[0]), finished_at=datetime.utcnow())
+            except Exception as db_exc:  # noqa: BLE001
+                logger.error(f"API job {job_id}: failed to record cancellation: {db_exc}")
+        raise
     except Exception as exc:  # noqa: BLE001
         logger.error(f"API job {job_id} failed: {exc}")
         try:
@@ -160,3 +180,31 @@ async def reset_stale_jobs() -> None:
         await session.commit()
     if result.rowcount:
         logger.info(f"{result.rowcount} unfinished API job(s) marked failed after restart")
+
+
+async def cancel_jobs_for_key(api_key_id: str) -> int:
+    """Stop the unfinished jobs of a revoked key and mark them failed.
+
+    Returns how many jobs were stopped.
+    """
+    from sqlalchemy import update  # noqa: PLC0415
+
+    from models.api_job import ApiJob  # noqa: PLC0415
+
+    tasks = [t for t in _tasks_by_key.get(api_key_id, ()) if not t.done()]
+    for task in tasks:
+        task.cancel(REVOKED_ERROR)
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Jobs without a live task here (e.g. not started yet) are marked directly.
+    async with _session_factory()() as session:
+        result = await session.execute(
+            update(ApiJob)
+            .where(ApiJob.api_key_id == api_key_id, ApiJob.status.in_(_ACTIVE_STATUSES))
+            .values(status="failed", error=REVOKED_ERROR, finished_at=datetime.utcnow())
+        )
+        await session.commit()
+    stopped = len(tasks) + (result.rowcount or 0)  # type: ignore[attr-defined]
+    if stopped:
+        logger.info(f"Stopped {stopped} API job(s) of revoked key {api_key_id}")
+    return stopped
