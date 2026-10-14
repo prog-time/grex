@@ -65,9 +65,6 @@ python3 --version
 Все настройки находятся в `data/settings.yml`.
 
 ```yaml
-# Версия приложения
-soft_version: "1.0.0"
-
 # Хост и порт API
 app:
   host: "localhost"

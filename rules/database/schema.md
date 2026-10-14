@@ -131,7 +131,7 @@ The application has no SQL database. Persistence is maintained through files in 
 | `proxy.type` | `str` | `"http"` | Proxy protocol: `"http"` or `"socks5"` |
 | `debug.active` | `bool` | `false` | Enables Swagger UI at `/docs`, `/redoc`; sets log level to DEBUG |
 | `debug.logging_in_file` | `bool` | `false` | Enables file-based log rotation in `logs/YYYY-MM-DD.log` |
-| `soft_version` | `str` | `"1.0.0"` | Injected programmatically at runtime; not in YAML |
+| `soft_version` | `str` | contents of `VERSION` | Read from the `VERSION` file in the repo root by `config.py`; not in YAML |
 | `is_demo` | `bool` | — | Optional flag; replaces log context label with `"DEMO MODE"` |
 
 ## 6. Change management rules

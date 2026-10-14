@@ -118,6 +118,12 @@ jobs:
       - run: python api.py &
 ```
 
+## 9. Releases
+
+- The app version lives only in the `VERSION` file in the repo root; `config.py` reads it into `settings["soft_version"]` (API version in `/openapi.json`, every log line)
+- Release order: a PR bumps `VERSION` to the new version, it is merged into `main`, then the tag `vX.Y.Z` and the GitHub Release are created from `main`
+- `tests/test_version.py` fails when `VERSION` is lower than the latest `v*` tag, so a release whose version was not bumped is caught by CI (the test job checks out tags for this)
+
 ## Checklist before merging
 
 - [ ] All `.py` files syntax-valid
