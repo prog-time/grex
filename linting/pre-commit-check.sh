@@ -12,6 +12,10 @@ done < <(git diff --cached --name-only --diff-filter=ACM || true)
 #    echo "[$i] = '${ALL_FILE_ARRAY[$i]}'"
 #done
 
+echo "Branch name..."
+bash linting/check_scripts/check_branch.sh
+echo "----------"
+
 echo "Find tests..."
 bash linting/check_scripts/find_test.sh "${ALL_FILE_ARRAY[@]}"
 echo "----------"

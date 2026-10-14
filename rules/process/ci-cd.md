@@ -34,7 +34,7 @@ Configuration is in `data/settings.yml`. Proxy list is in `data/proxy.txt`. Thes
 **3.1 Pre-commit / local checks**
 
 Git hooks live in `linting/hooks/` and are enabled with `make hooks` (`git config core.hooksPath linting/hooks`). Each hook calls a script in `linting/`:
-- `pre-commit` → `linting/pre-commit-check.sh`: `ruff check` on staged `.py` files; `mypy` when a staged file is in a package from `pyproject.toml` `[tool.mypy] files`; warns when a staged `services/<name>.py` has no `tests/test_<name>.py`
+- `pre-commit` → `linting/pre-commit-check.sh`: refuses commits on a branch other than `issues-N` (detached HEAD during rebase is allowed); `ruff check` on staged `.py` files; `mypy` when a staged file is in a package from `pyproject.toml` `[tool.mypy] files`; warns when a staged `services/<name>.py` has no `tests/test_<name>.py`
 - `pre-push` → `linting/pre-push-check.sh`: `ruff check .` and the full `pytest` suite
 - `prepare-commit-msg` → `linting/prepare-commit-msg-check.sh`: generates a message with Claude Code only for a plain `git commit` without `-m`; prefixes the title with `issues-N|` from the branch; adds a `Files:` block before trailers such as `Co-Authored-By`. Merge, squash and amend messages are left as they are
 - Fail early if any error occurs; never bypass with `--no-verify`
