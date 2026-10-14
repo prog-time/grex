@@ -29,7 +29,7 @@ mypy==2.4.0
 mypy_extensions==1.1.0
 openpyxl==3.1.5
 packaging==26.3
-patchright==1.52.5
+patchright==1.63.0
 pathspec==1.1.1
 pluggy==1.6.0
 pycparser==3.11
