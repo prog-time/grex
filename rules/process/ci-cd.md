@@ -32,10 +32,12 @@ Configuration is in `data/settings.yml`. Proxy list is in `data/proxy.txt`. Thes
 ## 3. Pipeline stages (required when CI/CD is introduced)
 
 **3.1 Pre-commit / local checks**
-- Run `python -m py_compile` on all `.py` files
-- Run `flake8` or `ruff` for linting
-- Run `pytest` for unit tests
-- Fail early if any error occurs
+
+Git hooks live in `linting/hooks/` and are enabled with `make hooks` (`git config core.hooksPath linting/hooks`). Each hook calls a script in `linting/`:
+- `pre-commit` → `linting/pre-commit-check.sh`: refuses commits on a branch other than `issues-N` (detached HEAD during rebase is allowed); `ruff check` on staged `.py` files; `mypy` when a staged file is in a package from `pyproject.toml` `[tool.mypy] files`; warns when a staged `services/<name>.py` has no `tests/test_<name>.py`
+- `pre-push` → `linting/pre-push-check.sh`: `ruff check .` and the full `pytest` suite
+- `prepare-commit-msg` → `linting/prepare-commit-msg-check.sh`: generates a message with Claude Code only for a plain `git commit` without `-m`; prefixes the title with `issues-N|` from the branch; adds a `Files:` block before trailers such as `Co-Authored-By`. Merge, squash and amend messages are left as they are
+- Fail early if any error occurs; never bypass with `--no-verify`
 
 **3.2 Continuous Integration (CI)**
 
@@ -44,6 +46,7 @@ Triggered on every push or pull request. Must include:
 - Syntax checks: `python -m py_compile **/*.py`
 - Linting: `flake8 .` or `ruff check .`
 - Unit tests: `pytest tests/`
+- Type check: `mypy` on the packages listed in `pyproject.toml` `[tool.mypy] files`. A package is added to the list once its mypy errors are fixed; never remove one to make CI green
 - No secrets committed (scan `data/settings.yml` out of CI)
 
 No merge without CI passing.
@@ -117,6 +120,12 @@ jobs:
     steps:
       - run: python api.py &
 ```
+
+## 9. Releases
+
+- The app version lives only in the `VERSION` file in the repo root; `config.py` reads it into `settings["soft_version"]` (API version in `/openapi.json`, every log line)
+- Release order: a PR bumps `VERSION` to the new version, it is merged into `main`, then the tag `vX.Y.Z` and the GitHub Release are created from `main`
+- `tests/test_version.py` fails when `VERSION` is lower than the latest `v*` tag, so a release whose version was not bumped is caught by CI (the test job checks out tags for this)
 
 ## 10. Nightly live check
 

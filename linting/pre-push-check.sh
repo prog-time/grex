@@ -2,9 +2,10 @@
 
 set -e
 
-# -----------------------------
-# Run full test suite
-# -----------------------------
-#echo "Running all tests..."
-#bash linting/check_scripts/check_all_test.sh
-#echo "----------"
+echo "Lint (ruff)..."
+RUFF_BIN=.venv/bin/ruff; [ -x "$RUFF_BIN" ] || RUFF_BIN=.venv/Scripts/ruff; [ -x "$RUFF_BIN" ] || RUFF_BIN=ruff
+"$RUFF_BIN" check .
+echo "----------"
+
+bash linting/check_scripts/check_pytest.sh
+echo "----------"

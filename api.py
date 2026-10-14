@@ -138,7 +138,7 @@ async def lifespan(app: FastAPI):  # type: ignore[type-arg]
 app = FastAPI(
     title="Marketplace Parsing API",
     description="Universal API for parsing product cards from RU marketplaces",
-    version=settings.get("soft_version", "1.0.0"),
+    version=settings["soft_version"],
     docs_url="/docs" if settings.get("debug", {}).get("active", False) else None,
     redoc_url="/redoc" if settings.get("debug", {}).get("active", False) else None,
     lifespan=lifespan,

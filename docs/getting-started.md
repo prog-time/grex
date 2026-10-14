@@ -65,9 +65,6 @@ python3 --version
 Все настройки находятся в `data/settings.yml`.
 
 ```yaml
-# Версия приложения
-soft_version: "1.0.0"
-
 # Хост и порт API
 app:
   host: "localhost"
@@ -78,12 +75,15 @@ app:
 security:
   api_key: ""
 
-# Админка
+# Админка. При первом запуске start.sh сам записывает сюда случайные
+# secret_key и password и показывает пароль в терминале.
+# secret_key подписывает вход в панель и шифрует токен Telegram-бота:
+# если его сменить, токен придётся ввести заново.
 admin:
-  secret_key: "замените-на-случайную-строку"
+  secret_key: "случайная-строка"
   db_url: "sqlite:///data/admin.db"
   username: "admin"
-  password: "admin"
+  password: "пароль"
 
 # Redis (опционально — для статистики и кэша прокси)
 redis:
