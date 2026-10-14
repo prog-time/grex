@@ -1,0 +1,38 @@
+name: 🚀 Улучшение
+description: Улучшить существующую функциональность
+title: "[Enhancement]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Опишите, что уже работает и как это можно сделать лучше.
+  - type: textarea
+    id: current
+    attributes:
+      label: Что есть сейчас
+      description: Какая функциональность улучшается и как она ведёт себя сегодня?
+    validations:
+      required: true
+  - type: textarea
+    id: improvement
+    attributes:
+      label: Что улучшаем
+      description: Какое поведение должно стать лучше и в чём именно?
+    validations:
+      required: true
+  - type: textarea
+    id: value
+    attributes:
+      label: Польза
+      description: Что это даёт пользователям или команде?
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Дополнительный контекст
+      description: Любые детали, ссылки или примеры по теме.
+    validations:
+      required: false

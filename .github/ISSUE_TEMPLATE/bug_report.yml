@@ -1,0 +1,65 @@
+name: 🐛 Баг-репорт
+description: Сообщить о баге или некорректном поведении
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за репорт! Чем подробнее описание, тем быстрее
+        мы найдём и починим проблему.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: Что произошло?
+      description: Чёткое описание бага — что вы увидели?
+      placeholder: При нажатии на «Сохранить» приложение падает с ошибкой 500.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Что ожидалось?
+      description: Как система должна была себя повести?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения
+      description: Точные шаги, по которым баг повторяется.
+      placeholder: |
+        1. Перейти в раздел ...
+        2. Выполнить `...`
+        3. Увидеть ошибку
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Логи и вывод ошибки
+      description: Вставьте полный текст ошибки — он будет показан как блок кода.
+      render: shell
+    validations:
+      required: false
+  - type: textarea
+    id: environment
+    attributes:
+      label: Окружение
+      description: Заполните то, что применимо к вашей ситуации.
+      value: |
+        - ОС:
+        - Версия языка/рантайма:
+        - Версия проекта:
+        - База данных:
+        - Docker:
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Дополнительный контекст
+      description: Скриншоты, связанные задачи — всё, что поможет разобраться.
+    validations:
+      required: false
