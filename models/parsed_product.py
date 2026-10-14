@@ -54,13 +54,13 @@ class ParsedProduct(Base):
         images = []
         if self.images:
             try:
-                images = json.loads(self.images)
+                images = json.loads(str(self.images))
             except Exception:  # noqa: BLE001
                 pass
         chars = {}
         if self.characteristics:
             try:
-                chars = json.loads(self.characteristics)
+                chars = json.loads(str(self.characteristics))
             except Exception:  # noqa: BLE001
                 pass
         return {
