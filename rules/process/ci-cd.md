@@ -127,6 +127,13 @@ jobs:
 - Release order: a PR bumps `VERSION` to the new version, it is merged into `main`, then the tag `vX.Y.Z` and the GitHub Release are created from `main`
 - `tests/test_version.py` fails when `VERSION` is lower than the latest `v*` tag, so a release whose version was not bumped is caught by CI (the test job checks out tags for this)
 
+## 10. Nightly live check
+
+- `.github/workflows/live-check.yml` runs `scripts/live_check.py` every night at 03:00 UTC and on demand (Actions → Live check → Run workflow): one reference product per marketplace is parsed on the live site and must have a title and a price above zero
+- It never runs on PRs and never blocks a merge — it reports that a marketplace changed, not that a PR is wrong. On failure it opens (or comments on) the issue "Live check: crawlers failing"
+- Russian proxies come from the `GREX_PROXY` secret (one per line), the type from the `GREX_PROXY_TYPE` variable (`http` by default)
+- Reference products live in `PRODUCTS` in `scripts/live_check.py`; replace a product that went out of stock instead of disabling the check
+
 ## Checklist before merging
 
 - [ ] All `.py` files syntax-valid
