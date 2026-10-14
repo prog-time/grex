@@ -1,8 +1,8 @@
 # Data Model
 
-> Purpose: This file documents all data structures used by the application — Pydantic models, dataclasses, file-based state, and configuration schemas. There is no relational SQL database in this project; persistence is file-based (JSON cookies files, JSON upstreams cache, YAML configuration, text proxy list).
+> Purpose: This file documents all data structures used by the application — Pydantic models, dataclasses, file-based state, and configuration schemas. Persistent state lives in a SQLite database (tables and relations: `docs/architecture/erd.md`), in files under `data/` and in Redis.
 > Context: Read this file before modifying any model class, serialization logic, file-based state, or configuration structure.
-> Version: 1.0
+> Version: 1.1
 
 ## 1. Core principle
 
@@ -107,17 +107,55 @@ Response for `GET /health`.
 | `uptime` | `float` | Seconds since `ParsingService` was instantiated |
 | `supported_marketplaces` | `List[str]` | List of registered marketplace keys from `CrawlerFactory` |
 
-## 4. File-based state inventory
+## 4. Persistent state
 
-The application has no SQL database. Persistence is maintained through files in the `data/` directory.
+### 4.1 SQLite database
+
+`data/admin.db` (path from `admin.db_url`), SQLAlchemy models in `models/`, tables created on startup by `init_db()` in `models/job.py`. The ERD with all columns and relations is in `docs/architecture/erd.md` — it is the reference for the tables below.
+
+| Table | Model | Purpose | Written by |
+|---|---|---|---|
+| `parse_targets` | `ParseTarget` (`models/parse_target.py`) | Links to parse; monitoring schedule. `api_key_id` NULL = admin panel target, set = public API monitor | `admin/resources/targets.py`, `admin/resources/monitors.py`, `services/api_monitors.py`, `services/monitoring.py` |
+| `parsed_products` | `ParsedProduct` (`models/parsed_product.py`) | Latest product card per URL (upsert by `url`) for the «Товары» section | `admin/resources/targets.py` (`_upsert_parsed_product`), `services/monitoring.py` |
+| `parse_sessions` | `ParseSession` (`models/parsed_product.py`) | Progress of a bulk run from the admin panel | `admin/resources/targets.py` |
+| `price_snapshots` | `PriceSnapshot` (`models/price_snapshot.py`) | Price history of monitored targets | `services/monitoring.py` |
+| `price_alerts` | `PriceAlert` (`models/price_snapshot.py`) | Price changes beyond `monitoring.drop_percent` / `rise_percent` | `services/monitoring.py` |
+| `alert_sources` | `AlertSource` (`models/alert_source.py`) | Telegram recipients of alerts and reports | `admin/resources/alert_sources.py` |
+| `jobs` | `Job` (`models/job.py`) | Log of every parser call («История задач») | `ParsingService._save_job` (`services/parsing.py`) |
+| `api_keys` | `ApiKey` (`models/api_key.py`) | Public API keys, SHA-256 hash only | `services/api_keys.py`, `admin/resources/api_keys.py` |
+| `api_jobs` | `ApiJob` (`models/api_job.py`) | Background parse jobs of `/v1/jobs` | `services/api_jobs.py` |
+| `api_job_items` | `ApiJobItem` (`models/api_job.py`) | One finished URL of an API job | `services/api_jobs.py` |
+
+Rules:
+
+- Only one foreign key exists in the database: `api_job_items.job_id` → `api_jobs.id` (`ON DELETE CASCADE`). Every other relation is logical — code keeps it consistent and deletes dependent rows explicitly
+- Queries over targets, price snapshots or alerts in the admin panel and reports must use `admin_owned()` / `not_api_owned()` from `models/parse_target.py`, so API monitors never show up there
+- Timestamps are naive UTC (`datetime.utcnow()`)
+- There are no migrations. `create_all()` creates missing tables only; a column added to an existing table must also be listed in `_ADDED_COLUMNS` in `models/job.py`, which runs `ALTER TABLE … ADD COLUMN` on startup. Renaming, dropping or retyping a column needs an ADR and a manual data migration
+
+### 4.2 Files in `data/`
 
 | File | Owner | Format | Purpose |
 |---|---|---|---|
-| `data/settings.yml` | `config.py` | YAML | Application configuration loaded at startup |
+| `data/settings.yml` | `config.py` | YAML | Application configuration loaded at startup; created from `data/settings.yml.example` by `start.sh` |
 | `data/proxy.txt` | `ProxyManager` | Plain text | One proxy per line in `user:pass@host:port` format |
-| `data/ozon_cookies.json` | `OzonCrawler` | JSON dict | Session cookies for Ozon, obtained via Playwright browser |
-| `data/mega_market_cookies.json` | `MegaMarketCrawler` | JSON dict | Session cookies for MegaMarket, obtained via Playwright browser |
+| `data/proxies.json` | `admin/resources/proxies.py` | JSON list | Proxy pool edited in the admin panel (backup when Redis is down) |
+| `data/ozon_cookies.json`, `data/ozon_api_headers.json` | `OzonCrawler` | JSON | Session cookies and API headers for Ozon, obtained via the browser |
+| `data/mega_market_cookies.json` | `MegaMarketCrawler` | JSON dict | Session cookies for MegaMarket, obtained via the browser |
+| `data/ym_cookies.json`, `data/ym_browser_profile/` | `YandexMarketCrawler` | JSON / browser profile | Yandex Market session (captcha solved manually once) |
+| `data/citilink_cookies.json` | `CitilinkCrawler` | JSON dict | Session cookies for Citilink |
 | `data/wb_upstreams.json` | `WildberriesCrawler` | JSON | CDN upstream routing map fetched from `cdn.wbbasket.ru` |
+| `data/reports/` | `services/reporting.py` | XLSX | Monitoring reports |
+
+### 4.3 Redis
+
+| Key | Owner | Purpose |
+|---|---|---|
+| `proxy:pool` | `core/managers.py` | Cached proxy list (TTL 60 s) |
+| `grex:image_queue` | `services/image_queue.py` | Queue of product images to download |
+| `stats:*` | `services/stats.py` | Parsing counters |
+
+Redis is optional: without it the app runs, but product images are not downloaded.
 
 ## 5. Configuration schema (`data/settings.yml`)
 
@@ -138,7 +176,7 @@ The application has no SQL database. Persistence is maintained through files in 
 
 When modifying any model or file-based state:
 
-1. Update this document first
+1. Update this document first — and `docs/architecture/erd.md` for any table or column change
 2. Update the relevant model class
 3. Update any `to_dict()` or serialization methods
 4. Update API response documentation in `rules/api/endpoints.md`
@@ -168,6 +206,8 @@ A data model change is not complete until:
 
 - [ ] All Pydantic models documented
 - [ ] All dataclass fields documented
+- [ ] SQLite tables match `docs/architecture/erd.md` and section 4.1
+- [ ] New columns of existing tables are listed in `_ADDED_COLUMNS`
 - [ ] File-based state inventory complete
 - [ ] Configuration schema complete
 - [ ] `to_dict()` output fields listed
