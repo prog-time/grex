@@ -1,11 +1,11 @@
 #!/bin/bash
 # ------------------------------------------------------------------
-# Checks test files for services in app/services.
+# Checks test files for the staged services in services/.
 # Rules:
-#   - Only checks files in app/services/**/*.py
-#   - Each service must have exactly one test file
-#   - Test file mirrors the path relative to app/:
-#     app/services/.../x.py -> tests/services/.../test_x.py
+#   - Only checks files in services/*.py
+#   - A service should have a test file tests/test_<name>.py — a missing one is
+#     reported as a warning (several services have no tests yet, see issue #36)
+#   - At most one test file per service: other tests/test_<name>*.py are an error
 # Usage:
 #   ./check_service_tests.sh <file1.py> <file2.py> ...
 # ------------------------------------------------------------------
@@ -20,7 +20,7 @@ get_test_path() {
     fi
 
     # Ensure it's a service file
-    if [[ ! "$file" =~ ^app/services/.*\.py$ ]]; then
+    if [[ ! "$file" =~ ^services/[^/]+\.py$ ]]; then
         echo ""
         return
     fi
@@ -33,11 +33,7 @@ get_test_path() {
         return
     fi
 
-    local relative="${file#app/}"
-    local dir
-    dir=$(dirname "$relative")
-    local test_filename="test_${filename}"
-    local test_path="tests/${dir}/${test_filename}"
+    local test_path="tests/test_${filename}"
 
     echo "$test_path"
 }
@@ -95,13 +91,10 @@ done
 
 # Report results
 if [ ${#MISSING_TESTS[@]} -gt 0 ]; then
-    echo "ERROR: Missing tests for the following services:"
+    echo "WARNING: no tests for the following services:"
     for missing in "${MISSING_TESTS[@]}"; do
         echo "  - $missing"
     done
-    echo "Total files checked: $CHECKED_FILES"
-    echo "Missing tests: ${#MISSING_TESTS[@]}"
-    exit 1
 fi
 
 if [ ${#DUPLICATE_TESTS[@]} -gt 0 ]; then

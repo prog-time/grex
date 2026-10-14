@@ -1,59 +1,39 @@
 #!/bin/bash
+# Runs mypy when a staged Python file is in one of the packages CI type-checks
+# (pyproject.toml [tool.mypy] files). Same command as the CI job: plain `mypy`.
+# Usage: check_mypy.sh <file> ...
 
-# ------------------------------------------------------------
-# Runs mypy static analysis for changed Python files locally.
-# Accepts file paths as args and checks only app/*.py files.
-# ------------------------------------------------------------
-
-if [ $# -eq 0 ]; then
-    echo "No files to check"
+SCOPE=$(grep -E '^files = \[' pyproject.toml 2>/dev/null | grep -oE '"[^"]+"' | tr -d '"')
+if [ -z "$SCOPE" ]; then
+    echo "No [tool.mypy] files in pyproject.toml — skipping"
     exit 0
 fi
 
-PY_FILES=()
-
+IN_SCOPE=0
 for file in "$@"; do
-    # Skip non-Python files
-    if [[ ! "$file" =~ \.py$ ]]; then
-        continue
-    fi
-
-    # Only files inside app/
-    if [[ ! "$file" =~ ^app/ ]]; then
-        continue
-    fi
-
-    # Skip if file doesn't exist
-    if [ ! -f "$file" ]; then
-        continue
-    fi
-
-    PY_FILES+=("$file")
+    [[ "$file" =~ \.py$ ]] || continue
+    for pkg in $SCOPE; do
+        [[ "$file" == "$pkg"/* ]] && IN_SCOPE=1
+    done
 done
-
-if [ ${#PY_FILES[@]} -eq 0 ]; then
-    echo "No Python files to check"
+if [ $IN_SCOPE -eq 0 ]; then
+    echo "No staged files in type-checked packages ($(echo $SCOPE | tr '\n' ' '))"
     exit 0
 fi
 
-OUTPUT=$(mypy \
-    --pretty \
-    --show-error-codes \
-    --ignore-missing-imports \
-    --follow-imports=skip \
-    "${PY_FILES[@]}" 2>&1)
-
-EXIT_CODE=$?
-
-if [ $EXIT_CODE -ne 0 ]; then
-    echo "----------------------------------------"
-    echo "ERROR: Static analysis failed!"
-    echo "----------------------------------------"
-    echo "$OUTPUT"
-    echo "----------------------------------------"
-    echo "Total files checked: ${#PY_FILES[@]}"
+MYPY_BIN=""
+for candidate in .venv/bin/mypy .venv/Scripts/mypy "$(command -v mypy 2>/dev/null)"; do
+    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+        MYPY_BIN="$candidate"
+        break
+    fi
+done
+if [ -z "$MYPY_BIN" ]; then
+    echo "mypy not found — install dev dependencies: pip install -r requirements-dev.txt"
     exit 1
 fi
 
-echo "Static analysis passed! (${#PY_FILES[@]} files checked)"
-exit 0
+if ! "$MYPY_BIN"; then
+    echo "ERROR: mypy found type errors."
+    exit 1
+fi
