@@ -1,5 +1,5 @@
 loguru==0.7.3
-curl-cffi==0.13.0b1
+curl-cffi==0.16.4b1
 PyYAML==6.0.2
 patchright==1.63.0
 beautifulsoup4==4.13.4
