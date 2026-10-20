@@ -14,7 +14,7 @@ cryptography==50.0.2
 curl_cffi==0.13.0b1
 et_xmlfile==2.0.0
 fastapi==0.116.1
-greenlet==3.2.5
+greenlet==3.5.6
 h11==0.16.0
 httpcore==1.0.9
 httpx==0.28.1
