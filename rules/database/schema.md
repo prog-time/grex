@@ -168,7 +168,7 @@ Redis is optional: without it the app runs, but product images are not downloade
 | `proxy.active` | `bool` | `false` | Enables proxy rotation for crawlers that support it |
 | `proxy.type` | `str` | `"http"` | Proxy protocol: `"http"` or `"socks5"` |
 | `debug.active` | `bool` | `false` | Enables Swagger UI at `/docs`, `/redoc`; sets log level to DEBUG |
-| `debug.logging_in_file` | `bool` | `false` | Enables file-based log rotation in `logs/YYYY-MM-DD.log` |
+| `debug.logging_in_file` | `bool` | `false` | Enables log files in `logs/` (or `$GREX_LOG_DIR`): text `YYYY-MM-DD.log` (7 days) and JSON `app.jsonl` (14 days), ADR 0010 |
 | `soft_version` | `str` | contents of `VERSION` | Read from the `VERSION` file in the repo root by `config.py`; not in YAML |
 | `is_demo` | `bool` | — | Optional flag; replaces log context label with `"DEMO MODE"` |
 
