@@ -41,7 +41,7 @@ Git hooks live in `linting/hooks/` and are enabled with `make hooks` (`git confi
 
 **3.2 Continuous Integration (CI)**
 
-Triggered on every push or pull request. Must include:
+Triggered on every push to and pull request into `develop` or `main` (`.github/workflows/ci.yml`). Must include:
 - Dependency installation: `pip install -r requirements.txt`
 - Syntax checks: `python -m py_compile **/*.py`
 - Linting: `flake8 .` or `ruff check .`
@@ -124,7 +124,7 @@ jobs:
 ## 9. Releases
 
 - The app version lives only in the `VERSION` file in the repo root; `config.py` reads it into `settings["soft_version"]` (API version in `/openapi.json`, every log line)
-- Release order: a PR bumps `VERSION` to the new version, it is merged into `main`, then the tag `vX.Y.Z` and the GitHub Release are created from `main`
+- Release order: a PR into `develop` bumps `VERSION` to the new version, a PR from `develop` is merged into `main`, then the tag `vX.Y.Z` and the GitHub Release are created from `main`
 - `tests/test_version.py` fails when `VERSION` is lower than the latest `v*` tag, so a release whose version was not bumped is caught by CI (the test job checks out tags for this)
 
 ## 10. Nightly live check
