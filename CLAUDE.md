@@ -22,9 +22,9 @@ Grex Parser: парсер карточек товаров с 9 российск�
 
 ## Процесс
 
-Задача на GitHub → ветка `issues-N` от `main` → коммиты с префиксом `issues-N|` → PR с `Closes #N`. Подробно в [`CONTRIBUTING.md`](CONTRIBUTING.md). Для этого есть команды `/task_create`, `/task_branch`, `/task_complete`, `/task_submit`.
+Задача на GitHub → ветка `issues-N` от `develop` → коммиты с префиксом `issues-N|` → PR в `develop` с `Closes #N`. В `main` изменения попадают PR из `develop`, его открывает человек. Подробно в [`CONTRIBUTING.md`](CONTRIBUTING.md). Для этого есть команды `/task_create`, `/task_branch`, `/task_complete`, `/task_submit`.
 
-Не коммитьте в `main` и ветки без номера задачи. Не обходите хуки (`--no-verify`).
+Не коммитьте в `main`, `develop` и ветки без номера задачи. Не открывайте PR в `main`. Не обходите хуки (`--no-verify`).
 
 ## Стек
 
