@@ -24,6 +24,8 @@ All public endpoints are defined in `api.py` on two routers:
 
 Authentication via `X-API-Key` header is required for `parse`, `parse/batch`, `jobs`, `monitors` and `alerts`. All other public endpoints are unauthenticated; `/admin/*` endpoints require an admin session.
 
+Every response carries an `X-Request-ID` header. A client may send its own `X-Request-ID` (1–64 characters from `A-Za-z0-9._-`); it is echoed back, otherwise the server generates one. The same id is the `request_id` field of every server log line for that request.
+
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `GET` | `/` | No | Root info, returns service name and key endpoint links (unversioned) |

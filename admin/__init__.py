@@ -37,9 +37,16 @@ class SettingsAuthProvider(AuthProvider):
         expected_user = admin_cfg.get("username", "admin")
         expected_pass = admin_cfg.get("password", "admin")
 
+        from utils.logger import audit  # noqa: PLC0415
+
         if username == expected_user and password == expected_pass:
             request.session.update({"username": username})
+            audit("admin.login", f"Admin login: {username}", actor=f"admin:{username}")
             return response
+        audit(
+            "admin.login_failed", f"Admin login failed for username {username[:64]!r}",
+            level="WARNING", client_ip=request.client.host if request.client else None,
+        )
         raise FormValidationError({"password": "Invalid credentials"})
 
     async def is_authenticated(self, request: Request) -> bool:
@@ -49,6 +56,10 @@ class SettingsAuthProvider(AuthProvider):
         return AdminUser(username=request.session.get("username", ""))
 
     async def logout(self, request: Request, response: Response) -> Response:
+        from utils.logger import audit  # noqa: PLC0415
+
+        username = request.session.get("username", "")
+        audit("admin.logout", f"Admin logout: {username}", actor=f"admin:{username}")
         request.session.clear()
         return response
 

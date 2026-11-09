@@ -298,7 +298,8 @@ async def _refetch_background(items: list[dict]) -> None:
     ok = 0
     for it in items:
         try:
-            product = await svc.parse_product(it["url"])
+            with logger.contextualize(target_id=it.get("target_id")):
+                product = await svc.parse_product(it["url"])
             await _upsert_parsed_product(
                 session_id=None, target_id=it.get("target_id"), url=it["url"],
                 marketplace=it.get("marketplace") or "", data=product.to_dict(), json_module=_json,

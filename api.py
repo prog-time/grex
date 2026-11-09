@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-import traceback
+import re
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Dict, List
 
 import uvicorn
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.staticfiles import StaticFiles
@@ -193,7 +194,7 @@ async def health_check() -> HealthResponse:
     )
 
 
-async def verify_api_key(api_key: str = Depends(X_API_KEY)) -> str:
+async def verify_api_key(request: Request, api_key: str = Depends(X_API_KEY)) -> str:
     if not api_key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -215,6 +216,11 @@ async def verify_api_key(api_key: str = Depends(X_API_KEY)) -> str:
             detail="Invalid API key",
         )
 
+    from utils.logger import set_actor  # noqa: PLC0415
+
+    actor = f"api_key_id:{api_key_id}"
+    request.state.actor = actor
+    set_actor(actor)
     return api_key_id
 
 
@@ -231,8 +237,6 @@ async def parse_product(request: ParseRequest) -> ParseResponse:
 
         processing_time = (datetime.now() - start_time).total_seconds()
 
-        logger.success(f"Successfully parsed {request.url} in {processing_time:.2f}s")
-
         return ParseResponse(
             success=True,
             data=product_card.to_dict(),
@@ -246,8 +250,7 @@ async def parse_product(request: ParseRequest) -> ParseResponse:
     except Exception as e:
         processing_time = (datetime.now() - start_time).total_seconds()
 
-        logger.error(f"Unexpected error parsing {request.url}: {e}")
-        traceback.print_exc()
+        logger.exception(f"Unexpected error parsing {request.url}: {e}")
 
         return ParseResponse(
             success=False,
@@ -446,26 +449,72 @@ app.include_router(api_router, tags=["deprecated"], deprecated=True)
 # Middleware & error handlers
 # ---------------------------------------------------------------------------
 
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+_READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+_QUIET_PATHS = ("/static/", "/admin/statics/", "/favicon.ico", "/v1/health", "/health", "/admin/logs/stream")
+
+
+def _request_actor(request) -> str:  # type: ignore[no-untyped-def]
+    """Who made the request: set by the auth dependencies, else the admin session."""
+    actor = getattr(request.state, "actor", None)
+    if actor:
+        return str(actor)
+    # SessionMiddleware sits inside this middleware; after call_next it has put
+    # the decoded session into the shared scope.
+    username = (request.scope.get("session") or {}).get("username")
+    return f"admin:{username}" if username else "anonymous"
+
+
+def _request_log_level(method: str, path: str, status_code: int) -> str:
+    """Every change (non-read method) and every public API call is an action: INFO.
+
+    Page views, polling and static files stay at DEBUG so INFO is not flooded.
+    """
+    if status_code >= 500:
+        return "ERROR"
+    if path.startswith(_QUIET_PATHS):
+        return "DEBUG"
+    if method not in _READ_METHODS or path.startswith("/v1/"):
+        return "WARNING" if status_code in (401, 403) else "INFO"
+    return "DEBUG"
+
+
 @app.middleware("http")
 async def log_requests(request, call_next):  # type: ignore[no-untyped-def]
-    start_time = datetime.now()
+    # One id per HTTP request: every log line written while serving it carries
+    # request_id (ADR 0010). A sane client-supplied X-Request-ID is reused so a
+    # caller can correlate its own logs; anything else is replaced.
+    incoming = request.headers.get("x-request-id", "")
+    request_id = incoming if _REQUEST_ID_RE.match(incoming) else uuid.uuid4().hex
+    request.state.request_id = request_id
+    method, path = request.method, request.url.path
 
-    logger.debug(f"Incoming request: {request.method} {request.url}")
+    with logger.contextualize(request_id=request_id):
+        start_time = datetime.now()
 
-    response = await call_next(request)
+        logger.debug(f"Incoming request: {method} {request.url}")
 
-    process_time = (datetime.now() - start_time).total_seconds()
-    logger.debug(
-        f"Request completed: {request.method} {request.url} "
-        f"- {response.status_code} - {process_time:.3f}s"
-    )
+        response = await call_next(request)
 
+        duration_ms = round((datetime.now() - start_time).total_seconds() * 1000, 1)
+        actor = _request_actor(request)
+        logger.bind(
+            event="http.request", actor=actor, http_method=method, path=path,
+            status=response.status_code, duration_ms=duration_ms,
+            client_ip=request.client.host if request.client else None,
+        ).log(
+            _request_log_level(method, path, response.status_code),
+            f"{method} {path} -> {response.status_code} ({duration_ms} ms) by {actor}",
+        )
+
+    response.headers["X-Request-ID"] = request_id
     return response
 
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request, exc):  # type: ignore[no-untyped-def]
-    logger.error(f"Unhandled exception for {request.url}: {exc}")
+    request_id = getattr(request.state, "request_id", None)
+    logger.bind(request_id=request_id).opt(exception=exc).error(f"Unhandled exception for {request.url}: {exc}")
 
     return JSONResponse(
         status_code=500,
@@ -489,6 +538,12 @@ if __name__ == "__main__":
         "reload": False,
         "log_level": "debug" if settings.get("debug", {}).get("active", False) else "info",
         "loop": "asyncio",
+        # Keep uvicorn from installing its own handlers: its records go through
+        # the stdlib -> Loguru interception set up in setup_logger().
+        "log_config": None,
+        # The request middleware logs every request with actor and request_id;
+        # uvicorn's access line would only duplicate it.
+        "access_log": False,
     }
 
     logger.info("Starting Marketplace Parsing API")

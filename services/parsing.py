@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-import traceback
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
@@ -35,6 +34,17 @@ class ParsingService:
         }
 
     async def parse_product(self, url: str) -> ProductCard:
+        # Every log line of this parse, crawler lines included, carries the URL
+        # and the marketplace (ADR 0010).
+        context: dict[str, str] = {"url": url}
+        try:
+            context["marketplace"] = CrawlerRegistry.detect_marketplace(url)
+        except (UnsupportedMarketplaceError, CrawlerNotFoundError):
+            pass  # _parse_product reports it as a 400.
+        with logger.contextualize(**context):
+            return await self._parse_product(url)
+
+    async def _parse_product(self, url: str) -> ProductCard:
         t_start = time.monotonic()
         started_at = datetime.now(timezone.utc)
         marketplace: str | None = None
@@ -61,6 +71,9 @@ class ParsingService:
                 from services.image_queue import enqueue_image_task  # noqa: PLC0415
                 await enqueue_image_task(marketplace, product_card.sku, product_card.images)
 
+            logger.bind(event="parse.finished", outcome="ok", duration_ms=round(elapsed * 1000)).success(
+                f"Parsed {url} in {elapsed:.2f}s"
+            )
             return product_card
 
         except (UnsupportedMarketplaceError, CrawlerNotFoundError) as e:
@@ -90,7 +103,9 @@ class ParsingService:
                     url, marketplace, started_at, finished_at,
                     success=False, error=str(e),
                 )
-            logger.warning(f"Parsing failed for {url}: {e}")
+            logger.bind(event="parse.finished", outcome="failed", duration_ms=round(elapsed * 1000)).warning(
+                f"Parsing failed for {url}: {e}"
+            )
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=str(e),
@@ -105,8 +120,9 @@ class ParsingService:
                     url, marketplace, started_at, finished_at,
                     success=False, error=str(e),
                 )
-            logger.error(f"Parsing error for {url}: {e}")
-            traceback.print_exc()
+            logger.bind(event="parse.finished", outcome="error", duration_ms=round(elapsed * 1000)).exception(
+                f"Parsing error for {url}: {e}"
+            )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to parse product: {str(e)}",

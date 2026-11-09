@@ -80,6 +80,11 @@ async def create_job(api_key_id: str, urls: list[str], concurrency: int | None, 
 
 
 async def _run_job(job_id: str, urls: list[str], concurrency: int | None, parsing_service) -> None:  # type: ignore[no-untyped-def]
+    with logger.contextualize(job_id=job_id):
+        await _run_job_inner(job_id, urls, concurrency, parsing_service)
+
+
+async def _run_job_inner(job_id: str, urls: list[str], concurrency: int | None, parsing_service) -> None:  # type: ignore[no-untyped-def]
     from sqlalchemy import update  # noqa: PLC0415
 
     from models.api_job import ApiJob, ApiJobItem  # noqa: PLC0415
