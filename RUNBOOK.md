@@ -15,9 +15,47 @@
 
 ## Логи
 
-- Всегда пишутся в терминал, где запущен сервис.
-- Если в `data/settings.yml` стоит `debug.logging_in_file: true` (так в примере настроек), ещё и в `logs/ГГГГ-ММ-ДД.log`. Новый файл каждый день, хранятся 7 дней.
+- Всегда пишутся в терминал, где запущен сервис, и на страницу логов в админке.
+- Если в `data/settings.yml` стоит `debug.logging_in_file: true` (так в примере настроек), ещё и в два файла в `logs/`:
+  - `ГГГГ-ММ-ДД.log`: тот же текст, что в терминале. Новый файл каждый день, хранятся 7 дней.
+  - `app.jsonl`: одна строка JSON на запись, для поиска и для Claude. Ротация в полночь, хранятся 14 дней. Поля описаны в `rules/process/observability.md`, раздел 6.
 - Подробные логи: `debug.active: true` (заодно включает Swagger на `/docs`).
+- Пароли, логины прокси, токены и куки в логах заменяются на `***`.
+- Каждый HTTP-ответ содержит заголовок `X-Request-ID`. По нему находятся все строки этого запроса.
+
+Как искать в `app.jsonl` (нужен `jq`):
+
+```bash
+# ошибки и предупреждения
+jq -c 'select(.level == "error" or .level == "warning") | {ts, logger, msg}' logs/app.jsonl
+
+# ошибки, сгруппированные по типу и месту
+jq -r 'select(.error) | "\(.error.type) \(.logger):\(.line)"' logs/app.jsonl | sort | uniq -c | sort -rn
+
+# кто что сделал: все действия (изменения в админке и вызовы API)
+jq -c 'select(.event == "http.request" and .level != "debug") | {ts, actor, http_method, path, status}' logs/app.jsonl
+
+# действия одного администратора или одного API-ключа
+jq -c 'select(.actor == "admin:admin") | {ts, msg}' logs/app.jsonl
+jq -c 'select(.actor == "api_key_id:ID") | {ts, msg}' logs/app.jsonl
+
+# входы в админку и неудачные попытки
+jq -c 'select(.event | tostring | startswith("admin.")) | {ts, event, actor, client_ip}' logs/app.jsonl
+
+# итоги парсинга по площадкам
+jq -r 'select(.event == "parse.finished") | "\(.marketplace) \(.outcome)"' logs/app.jsonl | sort | uniq -c
+
+# всё по одному HTTP-запросу (id из заголовка X-Request-ID)
+jq -c 'select(.request_id == "ID")' logs/app.jsonl
+
+# всё по одной ссылке, площадке, задаче API или монитору
+jq -c 'select(.url == "https://...")' logs/app.jsonl
+jq -c 'select(.marketplace == "ozon" and .level == "error")' logs/app.jsonl
+jq -c 'select(.job_id == "ID")' logs/app.jsonl
+jq -c 'select(.target_id == 42)' logs/app.jsonl
+```
+
+Поле `env` берётся из переменной окружения `GREX_ENV` (по умолчанию `production`).
 
 ## Бэкап и перенос
 

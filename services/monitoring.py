@@ -194,6 +194,11 @@ async def _reschedule(target_id: str, *, status: str) -> None:
 
 async def _check_one(target: dict) -> str:
     """Parse one target, snapshot it, detect a change. Returns the status."""
+    with logger.contextualize(target_id=target["id"]):
+        return await _check_one_inner(target)
+
+
+async def _check_one_inner(target: dict) -> str:
     from models.job import async_session  # noqa: PLC0415
     from services.parsing import ParsingService  # noqa: PLC0415
 

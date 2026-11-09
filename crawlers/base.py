@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import multiprocessing
 import os
 from abc import ABC, abstractmethod
 from multiprocessing import Process, Queue
@@ -43,6 +44,40 @@ if TYPE_CHECKING:
 # Global cap on concurrent browser subprocesses, keyed by event loop so a
 # single process shares one semaphore across every crawler and request.
 _BROWSER_SEMAPHORES: "dict[Any, asyncio.Semaphore]" = {}
+
+
+def _current_log_context() -> dict[str, Any]:
+    """Loguru ``contextualize`` values of the caller (request_id, url, marketplace…).
+
+    Context variables do not cross a process boundary, so they are handed to
+    the browser subprocess explicitly. Loguru keeps them in a private context
+    variable; if its layout ever changes the child just logs without context.
+    """
+    try:
+        from loguru._logger import context  # noqa: PLC0415
+
+        return {k: v for k, v in context.get().items() if isinstance(v, (str, int, float, bool))}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _child_main(
+    target: Callable[..., None], configure_logger: bool, log_context: dict[str, Any], *args: Any
+) -> None:
+    """Entry point of a browser subprocess (ADR 0009).
+
+    With ``spawn`` (macOS, Windows) the child starts with a fresh Loguru that
+    only has its default stderr handler, so it is configured here: same
+    formats, same secret redaction, same files as the parent. With ``fork``
+    (Linux) the child inherits the parent's handlers, whose ``enqueue`` queue
+    hands lines to the parent's writer thread, so nothing is reconfigured.
+    """
+    if configure_logger:
+        from utils.logger import setup_logger  # noqa: PLC0415
+
+        setup_logger(child=True)
+    with logger.contextualize(**log_context):
+        target(*args)
 
 
 class BaseCrawler(ABC):
@@ -141,7 +176,8 @@ class BaseCrawler(ABC):
             if proxy.startswith("socks5://"):
                 proxy = "socks5h://" + proxy[len("socks5://"):]
 
-            masked = re.sub(r"(://[^:]+):([^@]+)@", r"\1:***@", proxy)
+            # Hide both login and password: some providers put the account id in the login.
+            masked = re.sub(r"(://)[^@/]+@", r"\1***:***@", proxy)
             logger.info(f"Using proxy: {masked}" + (f" [{marketplace}]" if marketplace else ""))
             return proxy
         except Exception as exc:
@@ -300,7 +336,11 @@ class BaseCrawler(ABC):
 
         async with BaseCrawler._browser_semaphore():
             result_queue: Queue[dict] = Queue()
-            process = Process(target=target, args=(*args, result_queue))
+            configure_logger = multiprocessing.get_start_method() != "fork"
+            process = Process(
+                target=_child_main,
+                args=(target, configure_logger, _current_log_context(), *args, result_queue),
+            )
             process.start()
             deadline = asyncio.get_event_loop().time() + timeout
 
