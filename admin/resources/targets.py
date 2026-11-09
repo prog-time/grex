@@ -75,6 +75,11 @@ async def _upsert_parsed_product(
 
 async def _run_all_background(session_id: str, targets: list[dict]) -> None:
     """Background task: parse all targets, save ParsedProduct rows, update ParseSession."""
+    with logger.contextualize(session_id=session_id):
+        await _run_all_background_inner(session_id, targets)
+
+
+async def _run_all_background_inner(session_id: str, targets: list[dict]) -> None:
     import json as _json  # noqa: PLC0415
     from datetime import datetime  # noqa: PLC0415
 
@@ -100,7 +105,8 @@ async def _run_all_background(session_id: str, targets: list[dict]) -> None:
 
         for tgt in targets:
             try:
-                product = await svc.parse_product(tgt["url"])
+                with logger.contextualize(target_id=tgt["id"]):
+                    product = await svc.parse_product(tgt["url"])
                 data = product.to_dict()
 
                 await _upsert_parsed_product(
